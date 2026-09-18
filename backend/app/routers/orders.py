@@ -22,12 +22,10 @@ def get_order(order_id: str, db: Session = Depends(get_db), user: User = Depends
         raise HTTPException(status_code=404, detail="Order not found")
     return order
 
-@router.post("", response_model=OrderOut)
-def create_order(payload: OrderCreate, db: Session = Depends(get_db), user: User = Depends(require_roles(Role.CMO_MANAGER, Role.CMO_SUPPORT))):
+def create_order_record(payload: OrderCreate, db: Session, user: User) -> Order:
+    """Create an Order inside the accepting PO transaction; caller commits."""
     from uuid import uuid4
     from ..models import Customer
-    from ..audit import log_audit
-    from sqlalchemy.exc import IntegrityError
     # UUID-backed identifiers do not race or rely on lexical max ordering.
     customer = db.get(Customer, payload.customer_id) if payload.customer_id else db.query(Customer).filter_by(name=payload.buyer).first()
     if payload.customer_id and not customer:
@@ -35,19 +33,17 @@ def create_order(payload: OrderCreate, db: Session = Depends(get_db), user: User
     if not customer:
         customer = Customer(name=payload.buyer)
         db.add(customer)
-    try:
-        db.flush()
-        order = Order(order_id=f"SO-{uuid4().hex[:16].upper()}", buyer=customer.name,
-            customer_id=customer.id, order_type=payload.order_type,
-            buyer_deadline=payload.buyer_deadline, notes=payload.notes, created_by_id=user.id)
-        for article in payload.articles:
-            order.articles.append(Article(**article.model_dump(), sample_status="PROCESS" if article.sample_required else "NOT_REQUIRED"))
-        db.add(order)
-        db.flush()
-        log_audit(db, user, "CREATE", "Order", order.id, order.order_id)
-        db.commit()
-        db.refresh(order)
-        return order
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(409, "Order identifier or customer conflicts with another request; retry") from exc
+    db.flush()
+    order = Order(order_id=f"SO-{uuid4().hex[:16].upper()}", buyer=customer.name,
+        customer_id=customer.id, order_type=payload.order_type,
+        buyer_deadline=payload.buyer_deadline, notes=payload.notes, created_by_id=user.id)
+    for article in payload.articles:
+        order.articles.append(Article(**article.model_dump(), sample_status="PROCESS" if article.sample_required else "NOT_REQUIRED"))
+    db.add(order)
+    db.flush()
+    return order
+
+
+@router.post("")
+def create_order_directly(user: User = Depends(get_current_user)):
+    raise HTTPException(403, "Create a PO intake draft and obtain CMO Manager acceptance to activate an Order")

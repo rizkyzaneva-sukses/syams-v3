@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+import json
 import pytest
 from app import models as m
 from app.flow_engine import FlowEngine
@@ -11,13 +12,30 @@ def call(client, headers, method, path, role, body=None, expected=200):
     return response.json()
 
 
+def accepted_order(client, headers, payload, po_number):
+    """Create test data through the same Deby → Cecep handoff as production."""
+    po = call(client, headers, "POST", "/cmo/po-intake", "CMO_SUPPORT", {
+        **payload, "po_number": po_number,
+        "buyer_deadline": payload.get("buyer_deadline") or str(date.today() + timedelta(days=30)),
+    }, expected=201)
+    upload = client.post(f"/api/cmo/po-intake/{po['id']}/document",
+                         headers=headers("CMO_SUPPORT"),
+                         files={"document": ("po.pdf", b"%PDF-1.4\ntest", "application/pdf")})
+    assert upload.status_code == 200, upload.text
+    call(client, headers, "POST", f"/cmo/po-intake/{po['id']}/check", "CMO_SUPPORT")
+    call(client, headers, "POST", f"/cmo/po-intake/{po['id']}/submit", "CMO_SUPPORT")
+    accepted = call(client, headers, "POST", f"/cmo/po-intake/{po['id']}/review",
+                    "CMO_MANAGER", {"action": "ACCEPT", "note": "Test PO reviewed"})
+    return call(client, headers, "GET", "/orders/" + accepted["order_id"], "CMO_MANAGER")
+
+
 @pytest.fixture
 def order(client, headers):
-    return call(client, headers, "POST", "/orders", "CMO_MANAGER", {
+    return accepted_order(client, headers, {
         "buyer": "Buyer", "order_type": "SAMPLE_PRODUCTION", "articles": [
             {"article_code": "A", "qty": 10, "sample_required": True, "production_route": "Cutting>QC>Packing"},
             {"article_code": "B", "qty": 5, "sample_required": True, "production_route": "Cutting>QC>Packing"},
-        ]})
+        ]}, "PO-WORKFLOW-001")
 
 
 def ready_order(client, headers, order, paid=0):
@@ -38,7 +56,8 @@ def ready_order(client, headers, order, paid=0):
     call(client, headers, "POST", f"/cmo/spk/{spk['id']}/generate", "CMO_MANAGER")
     printed = client.post(f"/api/cmo/spk/{spk['id']}/print", headers=headers("CMO_MANAGER"))
     assert printed.status_code == 200 and printed.content.startswith(b"%PDF"), printed.text
-    call(client, headers, "POST", f"/cmo/spk/{spk['id']}/release", "CMO_MANAGER")
+    call(client, headers, "POST", f"/cmo/spk/{spk['id']}/release", "CMO_MANAGER",
+         {"version_id": spk["id"], "reason": "Commercial and customer approvals checked"})
     call(client, headers, "POST", "/coo/production-plans", "COO_MANAGER", {"order_fk": oid, "status": "APPROVED", "plan_date": str(date.today())})
     call(client, headers, "POST", "/coo/material-requests", "COO_MANAGER", {"order_fk": oid, "item_name": "Fabric", "qty": 15, "unit": "m"})
     call(client, headers, "POST", "/cfo/purchase-orders", "CFO_MANAGER", {"order_fk": oid, "po_no": "PO1", "item": "Fabric", "qty": 15, "unit": "m", "status": "RECEIVED", "material_status": "READY", "arrival_date": str(date.today())})
@@ -53,6 +72,14 @@ def ready_order(client, headers, order, paid=0):
 def test_complete_workflow_separates_finance_ceo_delivery_and_closing(client, headers, order, db):
     ready_order(client, headers, order, paid=25)
     oid = order["id"]
+    spk = db.query(m.SPK).filter_by(order_fk=oid).one()
+    manager = db.query(m.User).filter_by(role=m.Role.CMO_MANAGER).one()
+    assert spk.status == "RELEASED" and spk.released_by == manager.id
+    assert spk.released_at is not None and spk.released_version == spk.version
+    assert spk.release_reason == "Commercial and customer approvals checked"
+    assert spk.correction_reason is None
+    assert json.loads(spk.release_prerequisites)["evidence"]["spk_version_id"] == spk.id
+    assert db.query(m.AuditLog).filter_by(entity="SPK", entity_id=spk.id, action="SPK_RELEASE").count() == 1
     shipment = call(client, headers, "POST", "/coo/shipments", "SHIPMENT_ADMIN", {"order_fk": oid, "shipment_no": "S1", "packing_status": "PACKED"})
     sid = shipment["id"]
     call(client, headers, "POST", f"/coo/order-closing/{oid}", "COO_MANAGER", {"order_fk": oid, "operational_close_status": "CLOSED"}, expected=400)
@@ -178,10 +205,12 @@ def test_legacy_customer_confirmation_without_handover_date_stays_open(order, db
 
 
 def test_sample_only_blocks_spk_and_bad_order_articles(client, headers):
-    sample = call(client, headers, "POST", "/orders", "CMO_MANAGER", {"buyer": "Sample buyer", "order_type": "SAMPLE_ONLY", "articles": [{"article_code": "S", "qty": 1}]})
+    sample = accepted_order(client, headers, {"buyer": "Sample buyer", "order_type": "SAMPLE_ONLY", "articles": [{"article_code": "S", "qty": 1}]}, "PO-SAMPLE-001")
     assert sample["articles"][0]["sample_required"]
     call(client, headers, "POST", "/cmo/spk", "CMO_MANAGER", {"order_fk": sample["id"], "spk_no": "SPK-S"}, expected=400)
-    call(client, headers, "POST", "/orders", "CMO_MANAGER", {"buyer": "Bad", "order_type": "REPEAT_PRODUCTION", "articles": [{"article_code": "X", "qty": 1}, {"article_code": "X", "qty": 2}]}, expected=422)
+    invalid = call(client, headers, "POST", "/cmo/po-intake", "CMO_SUPPORT", {"buyer": "Bad", "order_type": "REPEAT_PRODUCTION", "articles": [{"article_code": "X", "qty": 1}, {"article_code": "X", "qty": 2}]}, expected=201)
+    checked = call(client, headers, "POST", f"/cmo/po-intake/{invalid['id']}/check", "CMO_SUPPORT")
+    assert "Kode article unik dan tidak kosong" in checked["missing_items"]
 
 
 def test_pricing_limit_and_dp_policy_require_real_evidence(client, headers, order):
@@ -319,9 +348,9 @@ def test_dashboard_kpis_have_traceable_denominators_and_lists_paginate(client, h
     assert coo["kpis"]["qc_inspection_pass"]["numerator"] == 15
     assert coo["kpis"]["qc_inspection_pass"]["denominator"] == 15
     assert "approved_quote_margin" not in coo["kpis"]
-    second = call(client, headers, "POST", "/orders", "CMO_MANAGER", {
+    second = accepted_order(client, headers, {
         "buyer": "Second", "order_type": "SAMPLE_ONLY", "articles": [{"article_code": "C", "qty": 1}],
-    })
+    }, "PO-WORKFLOW-SECOND")
     page = call(client, headers, "GET", "/orders?limit=1&offset=1", "COO_MANAGER")
     assert len(page) == 1 and page[0]["id"] == second["id"]
     call(client, headers, "GET", "/orders?limit=501", "COO_MANAGER", expected=422)

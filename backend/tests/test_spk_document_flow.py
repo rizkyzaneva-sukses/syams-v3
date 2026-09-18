@@ -1,5 +1,6 @@
 """SPK preparation stays separate from manager release."""
 import json
+from datetime import date, timedelta
 
 from app import models as m
 
@@ -11,10 +12,19 @@ def request(client, headers, role, method, path, payload=None, expected=200):
 
 
 def test_support_generates_previews_and_prints_one_locked_version(client, headers, db):
-    order = request(client, headers, "CMO_MANAGER", "POST", "/orders", {
-        "buyer": "Buyer from order", "order_type": "REPEAT_PRODUCTION",
+    po = request(client, headers, "CMO_SUPPORT", "POST", "/cmo/po-intake", {
+        "po_number": "PO-SPK-01", "buyer": "Buyer from order", "order_type": "REPEAT_PRODUCTION",
+        "buyer_deadline": str(date.today()+timedelta(days=30)),
         "articles": [{"article_code": "JKT-01", "garment_type": "Jacket", "qty": 17,
-                      "size_breakdown": "M:7,L:10", "production_route": "Cutting>Sewing>QC"}]}) .json()
+                      "size_breakdown": "M:7,L:10", "production_route": "Cutting>Sewing>QC"}]}, expected=201).json()
+    upload = client.post(f"/api/cmo/po-intake/{po['id']}/document", headers=headers("CMO_SUPPORT"),
+                         files={"document": ("customer-po.pdf", b"%PDF-1.4\nPO evidence", "application/pdf")})
+    assert upload.status_code == 200, upload.text
+    request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/po-intake/{po['id']}/check")
+    request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/po-intake/{po['id']}/submit")
+    accepted = request(client, headers, "CMO_MANAGER", "POST", f"/cmo/po-intake/{po['id']}/review",
+                       {"action": "ACCEPT", "note": "Checked customer PO"}).json()
+    order = {"id": accepted["order_fk"], "order_id": accepted["order_id"]}
     spk = request(client, headers, "CMO_SUPPORT", "POST", "/cmo/spk", {
         "order_fk": order["id"], "spk_no": "SPK-REAL-01", "notes": "Use approved fabric"}).json()
     request(client, headers, "CMO_SUPPORT", "POST", "/cmo/spk", {
@@ -38,18 +48,27 @@ def test_support_generates_previews_and_prints_one_locked_version(client, header
     assert preview.content.startswith(b"%PDF") and preview.content == printed.content
     latest = request(client, headers, "CMO_SUPPORT", "GET", "/cmo/spk").json()[0]
     assert latest["status"] == "PRINTED" and latest["snapshot"] == generated["snapshot"]
+    assert latest["released_by"] is None and latest["released_at"] is None
     assert request(client, headers, "CMO_SUPPORT", "GET", f"/cmo/spk/{sid}/pdf").content == preview.content
     assert request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/spk/{sid}/print").content == preview.content
     request(client, headers, "CMO_SUPPORT", "PATCH", f"/cmo/spk/{sid}", {"notes": "Changed"}, expected=409)
     request(client, headers, "CMO_SUPPORT", "PATCH", f"/cmo/spk/{sid}", {"status": "RELEASED"}, expected=403)
 
-    request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/spk/{sid}/release", expected=403)
+    release_body={"version_id":sid,"reason":"Commercial gates reviewed"}
+    request(client, headers, "CMO_SUPPORT", "GET", f"/cmo/spk/{sid}/release-readiness", expected=403)
+    request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/spk/{sid}/release", release_body, expected=403)
+    request(client, headers, "COO_MANAGER", "POST", f"/cmo/spk/{sid}/release", release_body, expected=403)
     request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/spk/{sid}/void", expected=403)
     request(client, headers, "CMO_SUPPORT", "DELETE", f"/cmo/spk/{sid}", expected=403)
-    request(client, headers, "CMO_MANAGER", "POST", f"/cmo/spk/{sid}/release", expected=400)
+    readiness=request(client, headers, "CMO_MANAGER", "GET", f"/cmo/spk/{sid}/release-readiness").json()
+    assert not readiness["ready"] and readiness["checks"]["printed_version"]["ok"]
+    assert not readiness["checks"]["quotation_approved"]["ok"]
+    request(client, headers, "CMO_MANAGER", "POST", f"/cmo/spk/{sid}/release",
+            {"version_id":sid+1,"reason":"Wrong version"}, expected=409)
+    request(client, headers, "CMO_MANAGER", "POST", f"/cmo/spk/{sid}/release", release_body, expected=400)
     assert db.get(m.SPK, sid).status == "PRINTED"
     denied = db.query(m.AuditLog).filter_by(entity="SPK", entity_id=sid, action="DENIED_SPK_ACTION").all()
-    assert {entry.detail for entry in denied} >= {"RELEASE", "VOID", "DELETE_DRAFT", "DIRECT_STATUS_CHANGE"}
+    assert {entry.detail for entry in denied} >= {"RELEASE", "RELEASE_READINESS", "VOID", "DELETE_DRAFT", "DIRECT_STATUS_CHANGE"}
     assert db.query(m.AuditLog).filter_by(action="DENIED_SPK_ACTION", detail="CREATE_WITH_STATUS").count() == 1
 
     voided = request(client, headers, "CMO_MANAGER", "POST", f"/cmo/spk/{sid}/void").json()

@@ -18,9 +18,38 @@ def test_fresh_database_migrates_to_head():
                                  "upgrade", "head"], cwd=backend, env=env, capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
         with closing(sqlite3.connect(database)) as db:
-            assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0010_spk_document_flow"
+            assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0012_spk_release_authority"
             names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            assert {"orders", "quotations", "bom_items", "material_consumptions", "production_cost_entries", "cost_reviews", "qc_records", "revision_proposals", "revision_status_events"} <= names
+            assert {"orders", "po_intakes", "quotations", "bom_items", "material_consumptions", "production_cost_entries", "cost_reviews", "qc_records", "revision_proposals", "revision_status_events"} <= names
+            spk_columns = {row[1] for row in db.execute("PRAGMA table_info(spks)")}
+            assert {"released_by", "released_at", "released_version", "release_prerequisites", "release_reason", "correction_reason"} <= spk_columns
+
+
+def test_po_document_bytes_survive_following_migrations():
+    backend = Path(__file__).resolve().parents[1]
+    with tempfile.TemporaryDirectory() as directory:
+        database = Path(directory) / "po-document.sqlite"
+        env = {**os.environ, "DATABASE_URL": f"sqlite:///{database.as_posix()}",
+               "APP_ENV": "testing", "SEED_DEMO": "false"}
+        command = [sys.executable, "-m", "alembic", "-c", str(backend / "alembic.ini"), "upgrade"]
+        before = subprocess.run(command + ["0011_po_intake"], cwd=backend, env=env,
+                                capture_output=True, text=True)
+        assert before.returncode == 0, before.stdout + before.stderr
+        document = b"%PDF-1.4\nretained-customer-po"
+        with closing(sqlite3.connect(database)) as db:
+            db.execute("""INSERT INTO users (id, name, email, password_hash, role, is_active, created_at)
+                       VALUES (1, 'Deby', 'deby@example.com', 'hash', 'CMO_SUPPORT', 1, '2026-09-16 00:00:00')""")
+            db.execute("""INSERT INTO po_intakes
+                       (id, po_number, buyer, articles_json, document_name, document_mime, document_data,
+                        status, missing_items_json, created_by_id, received_at, created_at, updated_at)
+                       VALUES (1, 'PO-1', 'Buyer', '[]', 'po.pdf', 'application/pdf', ?,
+                               'DRAFT', '[]', 1, '2026-09-16', '2026-09-16 00:00:00', '2026-09-16 00:00:00')""", (document,))
+            db.commit()
+        after = subprocess.run(command + ["head"], cwd=backend, env=env,
+                               capture_output=True, text=True)
+        assert after.returncode == 0, after.stdout + after.stderr
+        with closing(sqlite3.connect(database)) as db:
+            assert db.execute("SELECT document_data FROM po_intakes WHERE id = 1").fetchone()[0] == document
 
 
 def test_existing_revisions_and_images_survive_status_migration():
@@ -70,3 +99,4 @@ def test_existing_revisions_and_images_survive_status_migration():
             assert db.execute("SELECT operational_close_status, overall_status FROM orders WHERE id=1").fetchone() == ("LEGACY_UNVERIFIED", "CLOSED")
             assert db.execute("SELECT operational_close_status, order_close_status FROM order_closings WHERE id=1").fetchone() == ("LEGACY_UNVERIFIED", "CLOSED")
             assert db.execute("SELECT status FROM spks ORDER BY id").fetchall() == [("DRAFT",), ("VOID",), ("RELEASED",)]
+            assert db.execute("SELECT released_by, released_at, released_version, release_prerequisites FROM spks WHERE spk_no='SPK-OLD-RELEASED'").fetchone() == (None, None, None, None)

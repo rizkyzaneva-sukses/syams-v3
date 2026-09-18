@@ -273,13 +273,48 @@ def print_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_u
     return response
 
 
+class SPKReleaseIn(BaseModel):
+    version_id:int
+    reason:str=Field(min_length=1,max_length=2000)
+    correction_reason:Optional[str]=Field(default=None,max_length=2000)
+
+
+@router.get("/cmo/spk/{spk_id}/release-readiness")
+def spk_release_readiness(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    spk_require(db,user,"RELEASE_READINESS",{"CMO_MANAGER"},spk_id)
+    x=get_or_404(db,models.SPK,spk_id,"SPK not found")
+    return workflow.spk_release_readiness(db,x)
+
+
 @router.post("/cmo/spk/{spk_id}/release")
-def release_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+def release_spk(spk_id:int, data:SPKReleaseIn, db:Session=Depends(get_db), user=Depends(get_current_user)):
     spk_require(db,user,"RELEASE",{"CMO_MANAGER"},spk_id)
     x=db.query(models.SPK).filter_by(id=spk_id).with_for_update().first()
     if not x: raise HTTPException(404,"SPK not found")
+    if data.version_id != x.id: raise HTTPException(409,"SPK version_id does not match the locked version")
     if x.status != "PRINTED": raise HTTPException(409,"Only a printed SPK can be released")
+    reason=data.reason.strip()
+    correction=(data.correction_reason or "").strip() or None
+    if not reason: raise HTTPException(422,"Release reason is required")
+    if x.version > 1 and not correction:
+        raise HTTPException(422,"Correction reason is required for a revised SPK version")
+    readiness=workflow.spk_release_readiness(db,x)
+    if not readiness["ready"]:
+        failed=[check["label"] for check in readiness["checks"].values() if not check["ok"]]
+        log_audit(db,user,"SPK_RELEASE_BLOCKED","SPK",x.id,", ".join(failed))
+        db.commit()
+        raise HTTPException(400,"SPK release prerequisites failed: " + ", ".join(failed))
+    now=datetime.utcnow()
+    x.released_by=user.id
+    x.released_at=now
+    x.released_version=x.version
+    x.release_reason=reason
+    x.correction_reason=correction
+    x.release_prerequisites=json.dumps({**readiness,"checked_at":now.isoformat(timespec="seconds")+"Z"},ensure_ascii=False)
     x.status="RELEASED"
+    log_audit(db,user,"SPK_RELEASE","SPK",x.id,
+              json.dumps({"version_id":x.id,"version":x.version,"reason":reason,
+                          "correction_reason":correction,"prerequisites":readiness["checks"]},ensure_ascii=False))
     db.info["spk_action"]="RELEASE"
     try: commit_changes(db,user)
     finally: db.info.pop("spk_action",None)

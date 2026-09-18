@@ -7,7 +7,8 @@ import OrderDetail from './pages/OrderDetail';
 import CMOHome from './pages/CMOHome';
 import CustomerList from './pages/CustomerList';
 import OrderList from './pages/OrderList';
-import OrderCreate from './pages/OrderCreate';
+import POInboxPage from './pages/POInboxPage';
+import POIntakeFormPage from './pages/POIntakeFormPage';
 import QuotationPage from './pages/QuotationPage';
 import SamplePPMPage from './pages/SamplePPMPage';
 import SPKPage from './pages/SPKPage';
@@ -56,7 +57,10 @@ function App(){return <BrowserRouter><Routes>
     <Route path="cmo" element={<Access><CMOHome/></Access>}/>
     <Route path="cmo/customers" element={<Access><CustomerList/></Access>}/>
     <Route path="cmo/orders" element={<Access><OrderList/></Access>}/>
-    <Route path="cmo/orders/new" element={<Access><OrderCreate/></Access>}/>
+    <Route path="cmo/orders/new" element={<Navigate to="/cmo/po-inbox/new" replace/>}/>
+    <Route path="cmo/po-inbox" element={<Access><POInboxPage/></Access>}/>
+    <Route path="cmo/po-inbox/new" element={<Access><POIntakeFormPage/></Access>}/>
+    <Route path="cmo/po-inbox/:poId/edit" element={<Access><POIntakeFormPage/></Access>}/>
     <Route path="cmo/quotations" element={<Access><QuotationPage/></Access>}/>
     <Route path="cmo/samples" element={<Access><SamplePPMPage/></Access>}/>
     <Route path="cmo/spk" element={<Access><SPKPage/></Access>}/>

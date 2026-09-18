@@ -10,6 +10,7 @@ import json
 import ssl
 import urllib.error
 import urllib.request
+from uuid import uuid4
 from datetime import date, timedelta
 
 BASE = "https://client-bos-syam-fix.zvusml.easypanel.host"
@@ -53,6 +54,25 @@ def call(account, method, path, payload=None):
             return e.code, raw.decode()[:300]
 
 
+def upload_po_document(account, po_id, filename, document):
+    boundary = "----BOSSYAMS" + uuid4().hex
+    body = (f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="document"; filename="{filename}"\r\n'
+            "Content-Type: application/pdf\r\n\r\n").encode() + document + f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(f"{BASE}/api/cmo/po-intake/{po_id}/document", data=body, method="POST",
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
+                 "Authorization": f"Bearer {login(account)}"})
+    try:
+        with urllib.request.urlopen(req, context=CTX) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        try:
+            return exc.code, json.loads(raw)
+        except Exception:
+            return exc.code, raw.decode()[:300]
+
+
 def step(label, account, method, path, payload=None, ok=(200, 201, 204)):
     status, body = call(account, method, path, payload)
     if status in ok:
@@ -77,21 +97,33 @@ ART = f"{TAG}-TEE-01"
 BUYER = "Atlas Sportswear Ltd"
 
 # ── 1. Order dengan routing ─────────────────────────────────────────────────
-print("\n1) Order + artikel ber-routing (CMO Manager)")
+print("\n1) PO intake + aktivasi Order (Deby → Cecep)")
 _, orders = call("cmo.manager", "GET", "/orders")
 order = next((o for o in (orders or [])
               if any(a.get("article_code") == ART for a in (o.get("articles") or []))), None)
 if order:
     print(f"  = Order {order['order_id']} (sudah ada)")
 else:
-    order = step(f"Order {BUYER} — rute '{ROUTE}'", "cmo.manager", "POST", "/orders", {
-        "buyer": BUYER, "order_type": "REPEAT_PRODUCTION",
+    po = step(f"PO {BUYER} — rute '{ROUTE}'", "cmo.support", "POST", "/cmo/po-intake", {
+        "po_number": f"PO-{TAG}-001", "buyer": BUYER, "order_type": "REPEAT_PRODUCTION",
         "buyer_deadline": str(today + timedelta(days=90)),
         "notes": "Order uji dengan rute produksi lengkap",
         "articles": [{"article_code": ART, "garment_type": "Kaos Olahraga",
                       "qty": 500, "size_breakdown": "M:200, L:200, XL:100",
                       "sample_required": False, "production_route": ROUTE}],
     })
+    if po:
+        status, body = upload_po_document("cmo.support", po["id"], f"PO-{TAG}-001.pdf", b"%PDF-1.4\nRouted seed PO")
+        if status != 200:
+            detail = body.get("detail") if isinstance(body, dict) else body
+            PROBLEMS.append(("Upload PO", "POST /cmo/po-intake/{id}/document", status, detail))
+        else:
+            step("Cek kelengkapan PO", "cmo.support", "POST", f"/cmo/po-intake/{po['id']}/check")
+            step("Kirim PO ke Cecep", "cmo.support", "POST", f"/cmo/po-intake/{po['id']}/submit")
+            accepted = step("Terima & aktifkan Order", "cmo.manager", "POST", f"/cmo/po-intake/{po['id']}/review",
+                            {"action": "ACCEPT", "note": "PO uji lengkap"})
+            if accepted:
+                _, order = call("cmo.manager", "GET", f"/orders/{accepted['order_id']}")
 if not order:
     raise SystemExit("Order gagal dibuat")
 
@@ -170,7 +202,8 @@ if spk and spk.get("status") == "GENERATED":
     if printed:
         spk["status"] = "PRINTED"
 if spk and spk.get("status") == "PRINTED":
-    spk = step(f"Release {spk_no}", "cmo.manager", "POST", f"/cmo/spk/{spk['id']}/release")
+    spk = step(f"Release {spk_no}", "cmo.manager", "POST", f"/cmo/spk/{spk['id']}/release",
+               {"version_id": spk["id"], "reason": "Finance, quotation, sample, dan rute produksi diverifikasi"})
 elif spk and spk.get("status") == "RELEASED":
     print(f"  = {spk_no} sudah RELEASED")
 

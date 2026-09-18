@@ -4,6 +4,7 @@ Every module mutation validates before flush and writes its audit in the same
 transaction. Derived order fields are updated only after validated records exist.
 """
 import json
+import hashlib
 from datetime import date
 from decimal import Decimal
 from fastapi import HTTPException
@@ -130,6 +131,70 @@ def samples_ready(db, order):
 def spk_ready(db, order):
     spk = db.query(m.SPK).filter_by(order_fk=order.id).order_by(m.SPK.id.desc()).first()
     return bool(spk and spk.status == "RELEASED" and spk.snapshot)
+
+
+def spk_release_readiness(db, spk):
+    """Evaluate live CMO gates and identify the exact document being approved."""
+    order = get(db, m.Order, spk.order_fk)
+    latest = db.query(m.SPK).filter_by(order_fk=order.id).order_by(m.SPK.version.desc(), m.SPK.id.desc()).first()
+    quote = db.query(m.Quotation).filter_by(order_fk=order.id).order_by(m.Quotation.id.desc()).first()
+    invoices = db.query(m.Invoice).filter_by(order_fk=order.id).order_by(m.Invoice.id).all()
+    required = [a for a in order.articles if a.sample_required or order.order_type == m.OrderType.SAMPLE_ONLY]
+    sample_evidence = []
+    for article in required:
+        sample = db.query(m.SampleRecord).filter(m.SampleRecord.order_fk == order.id,
+            or_(m.SampleRecord.article_id == article.id,
+                (m.SampleRecord.article_id.is_(None)) & (m.SampleRecord.article_code == article.article_code))
+        ).order_by(m.SampleRecord.id.desc()).first()
+        sample_evidence.append({"article_id": article.id, "sample_id": sample.id if sample else None,
+                                "status": sample.status if sample else None,
+                                "approved_by": sample.customer_approved_by_id if sample else None})
+    routes_ok = bool(order.articles) and all(route_for(article) for article in order.articles)
+    try:
+        document = json.loads(spk.snapshot or "null")
+    except (TypeError, ValueError):
+        document = None
+    current_articles = [{"article_code": a.article_code, "garment_type": a.garment_type or "",
+                         "qty": a.qty, "size_breakdown": a.size_breakdown or "",
+                         "production_route": a.production_route or ""} for a in order.articles]
+    document_ok = isinstance(document, dict) and all((
+        document.get("spk_no") == spk.spk_no,
+        document.get("version") == spk.version,
+        document.get("order_id") == order.order_id,
+        document.get("buyer") == order.buyer,
+        document.get("order_date") == (order.order_date.isoformat() if order.order_date else None),
+        document.get("buyer_deadline") == (order.buyer_deadline.isoformat() if order.buyer_deadline else None),
+        document.get("notes") == (spk.notes or ""),
+        document.get("articles") == current_articles,
+    ))
+    checks = {
+        "printed_version": {"ok": spk.status == "PRINTED", "label": "Versi SPK sudah dicetak"},
+        "latest_version": {"ok": bool(latest and latest.id == spk.id), "label": "Versi SPK terbaru"},
+        "document_current": {"ok": document_ok, "label": "Dokumen cetak sesuai order saat ini"},
+        "quotation_approved": {"ok": quotation_ready(db, order), "label": "Quotation disetujui CFO"},
+        "finance_approved": {"ok": finance_ready(db, order), "label": "Penilaian pembayaran disetujui CFO"},
+        "samples_approved": {"ok": samples_ready(db, order), "label": "Persetujuan sample lengkap"},
+        "routes_complete": {"ok": routes_ok, "label": "Rute produksi tiap artikel lengkap"},
+    }
+    evidence = {
+        "order_id": order.id,
+        "spk_version_id": spk.id,
+        "spk_version": spk.version,
+        "snapshot_sha256": hashlib.sha256(spk.snapshot.encode()).hexdigest() if spk.snapshot else None,
+        "quotation": {"id": quote.id, "status": quote.status, "approved_by": quote.approved_by_id}
+            if quote else None,
+        "finance": {"gate_status": order.finance_gate_status,
+                    "verified_by": order.finance_verified_by_id,
+                    "term_kind": order.finance_term_kind,
+                    "payment_evidence_ref": order.payment_evidence_ref,
+                    "invoices": [{"id": invoice.id, "reconciliation_status": invoice.reconciliation_status,
+                                  "paid_amount": str(invoice.paid_amount)} for invoice in invoices]},
+        "samples": sample_evidence,
+        "routes": [{"article_id": a.id, "route": a.production_route} for a in order.articles],
+    }
+    return {"version_id": spk.id, "version": spk.version,
+            "ready": all(check["ok"] for check in checks.values()),
+            "checks": checks, "evidence": evidence}
 
 
 def production_ready(db, order):
@@ -327,23 +392,27 @@ def validate(db, obj, user, deleting=False):
             obj.customer_approved_by_id = user.id
     elif isinstance(obj, m.SPK):
         order = get(db, m.Order, obj.order_fk)
+        release_fields = {"released_by", "released_at", "released_version",
+                          "release_prerequisites", "release_reason", "correction_reason"}
         if order.order_type == m.OrderType.SAMPLE_ONLY:
             fail("Sample Only orders cannot have an SPK")
         if creating:
-            if obj.status != "DRAFT" or obj.snapshot:
+            if obj.status != "DRAFT" or obj.snapshot or any(getattr(obj, field) is not None for field in release_fields):
                 fail("New SPK must begin as a draft")
             obj.version = (db.query(func.max(m.SPK.version)).filter_by(order_fk=obj.order_fk).scalar() or 0) + 1
         else:
             previous = original(obj, "status")
+            action = db.info.get("spk_action")
             if previous in ("RELEASED", "VOID"):
                 fail("Released or void SPK is immutable; create a new version")
             if deleting:
                 if previous != "DRAFT":
                     fail("Only draft SPK can be deleted")
-            elif previous != "DRAFT" and changed - {"status"}:
+            elif previous != "DRAFT" and changed - ({"status"} | (release_fields if action == "RELEASE" else set())):
                 fail("Generated SPK document is locked; create a new version")
+            if not deleting and changed.intersection(release_fields) and action != "RELEASE":
+                fail("SPK release evidence may only be set by the release action")
             if not deleting and "status" in changed:
-                action = db.info.get("spk_action")
                 transitions = {"GENERATE": ("DRAFT", "GENERATED"),
                                "PRINT": ("GENERATED", "PRINTED"),
                                "RELEASE": ("PRINTED", "RELEASED"),
@@ -359,10 +428,23 @@ def validate(db, obj, user, deleting=False):
                 if action in ("PRINT", "RELEASE") and not obj.snapshot:
                     fail("SPK document must be generated first")
         if not deleting and obj.status == "RELEASED" and (creating or "status" in changed):
-            if not quotation_ready(db, order) or not finance_ready(db, order) or not samples_ready(db, order):
-                fail("Quotation, payment assessment and required samples must be approved before SPK release")
-            if not order.articles or any(not route_for(a) for a in order.articles):
-                fail("Every article requires a production route")
+            readiness = spk_release_readiness(db, obj)
+            # The record is already marked RELEASED in this transaction; the
+            # transition above proves its prior status was PRINTED.
+            readiness["checks"]["printed_version"]["ok"] = True
+            failed = [check["label"] for check in readiness["checks"].values() if not check["ok"]]
+            if failed:
+                fail("SPK release prerequisites failed: " + ", ".join(failed))
+            if (obj.released_by != user.id or not obj.released_at or obj.released_version != obj.version
+                    or not obj.release_reason or not obj.release_reason.strip()
+                    or (obj.version > 1 and (not obj.correction_reason or not obj.correction_reason.strip()))):
+                fail("SPK release identity, version, reason and correction evidence are required")
+            try:
+                recorded = json.loads(obj.release_prerequisites or "")
+            except (TypeError, ValueError):
+                fail("SPK release prerequisites evidence is invalid")
+            if recorded.get("evidence") != readiness["evidence"] or recorded.get("checks") != readiness["checks"]:
+                fail("SPK release prerequisites changed; review again")
     elif isinstance(obj, m.Invoice):
         if creating and (obj.paid_amount or obj.status not in (None, "UNPAID")):
             fail("Record payments through the payments endpoint")

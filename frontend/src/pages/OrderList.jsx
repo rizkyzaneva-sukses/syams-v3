@@ -65,7 +65,7 @@ export default function OrderList(){
           <h1>Order Management</h1>
           <p>{orders.length} order tercatat</p>
         </div>
-        <Link to="/cmo/orders/new" className="btn primary"><Plus size={16}/> Order Baru</Link>
+        <Link to="/cmo/po-inbox/new" className="btn primary"><Plus size={16}/> Terima PO Baru</Link>
       </div>
 
       {err&&<div className="notice danger">{err}</div>}

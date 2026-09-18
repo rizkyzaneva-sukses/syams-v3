@@ -1,7 +1,7 @@
 export const groups={cmo:['CMO_MANAGER','CMO_SUPPORT'],cfo:['CFO_MANAGER','FINANCE_SUPPORT'],coo:['COO_MANAGER','PRODUCTION_PIC','PRINTING_PIC','SHIPMENT_ADMIN'],hr:['CHRO_MANAGER','HR_SUPPORT']};
 const routeRoles={
   '/master':['CEO',...groups.cmo,...groups.cfo,...groups.coo,'SAMPLE_PIC'],
-  '/cmo':groups.cmo,'/cmo/orders':groups.cmo,'/cmo/orders/new':groups.cmo,'/cmo/customers':groups.cmo,
+  '/cmo':groups.cmo,'/cmo/orders':groups.cmo,'/cmo/orders/new':groups.cmo,'/cmo/po-inbox':['CMO_MANAGER','CMO_SUPPORT','CEO'],'/cmo/customers':groups.cmo,
   '/cmo/quotations':[...groups.cmo,'CFO_MANAGER','CEO'],'/cmo/samples':[...groups.cmo,'SAMPLE_PIC'],'/cmo/spk':groups.cmo,
   '/cfo':[...groups.cfo,'CEO'],'/cfo/invoices':[...groups.cfo,'CEO'],'/cfo/purchase-orders':[...groups.cfo,'CEO'],'/cfo/shipments':[...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN','CMO_MANAGER','CEO'],
   '/coo':groups.coo,'/coo/material-requests':['COO_MANAGER','PRODUCTION_PIC'],'/coo/bom-cost':['CEO','COO_MANAGER','PRODUCTION_PIC','CFO_MANAGER'],'/coo/production':groups.coo,'/coo/wip':groups.coo,
@@ -9,7 +9,7 @@ const routeRoles={
   '/coo/closing':['CMO_MANAGER','CFO_MANAGER','COO_MANAGER','CEO'], '/chro':groups.hr,'/chro/employees':groups.hr,'/chro/training':groups.hr,
   '/chro/performance':['CHRO_MANAGER'],'/chro/issues':['CHRO_MANAGER'],'/ceo':['CEO'],'/ceo/decisions':['CEO'],'/ceo/business-policy':['CEO'],'/audit-log':['CEO'],
 };
-export function canAccess(role,path){if(!role)return false;if(path.startsWith('/orders/'))return !['CHRO_MANAGER','HR_SUPPORT'].includes(role);return !(path in routeRoles)||routeRoles[path].includes(role);}
+export function canAccess(role,path){if(!role)return false;if(path.startsWith('/orders/'))return !['CHRO_MANAGER','HR_SUPPORT'].includes(role);if(path.startsWith('/cmo/po-inbox'))return ['CMO_MANAGER','CMO_SUPPORT','CEO'].includes(role);return !(path in routeRoles)||routeRoles[path].includes(role);}
 export function nullableNumber(value){return value==null||value===''?null:Number(value);}
 export function normalizeDates(value){
   if(Array.isArray(value)) return value.map(normalizeDates);

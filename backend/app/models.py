@@ -80,6 +80,34 @@ class Article(Base):
     production_status = Column(String(32), default="NOT_STARTED", nullable=False)
     order = relationship("Order", back_populates="articles")
 
+class POIntake(Base):
+    """Customer PO received by CMO Support, before an Order exists."""
+    __tablename__ = "po_intakes"
+    __table_args__ = (UniqueConstraint("buyer", "po_number", name="uq_po_intake_buyer_number"),)
+    id = Column(Integer, primary_key=True)
+    po_number = Column(String(100), nullable=True)
+    buyer = Column(String(160), nullable=True)
+    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=True)
+    order_type = Column(String(32), nullable=True)
+    buyer_deadline = Column(Date, nullable=True)
+    articles_json = Column(Text, default="[]", nullable=False)
+    notes = Column(Text, nullable=True)
+    document_name = Column(String(255), nullable=True)
+    document_mime = Column(String(80), nullable=True)
+    document_data = Column(LargeBinary, nullable=True)
+    status = Column(String(24), default="DRAFT", nullable=False)
+    missing_items_json = Column(Text, default="[]", nullable=False)
+    follow_up_note = Column(Text, nullable=True)
+    review_note = Column(Text, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reviewed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    order_fk = Column(Integer, ForeignKey("orders.id"), unique=True, nullable=True)
+    received_at = Column(Date, default=date.today, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    order = relationship("Order")
+
 class ProductionMovement(Base):
     __tablename__ = "production_movements"
     id = Column(Integer, primary_key=True)
@@ -216,6 +244,12 @@ class SPK(Base):
     version = Column(Integer, default=1, nullable=False)
     snapshot = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
+    released_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    released_at = Column(DateTime, nullable=True)
+    released_version = Column(Integer, nullable=True)
+    release_prerequisites = Column(Text, nullable=True)
+    release_reason = Column(Text, nullable=True)
+    correction_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class MaterialRequest(Base):
