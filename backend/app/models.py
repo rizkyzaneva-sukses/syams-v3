@@ -230,10 +230,25 @@ class SampleRecord(Base):
     article_id = Column(Integer, ForeignKey("articles.id"), nullable=True, index=True)
     status = Column(String(32), default="PROCESS", nullable=False)
     customer_approved_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    customer_decision_at = Column(DateTime, nullable=True)
+    customer_decision_reason = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     requested_date = Column(Date, nullable=True)
     completed_date = Column(Date, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    evidence = relationship("SampleEvidence", back_populates="sample", cascade="all, delete-orphan")
+
+class SampleEvidence(Base):
+    __tablename__ = "sample_evidence"
+    id = Column(Integer, primary_key=True)
+    sample_fk = Column(Integer, ForeignKey("sample_records.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_name = Column(String(255), nullable=False)
+    file_mime = Column(String(120), nullable=False)
+    file_data = Column(LargeBinary, nullable=False)
+    note = Column(Text, nullable=True)
+    uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    sample = relationship("SampleRecord", back_populates="evidence")
 
 class SPK(Base):
     __tablename__ = "spks"

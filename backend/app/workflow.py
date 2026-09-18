@@ -465,11 +465,16 @@ def validate(db, obj, user, deleting=False):
                 fail("Approved or released sample history cannot be deleted")
         elif not creating and original(obj, "status") == "APPROVED" and changed:
             fail("Approved sample is immutable; create a revision")
-        elif obj.status == "APPROVED":
+        elif obj.status in ("APPROVED", "REJECTED"):
             require(user, "CMO_MANAGER")
-            if not obj.notes or not obj.notes.strip():
-                fail("Customer approval evidence is required in notes")
-            obj.customer_approved_by_id = user.id
+            if not db.info.get("sample_decision"):
+                fail("Use the CMO customer decision action for a buyer decision", 403)
+            if not obj.customer_decision_reason or not obj.customer_decision_reason.strip():
+                fail("Customer decision reason is required")
+            if obj.status == "APPROVED":
+                if not obj.evidence:
+                    fail("Customer approval requires uploaded evidence")
+                obj.customer_approved_by_id = user.id
     elif isinstance(obj, m.SPK):
         order = get(db, m.Order, obj.order_fk)
         release_fields = {"released_by", "released_at", "released_version",
@@ -849,3 +854,4 @@ def commit_changes(db, user):
         raise
     finally:
         db.info.pop("shipment_approval", None)
+        db.info.pop("sample_decision", None)

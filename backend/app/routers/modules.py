@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from pydantic import BaseModel as PydanticBaseModel, ConfigDict, model_validator
-from typing import Optional
+from typing import Literal, Optional
 from datetime import date
 from decimal import Decimal
 import json
@@ -167,10 +167,38 @@ class SampleIn(BaseModel):
 class SampleUpdate(BaseModel):
     status:Optional[str]=None; notes:Optional[str]=None; completed_date:Optional[date]=None
 
+class SampleDecision(BaseModel):
+    action:Literal["APPROVE", "REJECT"]
+    reason:str=Field(min_length=1, max_length=2000)
+
+SAMPLE_EVIDENCE_LIMIT = 10 * 1024 * 1024
+SAMPLE_EVIDENCE_TYPES = {
+    b"%PDF-": "application/pdf",
+    b"\x89PNG\r\n\x1a\n": "image/png",
+    b"\xff\xd8\xff": "image/jpeg",
+}
+
+def sample_evidence_out(evidence):
+    return {"id": evidence.id, "file_name": evidence.file_name, "file_mime": evidence.file_mime,
+            "note": evidence.note, "uploaded_by_id": evidence.uploaded_by_id, "created_at": evidence.created_at}
+
+def sample_out(sample):
+    return {"id": sample.id, "order_fk": sample.order_fk, "article_code": sample.article_code,
+            "article_id": sample.article_id, "status": sample.status, "notes": sample.notes,
+            "requested_date": sample.requested_date, "completed_date": sample.completed_date,
+            "customer_approved_by_id": sample.customer_approved_by_id,
+            "customer_decision_at": sample.customer_decision_at,
+            "customer_decision_by_id": sample.customer_approved_by_id,
+            "customer_decision_reason": sample.customer_decision_reason,
+            "evidence_count": len(sample.evidence), "created_at": sample.created_at}
+
+def sample_file_mime(data):
+    return next((mime for signature, mime in SAMPLE_EVIDENCE_TYPES.items() if data.startswith(signature)), None)
+
 @router.get("/cmo/samples")
 def list_samples(db:Session=Depends(get_db), user=Depends(get_current_user)):
     require(user,"CEO","CMO_MANAGER","CMO_SUPPORT","COO_MANAGER","SAMPLE_PIC")
-    return db.query(models.SampleRecord).order_by(desc(models.SampleRecord.id)).all()
+    return [sample_out(x) for x in db.query(models.SampleRecord).order_by(desc(models.SampleRecord.id)).all()]
 
 @router.post("/cmo/samples")
 def create_sample(data:SampleIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.SAMPLE_PIC))):
@@ -179,6 +207,54 @@ def create_sample(data:SampleIn, db:Session=Depends(get_db), user=Depends(requir
 @router.patch("/cmo/samples/{s_id}")
 def update_sample(s_id:int, data:SampleUpdate, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.SAMPLE_PIC))):
     return apply_update(get_or_404(db,models.SampleRecord,s_id,"Sample not found"), data, db, user)
+
+@router.get("/cmo/samples/{s_id}/evidence")
+def list_sample_evidence(s_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    require(user,"CEO","CMO_MANAGER","CMO_SUPPORT","COO_MANAGER","SAMPLE_PIC")
+    get_or_404(db, models.SampleRecord, s_id, "Sample not found")
+    return [sample_evidence_out(x) for x in db.query(models.SampleEvidence).filter_by(sample_fk=s_id).order_by(models.SampleEvidence.id.desc()).all()]
+
+@router.post("/cmo/samples/{s_id}/evidence", status_code=201)
+async def upload_sample_evidence(s_id:int, evidence:UploadFile=File(...), note:str=Form(""), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.SAMPLE_PIC))):
+    sample=get_or_404(db, models.SampleRecord, s_id, "Sample not found")
+    if sample.status == "APPROVED":
+        raise HTTPException(409, "Approved sample evidence is immutable; create a revision")
+    data=await evidence.read(SAMPLE_EVIDENCE_LIMIT+1)
+    if len(data)>SAMPLE_EVIDENCE_LIMIT:
+        raise HTTPException(413, "Sample evidence exceeds 10 MB")
+    mime=sample_file_mime(data)
+    if mime is None:
+        raise HTTPException(415, "Upload a PDF, PNG, or JPG sample evidence")
+    name=(evidence.filename or "sample-evidence").replace("\\", "/").split("/")[-1][:255]
+    row=models.SampleEvidence(sample_fk=sample.id, file_name=name, file_mime=mime, file_data=data,
+                              note=note.strip()[:2000] or None, uploaded_by_id=user.id)
+    db.add(row); log_audit(db, user, "UPLOAD_EVIDENCE", "SampleRecord", sample.id, name); commit_changes(db, user); db.refresh(row)
+    return sample_evidence_out(row)
+
+@router.get("/cmo/samples/{s_id}/evidence/{evidence_id}/file")
+def get_sample_evidence_file(s_id:int, evidence_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    require(user,"CEO","CMO_MANAGER","CMO_SUPPORT","COO_MANAGER","SAMPLE_PIC")
+    row=db.query(models.SampleEvidence).filter_by(id=evidence_id, sample_fk=s_id).first()
+    if row is None:
+        raise HTTPException(404, "Sample evidence not found")
+    return Response(content=row.file_data, media_type=row.file_mime,
+                    headers={"Content-Disposition": 'attachment; filename="sample-evidence"', "X-Content-Type-Options":"nosniff"})
+
+@router.post("/cmo/samples/{s_id}/customer-decision")
+def decide_sample_customer(s_id:int, data:SampleDecision, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER))):
+    sample=get_or_404(db, models.SampleRecord, s_id, "Sample not found")
+    if sample.status == "APPROVED":
+        raise HTTPException(409, "Approved sample is immutable; create a revision")
+    if data.action == "APPROVE" and not db.query(models.SampleEvidence).filter_by(sample_fk=sample.id).first():
+        raise HTTPException(409, "Upload customer approval evidence before approving")
+    sample.status="APPROVED" if data.action == "APPROVE" else "REJECTED"
+    sample.customer_approved_by_id=user.id if data.action == "APPROVE" else None
+    sample.customer_decision_at=datetime.utcnow()
+    sample.customer_decision_reason=data.reason.strip()
+    db.info["sample_decision"] = True
+    log_audit(db, user, "CUSTOMER_SAMPLE_" + data.action, "SampleRecord", sample.id, data.reason.strip())
+    commit_changes(db, user); db.refresh(sample)
+    return sample_out(sample)
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CMO: SPK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class SPKIn(BaseModel):

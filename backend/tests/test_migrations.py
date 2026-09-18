@@ -18,7 +18,7 @@ def test_fresh_database_migrates_to_head():
                                  "upgrade", "head"], cwd=backend, env=env, capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
         with closing(sqlite3.connect(database)) as db:
-            assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0013_shipment_line_reconciliation"
+            assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0014_sample_evidence"
             names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             assert {"orders", "po_intakes", "quotations", "bom_items", "material_consumptions", "production_cost_entries", "cost_reviews", "qc_records", "revision_proposals", "revision_status_events"} <= names
             spk_columns = {row[1] for row in db.execute("PRAGMA table_info(spks)")}

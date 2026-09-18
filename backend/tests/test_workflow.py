@@ -29,6 +29,17 @@ def accepted_order(client, headers, payload, po_number):
     return call(client, headers, "GET", "/orders/" + accepted["order_id"], "CMO_MANAGER")
 
 
+def approve_sample(client, headers, order_fk, article_code):
+    sample = call(client, headers, "POST", "/cmo/samples", "SAMPLE_PIC", {
+        "order_fk": order_fk, "article_code": article_code, "status": "PROCESS",
+    })
+    evidence = client.post(f"/api/cmo/samples/{sample['id']}/evidence", headers=headers("SAMPLE_PIC"),
+                           files={"evidence": ("approval.pdf", b"%PDF-1.4\ncustomer approval", "application/pdf")})
+    assert evidence.status_code == 201, evidence.text
+    return call(client, headers, "POST", f"/cmo/samples/{sample['id']}/customer-decision", "CMO_MANAGER",
+                {"action": "APPROVE", "reason": "Customer signed approval"})
+
+
 @pytest.fixture
 def order(client, headers):
     return accepted_order(client, headers, {
@@ -51,7 +62,7 @@ def ready_order(client, headers, order, paid=0):
         call(client, headers, "POST", "/cfo/payments", "FINANCE_SUPPORT", {"invoice_no": "I1", "amount": paid})
     call(client, headers, "POST", f"/cfo/orders/{oid}/finance-gate", "CFO_MANAGER", {"action": "APPROVE", "reason": "Agreed credit terms; production authorized", "term_kind": "CREDIT", "credit_due_date": str(date.today()+timedelta(days=30)), "evidence_ref": "Signed contract CR-01"})
     for article in order["articles"]:
-        call(client, headers, "POST", "/cmo/samples", "CMO_MANAGER", {"order_fk": oid, "article_code": article["article_code"], "status": "APPROVED", "notes": "Customer signed sample approval"})
+        approve_sample(client, headers, oid, article["article_code"])
     spk = call(client, headers, "POST", "/cmo/spk", "CMO_MANAGER", {"order_fk": oid, "spk_no": "SPK1"})
     call(client, headers, "POST", f"/cmo/spk/{spk['id']}/generate", "CMO_MANAGER")
     printed = client.post(f"/api/cmo/spk/{spk['id']}/print", headers=headers("CMO_MANAGER"))
@@ -159,9 +170,9 @@ def test_flow_requires_assessment_owner_and_latest_every_article(client, headers
     call(client, headers, "POST", f"/orders/{order['order_id']}/flow/advance", "CFO_MANAGER", {"target_step": "INVOICE"}, expected=400)
     call(client, headers, "POST", f"/orders/{order['order_id']}/flow/advance", "HR_SUPPORT", {"target_step": "INVOICE"}, expected=403)
     call(client, headers, "POST", "/cmo/samples", "SAMPLE_PIC", {"order_fk": oid, "article_code": "A", "status": "APPROVED", "notes": "fake"}, expected=403)
-    call(client, headers, "POST", "/cmo/samples", "CMO_MANAGER", {"order_fk": oid, "article_code": "A", "status": "APPROVED", "notes": "Customer signed"})
+    approve_sample(client, headers, oid, "A")
     assert not FlowEngine._check_step_prerequisite(db.get(m.Order, oid), "SAMPLE_APPROVED")[0]
-    call(client, headers, "POST", "/cmo/samples", "CMO_MANAGER", {"order_fk": oid, "article_code": "B", "status": "APPROVED", "notes": "Customer signed"})
+    approve_sample(client, headers, oid, "B")
     assert FlowEngine._check_step_prerequisite(db.get(m.Order, oid), "SAMPLE_APPROVED")[0]
     call(client, headers, "POST", "/cmo/samples", "SAMPLE_PIC", {"order_fk": oid, "article_code": "A", "status": "REVISION"})
     assert not FlowEngine._check_step_prerequisite(db.get(m.Order, oid), "SAMPLE_APPROVED")[0]
