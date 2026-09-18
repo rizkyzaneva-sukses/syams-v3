@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Close the routed order with proper segregation of duties.
 
-workflow.py:505 requires customer_close_status to be set by CMO_MANAGER and
-financial_close_status by CFO_MANAGER, so closing needs two separate calls from
-two different accounts. order_close_status is derived, never sent.
+Customer, operational, and financial closing belong to CMO_MANAGER,
+COO_MANAGER, and CFO_MANAGER respectively. order_close_status is derived.
 """
 import json
 import ssl
@@ -62,7 +61,7 @@ def step(label, account, method, path, payload=None, ok=(200, 201, 204)):
 
 
 print("=" * 64)
-print("ORDER CLOSING — CMO tutup sisi customer, CFO tutup sisi finansial")
+print("ORDER CLOSING — CMO customer, COO operasional, CFO finansial")
 print("=" * 64)
 
 _, orders = call("cmo.manager", "GET", "/orders")
@@ -83,11 +82,16 @@ else:
     closing = step("Closing (customer CLOSED, financial OPEN)", "cmo.manager", "POST",
                    f"/coo/order-closing/{oid}",
                    {"order_fk": oid, "customer_close_status": "CLOSED",
-                    "financial_close_status": "OPEN",
                     "notes": "Pengiriman dikonfirmasi customer"})
 
-# ── 2. CFO menutup sisi finansial ───────────────────────────────────────────
-print("\n2) CFO: financial_close_status=CLOSED")
+# ── 2. COO menutup sisi operasional ─────────────────────────────────────────
+print("\n2) COO: operational_close_status=CLOSED")
+step("Operational CLOSED", "coo.manager", "PATCH", f"/coo/order-closing/{oid}",
+     {"operational_close_status": "CLOSED",
+      "notes": "Serah terima fisik dan pekerjaan operasional selesai"})
+
+# ── 3. CFO menutup sisi finansial ───────────────────────────────────────────
+print("\n3) CFO: financial_close_status=CLOSED")
 status, closing = call("cfo.manager", "GET", f"/coo/order-closing/{oid}")
 if status == 200 and closing and closing.get("financial_close_status") == "CLOSED":
     print("  = financial sudah CLOSED")
@@ -96,17 +100,17 @@ else:
          {"financial_close_status": "CLOSED",
           "notes": "Invoice lunas dan terekonsiliasi"})
 
-# ── 3. Hasil ────────────────────────────────────────────────────────────────
-print("\n3) Hasil closing")
+# ── 4. Hasil ────────────────────────────────────────────────────────────────
+print("\n4) Hasil closing")
 status, closing = call("ceo", "GET", f"/coo/order-closing/{oid}")
 if status == 200 and closing:
-    for k in ("customer_close_status", "financial_close_status",
+    for k in ("customer_close_status", "operational_close_status", "financial_close_status",
               "order_close_status", "close_date", "closed_by"):
         print(f"  {k:24s}: {closing.get(k)}")
 else:
     print(f"  ! HTTP {status}: {closing}")
 
-print("\n4) Flow final")
+print("\n5) Flow final")
 status, flow = call("ceo", "GET", f"/orders/{order_id}/flow")
 if status == 200 and isinstance(flow, dict):
     print(f"  current_step: {flow.get('current_step')}")

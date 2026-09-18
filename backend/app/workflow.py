@@ -212,7 +212,7 @@ def deliveries_ready(db, order):
         return False
     for s in shipments:
         d = db.query(m.DeliveryConfirmation).filter_by(shipment_fk=s.id).order_by(m.DeliveryConfirmation.id.desc()).first()
-        if s.status not in ("SHIPPED", "DELIVERED") or not d or d.status != "CONFIRMED":
+        if s.status != "DELIVERED" or not s.delivery_date or not d or d.status != "CONFIRMED":
             return False
     return True
 
@@ -229,14 +229,14 @@ def operational_ready(db, order):
     if any(x.qty_in != x.qty_done + x.qty_reject for x in movements):
         fail("Open production WIP must be reconciled before operational closing")
     shipments = db.query(m.Shipment).filter_by(order_fk=order.id).all()
-    if not shipments or any(s.status not in ("SHIPPED", "DELIVERED") or s.packing_status != "PACKED" for s in shipments):
-        fail("Every shipment must be packed and physically dispatched")
+    if not shipments or any(s.status != "DELIVERED" or not s.delivery_date or s.packing_status != "PACKED" for s in shipments):
+        fail("Every shipment must be packed and physically handed over")
 
 
 STATUSES = {
     m.Quotation: {"DRAFT", "SENT", "APPROVED", "REJECTED", "EXPIRED"},
     m.SampleRecord: {"PROCESS", "IN_PROCESS", "REVISION", "PENDING", "COMPLETED", "APPROVED", "REJECTED"},
-    m.SPK: {"NEW", "DRAFT", "RELEASED", "CANCELLED"},
+    m.SPK: {"DRAFT", "GENERATED", "PRINTED", "RELEASED", "VOID"},
     m.Invoice: {"UNPAID", "PARTIAL", "PAID"},
     m.PurchaseOrder: {"PENDING", "APPROVED", "ORDERED", "RECEIVED", "CANCELLED"},
     m.MaterialRequest: {"REQUESTED", "APPROVED", "ORDERED", "RECEIVED", "CANCELLED"},
@@ -329,17 +329,40 @@ def validate(db, obj, user, deleting=False):
         order = get(db, m.Order, obj.order_fk)
         if order.order_type == m.OrderType.SAMPLE_ONLY:
             fail("Sample Only orders cannot have an SPK")
-        if not creating and original(obj, "status") == "RELEASED":
-            fail("Released SPK is immutable; create a new version")
         if creating:
+            if obj.status != "DRAFT" or obj.snapshot:
+                fail("New SPK must begin as a draft")
             obj.version = (db.query(func.max(m.SPK.version)).filter_by(order_fk=obj.order_fk).scalar() or 0) + 1
-        if not deleting and obj.status == "RELEASED":
-            require(user, "CMO_MANAGER")
+        else:
+            previous = original(obj, "status")
+            if previous in ("RELEASED", "VOID"):
+                fail("Released or void SPK is immutable; create a new version")
+            if deleting:
+                if previous != "DRAFT":
+                    fail("Only draft SPK can be deleted")
+            elif previous != "DRAFT" and changed - {"status"}:
+                fail("Generated SPK document is locked; create a new version")
+            if not deleting and "status" in changed:
+                action = db.info.get("spk_action")
+                transitions = {"GENERATE": ("DRAFT", "GENERATED"),
+                               "PRINT": ("GENERATED", "PRINTED"),
+                               "RELEASE": ("PRINTED", "RELEASED"),
+                               "VOID": (previous, "VOID")}
+                if action not in transitions or (previous, obj.status) != transitions[action]:
+                    fail("Invalid SPK status transition")
+                if action in ("RELEASE", "VOID"):
+                    require(user, "CMO_MANAGER")
+                else:
+                    require(user, "CMO_MANAGER", "CMO_SUPPORT")
+                if action == "GENERATE" and not obj.snapshot:
+                    fail("Generated SPK requires a locked document snapshot")
+                if action in ("PRINT", "RELEASE") and not obj.snapshot:
+                    fail("SPK document must be generated first")
+        if not deleting and obj.status == "RELEASED" and (creating or "status" in changed):
             if not quotation_ready(db, order) or not finance_ready(db, order) or not samples_ready(db, order):
                 fail("Quotation, payment assessment and required samples must be approved before SPK release")
             if not order.articles or any(not route_for(a) for a in order.articles):
                 fail("Every article requires a production route")
-            obj.snapshot = json.dumps([{k: getattr(a, k) for k in ("article_code", "qty", "size_breakdown", "production_route")} for a in order.articles])
     elif isinstance(obj, m.Invoice):
         if creating and (obj.paid_amount or obj.status not in (None, "UNPAID")):
             fail("Record payments through the payments endpoint")
@@ -493,15 +516,24 @@ def validate(db, obj, user, deleting=False):
             fail("Invalid packing status")
         if obj.packing_status == "PACKED" and not qc_ready(db, get(db, m.Order, obj.order_fk)):
             fail("Final QC must pass before packing")
-        if not creating and original(obj, "status") in ("SHIPPED", "DELIVERED") and (deleting or changed.intersection({"status", "packing_status"})):
-            if obj.status != original(obj, "status") and not db.info.get("delivery_confirmation"):
-                fail("Shipped shipment status is controlled by customer confirmation")
+        if not creating and original(obj, "status") in ("SHIPPED", "DELIVERED"):
+            if deleting or "packing_status" in changed:
+                fail("Dispatched shipment packing cannot be changed")
+            if "status" in changed and not (original(obj, "status") == "SHIPPED" and obj.status == "DELIVERED"):
+                fail("Physical handover must advance a shipped shipment to delivered")
+            if "status" in changed and role(user) != "COO_MANAGER":
+                fail("Only COO Manager may record physical handover", 403)
         if obj.status in ("SHIPPED", "DELIVERED"):
             shipment_ready(db, obj)
             if not obj.shipped_date:
                 fail("Shipped date required")
-        if obj.status == "DELIVERED" and not db.info.get("delivery_confirmation"):
-            fail("Delivered status is controlled by customer confirmation")
+        if obj.status == "DELIVERED":
+            if creating:
+                fail("Physical handover requires a shipped shipment")
+            if not obj.delivery_date:
+                fail("Physical handover date required")
+        elif obj.delivery_date:
+            fail("Physical handover date requires DELIVERED status")
     elif isinstance(obj, m.DeliveryConfirmation):
         require(user, "CMO_MANAGER")
         shipment = get(db, m.Shipment, obj.shipment_fk)
@@ -511,9 +543,7 @@ def validate(db, obj, user, deleting=False):
             fail("Confirmed delivery is immutable; create a correction record")
         if obj.status == "CONFIRMED" and (not obj.confirmed_by_customer or not obj.confirmation_date):
             fail("Customer identity and confirmation date required")
-        if obj.status == "CONFIRMED":
-            shipment.status = "DELIVERED"
-            db.info["delivery_confirmation"] = True
+        # Customer acknowledgement is separate from COO physical handover.
     elif isinstance(obj, m.OrderClosing):
         order = get(db, m.Order, obj.order_fk)
         if creating and db.query(m.OrderClosing).filter_by(order_fk=obj.order_fk).first():
@@ -641,4 +671,3 @@ def commit_changes(db, user):
         raise
     finally:
         db.info.pop("shipment_approval", None)
-        db.info.pop("delivery_confirmation", None)

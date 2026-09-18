@@ -126,7 +126,7 @@ dl = next((d for d in (deliveries or []) if d.get("shipment_fk") == sh["id"]), N
 if dl:
     print(f"  = konfirmasi sudah ada (status {dl.get('status')})")
 else:
-    step("Delivery confirmation", "cmo.manager", "POST", "/coo/deliveries",
+    step("Delivery confirmation", "cmo.manager", "POST", "/cmo/delivery-confirmations",
          {"shipment_fk": sh["id"], "status": "CONFIRMED",
           "confirmed_by_customer": "Melissa Tan",
           "confirmation_date": str(today + timedelta(days=3)),
@@ -143,12 +143,18 @@ print("\n5) Order closing (CMO)")
 status, closing = call("cmo.manager", "GET", f"/coo/order-closing/{oid}")
 if status == 200 and closing:
     print(f"  = closing sudah ada: {json.dumps(closing)[:120]}")
+    if closing.get("customer_close_status") != "CLOSED":
+        step("Closing customer", "cmo.manager", "PATCH", f"/coo/order-closing/{oid}",
+             {"customer_close_status": "CLOSED", "notes": "Konfirmasi customer diterima"})
 else:
     step("Buat closing", "cmo.manager", "POST", f"/coo/order-closing/{oid}",
          {"order_fk": oid, "customer_close_status": "CLOSED",
-          "financial_close_status": "CLOSED", "order_close_status": "CLOSED",
-          "close_date": str(today + timedelta(days=4)),
           "notes": "Order selesai, semua tahap terpenuhi"})
+
+step("Closing operasional", "coo.manager", "PATCH", f"/coo/order-closing/{oid}",
+     {"operational_close_status": "CLOSED", "notes": "Produksi dan serah terima selesai"})
+step("Closing finansial", "cfo.manager", "PATCH", f"/coo/order-closing/{oid}",
+     {"financial_close_status": "CLOSED", "notes": "Tagihan lunas dan terekonsiliasi"})
 
 flow_state(order_id, "final")
 

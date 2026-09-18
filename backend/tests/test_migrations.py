@@ -18,7 +18,7 @@ def test_fresh_database_migrates_to_head():
                                  "upgrade", "head"], cwd=backend, env=env, capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
         with closing(sqlite3.connect(database)) as db:
-            assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0009_operational_closing"
+            assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0010_spk_document_flow"
             names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             assert {"orders", "quotations", "bom_items", "material_consumptions", "production_cost_entries", "cost_reviews", "qc_records", "revision_proposals", "revision_status_events"} <= names
 
@@ -52,6 +52,12 @@ def test_existing_revisions_and_images_survive_status_migration():
                         closed_by, close_date, created_at, updated_at)
                        VALUES (1, 1, 'CLOSED', 'CLOSED', 'CLOSED', 'Cecep', '2026-09-16',
                                '2026-09-16 00:00:00', '2026-09-16 00:00:00')""")
+            db.executemany("""INSERT INTO spks (order_fk, spk_no, status, version, snapshot, created_at)
+                           VALUES (1, ?, ?, 1, ?, '2026-09-16 00:00:00')""", [
+                ("SPK-OLD-DRAFT", "NEW", None),
+                ("SPK-OLD-VOID", "CANCELLED", None),
+                ("SPK-OLD-RELEASED", "RELEASED", '[{"article_code":"A"}]'),
+            ])
             db.commit()
         after = subprocess.run(command + ["head"], cwd=backend, env=env,
                                capture_output=True, text=True)
@@ -63,3 +69,4 @@ def test_existing_revisions_and_images_survive_status_migration():
                            image, "REVISI", "CMO_SUPPORT")
             assert db.execute("SELECT operational_close_status, overall_status FROM orders WHERE id=1").fetchone() == ("LEGACY_UNVERIFIED", "CLOSED")
             assert db.execute("SELECT operational_close_status, order_close_status FROM order_closings WHERE id=1").fetchone() == ("LEGACY_UNVERIFIED", "CLOSED")
+            assert db.execute("SELECT status FROM spks ORDER BY id").fetchall() == [("DRAFT",), ("VOID",), ("RELEASED",)]

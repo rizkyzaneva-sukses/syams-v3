@@ -9,6 +9,8 @@ test('route roles do not grant CEO an operational CMO page by implication', () =
   assert.equal(canAccess('CMO_SUPPORT', '/cfo/invoices'), false);
   assert.equal(canAccess('CMO_SUPPORT', '/coo/deliveries'), false);
   assert.equal(canAccess('CMO_MANAGER', '/coo/deliveries'), true);
+  assert.equal(canAccess('CMO_MANAGER', '/cfo/shipments'), true);
+  assert.equal(canAccess('CMO_SUPPORT', '/cfo/shipments'), false);
   assert.equal(canAccess('CMO_SUPPORT', '/coo/closing'), false);
 });
 

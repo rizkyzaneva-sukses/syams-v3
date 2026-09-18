@@ -88,8 +88,8 @@ business policy (CEO, sekali saja)
   -> SPK RELEASED (CMO)
   -> process movement per proses -> QC final
   -> shipment: packing PACKED -> finance gate APPROVE (CFO) -> SHIPPED
-  -> delivery confirmation (CMO) -> shipment otomatis DELIVERED
-  -> closing: customer (CMO) + financial (CFO), dua akun terpisah
+  -> serah terima fisik DELIVERED (COO) + konfirmasi customer (CMO)
+  -> closing: customer (CMO) + operasional (COO) + financial (CFO)
 ```
 
 Cek posisi order kapan saja lewat `GET /api/orders/{order_id}/flow` — endpoint
@@ -106,11 +106,13 @@ satu-satunya jalan adalah membuat order baru. Format pemisah yang diterima:
 artikel), dan purchase order harus ≥ material request. Kurang sedikit pun, SPK
 release ditolak.
 
-**Status `DELIVERED` tidak bisa di-PATCH manual.** Hanya berubah otomatis ketika
-delivery confirmation dibuat dengan status `CONFIRMED`.
+**Status `DELIVERED` dicatat COO_MANAGER** lewat update shipment dari `SHIPPED`
+dengan `delivery_date`. Konfirmasi customer oleh CMO_MANAGER tersimpan terpisah;
+keduanya diperlukan sebelum customer closing.
 
-**Closing butuh dua role berbeda.** `customer_close_status` hanya bisa diset
-CMO_MANAGER, `financial_close_status` hanya CFO_MANAGER (segregation of duties).
+**Closing butuh tiga role berbeda.** `customer_close_status` hanya bisa diset
+CMO_MANAGER, `operational_close_status` hanya COO_MANAGER, dan
+`financial_close_status` hanya CFO_MANAGER (segregation of duties).
 `order_close_status` bersifat turunan — jangan dikirim manual.
 
 **Pembayaran invoice bersifat turunan.** `paid_amount` dan `status` invoice

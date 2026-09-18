@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from pydantic import BaseModel as PydanticBaseModel, ConfigDict, model_validator
@@ -14,6 +14,8 @@ from .. import models
 from ..workflow import commit_changes, get, require, invoices_total, invoices_reconciled, quotation_ready, shipment_ready, role
 from .. import workflow
 from ..business_policy import BusinessPolicy, get_policy
+from ..audit import log_audit
+from ..spk_document import build_spk_pdf, snapshot_spk
 
 class BaseModel(PydanticBaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -180,27 +182,131 @@ def update_sample(s_id:int, data:SampleUpdate, db:Session=Depends(get_db), user=
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CMO: SPK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class SPKIn(BaseModel):
-    order_fk:int; spk_no:str; status:str="NEW"; notes:Optional[str]=None
+    order_fk:int; spk_no:str; status:str="DRAFT"; notes:Optional[str]=None
 
 class SPKUpdate(BaseModel):
     status:Optional[str]=None; notes:Optional[str]=None
 
+
+def spk_deny(db, user, action, spk_id=None):
+    log_audit(db, user, "DENIED_SPK_ACTION", "SPK", spk_id, action)
+    db.commit()
+    raise HTTPException(403, "Role or route not allowed for this SPK action")
+
+
+def spk_require(db, user, action, allowed, spk_id=None):
+    if role(user) not in allowed:
+        spk_deny(db, user, action, spk_id)
+
+
+def spk_document_response(spk):
+    try:
+        pdf = build_spk_pdf(spk)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise HTTPException(409, "SPK document is unavailable")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="spk-{spk.id}-v{spk.version}.pdf"'})
+
 @router.get("/cmo/spk")
 def list_spk(db:Session=Depends(get_db), user=Depends(get_current_user)):
-    require(user,"CEO","CMO_MANAGER","COO_MANAGER","PRODUCTION_PIC")
+    spk_require(db,user,"LIST",{"CEO","CMO_MANAGER","CMO_SUPPORT","COO_MANAGER","PRODUCTION_PIC"})
     return db.query(models.SPK).order_by(desc(models.SPK.id)).all()
 
 @router.post("/cmo/spk")
-def create_spk(data:SPKIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.CMO_SUPPORT))):
+def create_spk(data:SPKIn, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    spk_require(db,user,"CREATE_DRAFT",{"CMO_MANAGER","CMO_SUPPORT"})
+    if data.status != "DRAFT": spk_deny(db,user,"CREATE_WITH_STATUS")
     x=models.SPK(**data.model_dump()); db.add(x); commit_changes(db, user); db.refresh(x); return x
 
 @router.patch("/cmo/spk/{spk_id}")
-def update_spk(spk_id:int, data:SPKUpdate, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER))):
-    return apply_update(get_or_404(db,models.SPK,spk_id,"SPK not found"), data, db, user)
+def update_spk(spk_id:int, data:SPKUpdate, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    spk_require(db,user,"EDIT_DRAFT",{"CMO_MANAGER","CMO_SUPPORT"},spk_id)
+    if "status" in data.model_fields_set: spk_deny(db,user,"DIRECT_STATUS_CHANGE",spk_id)
+    x=get_or_404(db,models.SPK,spk_id,"SPK not found")
+    if x.status != "DRAFT":
+        raise HTTPException(409,"Only draft SPK may be edited")
+    return apply_update(x, data, db, user)
+
+
+@router.post("/cmo/spk/{spk_id}/generate")
+def generate_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    spk_require(db,user,"GENERATE",{"CMO_MANAGER","CMO_SUPPORT"},spk_id)
+    x=db.query(models.SPK).filter_by(id=spk_id).with_for_update().first()
+    if not x: raise HTTPException(404,"SPK not found")
+    if x.status != "DRAFT": raise HTTPException(409,"Only a draft SPK can be generated")
+    order=get_or_404(db,models.Order,x.order_fk,"Order not found")
+    try: x.snapshot=json.dumps(snapshot_spk(x,order),ensure_ascii=False)
+    except ValueError as exc: raise HTTPException(400,str(exc)) from exc
+    x.status="GENERATED"
+    db.info["spk_action"]="GENERATE"
+    try: commit_changes(db,user)
+    finally: db.info.pop("spk_action",None)
+    db.refresh(x)
+    return x
+
+
+@router.get("/cmo/spk/{spk_id}/pdf")
+def preview_spk_pdf(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    spk_require(db,user,"PREVIEW_PDF",{"CMO_MANAGER","CMO_SUPPORT"},spk_id)
+    x=get_or_404(db,models.SPK,spk_id,"SPK not found")
+    if x.status not in ("GENERATED","PRINTED","RELEASED"):
+        raise HTTPException(409,"Generate the SPK before previewing")
+    return spk_document_response(x)
+
+
+@router.post("/cmo/spk/{spk_id}/print")
+def print_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    spk_require(db,user,"PRINT",{"CMO_MANAGER","CMO_SUPPORT"},spk_id)
+    x=db.query(models.SPK).filter_by(id=spk_id).with_for_update().first()
+    if not x: raise HTTPException(404,"SPK not found")
+    if x.status not in ("GENERATED","PRINTED"):
+        raise HTTPException(409,"Only a generated SPK can be printed")
+    response=spk_document_response(x)
+    if x.status == "GENERATED":
+        x.status="PRINTED"
+        db.info["spk_action"]="PRINT"
+        try: commit_changes(db,user)
+        finally: db.info.pop("spk_action",None)
+    else:
+        log_audit(db,user,"PRINT","SPK",x.id,"Reprint locked version")
+        db.commit()
+    return response
+
+
+@router.post("/cmo/spk/{spk_id}/release")
+def release_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    spk_require(db,user,"RELEASE",{"CMO_MANAGER"},spk_id)
+    x=db.query(models.SPK).filter_by(id=spk_id).with_for_update().first()
+    if not x: raise HTTPException(404,"SPK not found")
+    if x.status != "PRINTED": raise HTTPException(409,"Only a printed SPK can be released")
+    x.status="RELEASED"
+    db.info["spk_action"]="RELEASE"
+    try: commit_changes(db,user)
+    finally: db.info.pop("spk_action",None)
+    db.refresh(x)
+    return x
+
+
+@router.post("/cmo/spk/{spk_id}/void")
+def void_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    spk_require(db,user,"VOID",{"CMO_MANAGER"},spk_id)
+    x=db.query(models.SPK).filter_by(id=spk_id).with_for_update().first()
+    if not x: raise HTTPException(404,"SPK not found")
+    if x.status not in ("DRAFT","GENERATED","PRINTED"):
+        raise HTTPException(409,"Only an unreleased SPK can be voided")
+    x.status="VOID"
+    db.info["spk_action"]="VOID"
+    try: commit_changes(db,user)
+    finally: db.info.pop("spk_action",None)
+    db.refresh(x)
+    return x
 
 @router.delete("/cmo/spk/{spk_id}")
-def delete_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER))):
-    x=get_or_404(db,models.SPK,spk_id); info=x.spk_no; db.delete(x); commit_changes(db, user); return {"ok":True}
+def delete_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    spk_require(db,user,"DELETE_DRAFT",{"CMO_MANAGER"},spk_id)
+    x=get_or_404(db,models.SPK,spk_id)
+    if x.status != "DRAFT": raise HTTPException(409,"Only draft SPK can be deleted")
+    db.delete(x); commit_changes(db, user); return {"ok":True}
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CFO: INVOICES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class InvoiceIn(BaseModel):
@@ -548,6 +654,8 @@ def create_shipment(data:ShipmentIn, db:Session=Depends(get_db), user=Depends(re
 def update_shipment(sh_id:int, data:ShipmentUpdate, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.COO_MANAGER,models.Role.SHIPMENT_ADMIN))):
     if {"finance_gate", "ceo_approval"}.intersection(data.model_fields_set):
         raise HTTPException(403, "Use CFO and CEO approval endpoints")
+    if role(user) != "COO_MANAGER" and (data.status == "DELIVERED" or "delivery_date" in data.model_fields_set):
+        raise HTTPException(403, "Only COO Manager may record physical handover")
     return apply_update(get_or_404(db, models.Shipment, sh_id, "Shipment not found"), data, db, user)
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CFO: SHIPMENT GATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -831,6 +939,12 @@ class OrderClosingIn(BaseModel):
 class OrderClosingUpdate(BaseModel):
     customer_close_status:Optional[str]=None; operational_close_status:Optional[str]=None; financial_close_status:Optional[str]=None; notes:Optional[str]=None
 
+def require_closing_scope(data, user, creating=False):
+    owned_field = {"CMO_MANAGER": "customer_close_status", "COO_MANAGER": "operational_close_status", "CFO_MANAGER": "financial_close_status"}[role(user)]
+    allowed = {owned_field, "notes"} | ({"order_fk"} if creating else set())
+    if data.model_fields_set - allowed:
+        raise HTTPException(403, "Closing fields belong to their respective owners")
+
 @router.get("/coo/order-closing/{order_id}")
 def get_order_closing(order_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
     require(user,"CEO","CMO_MANAGER","CFO_MANAGER","COO_MANAGER")
@@ -840,13 +954,16 @@ def get_order_closing(order_id:int, db:Session=Depends(get_db), user=Depends(get
 
 @router.post("/coo/order-closing/{order_id}")
 def create_order_closing(order_id:int, data:OrderClosingIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.COO_MANAGER,models.Role.CFO_MANAGER))):
-    data.order_fk = order_id
+    require_closing_scope(data, user, creating=True)
+    if data.order_fk != order_id:
+        raise HTTPException(400, "Closing order does not match URL")
     x=models.OrderClosing(**data.model_dump()); db.add(x); commit_changes(db, user); db.refresh(x)
 
     return x
 
 @router.patch("/coo/order-closing/{order_id}")
 def update_order_closing(order_id:int, data:OrderClosingUpdate, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.COO_MANAGER,models.Role.CFO_MANAGER))):
+    require_closing_scope(data, user)
     rec = db.query(models.OrderClosing).filter(models.OrderClosing.order_fk==order_id).order_by(desc(models.OrderClosing.id)).first()
     if not rec: raise HTTPException(404,"No closing record for this order")
     return apply_update(rec, data, db, user, "OrderClosing")

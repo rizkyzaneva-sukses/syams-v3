@@ -2,6 +2,7 @@ from datetime import date, timedelta
 import pytest
 from app import models as m
 from app.flow_engine import FlowEngine
+from app.workflow import deliveries_ready
 
 
 def call(client, headers, method, path, role, body=None, expected=200):
@@ -33,7 +34,11 @@ def ready_order(client, headers, order, paid=0):
     call(client, headers, "POST", f"/cfo/orders/{oid}/finance-gate", "CFO_MANAGER", {"action": "APPROVE", "reason": "Agreed credit terms; production authorized", "term_kind": "CREDIT", "credit_due_date": str(date.today()+timedelta(days=30)), "evidence_ref": "Signed contract CR-01"})
     for article in order["articles"]:
         call(client, headers, "POST", "/cmo/samples", "CMO_MANAGER", {"order_fk": oid, "article_code": article["article_code"], "status": "APPROVED", "notes": "Customer signed sample approval"})
-    call(client, headers, "POST", "/cmo/spk", "CMO_MANAGER", {"order_fk": oid, "spk_no": "SPK1", "status": "RELEASED"})
+    spk = call(client, headers, "POST", "/cmo/spk", "CMO_MANAGER", {"order_fk": oid, "spk_no": "SPK1"})
+    call(client, headers, "POST", f"/cmo/spk/{spk['id']}/generate", "CMO_MANAGER")
+    printed = client.post(f"/api/cmo/spk/{spk['id']}/print", headers=headers("CMO_MANAGER"))
+    assert printed.status_code == 200 and printed.content.startswith(b"%PDF"), printed.text
+    call(client, headers, "POST", f"/cmo/spk/{spk['id']}/release", "CMO_MANAGER")
     call(client, headers, "POST", "/coo/production-plans", "COO_MANAGER", {"order_fk": oid, "status": "APPROVED", "plan_date": str(date.today())})
     call(client, headers, "POST", "/coo/material-requests", "COO_MANAGER", {"order_fk": oid, "item_name": "Fabric", "qty": 15, "unit": "m"})
     call(client, headers, "POST", "/cfo/purchase-orders", "CFO_MANAGER", {"order_fk": oid, "po_no": "PO1", "item": "Fabric", "qty": 15, "unit": "m", "status": "RECEIVED", "material_status": "READY", "arrival_date": str(date.today())})
@@ -64,7 +69,7 @@ def test_complete_workflow_separates_finance_ceo_delivery_and_closing(client, he
     call(client, headers, "POST", f"/cfo/shipments/{sid}/gate", "CFO_MANAGER", {"action": "APPROVE"})
     approved = call(client, headers, "POST", f"/ceo/shipments/{sid}/approve-shipment", "CEO", {"action": "APPROVE", "reason": "Credit reviewed and accepted"})
     assert float(approved["approved_outstanding"]) == 75
-    call(client, headers, "PATCH", f"/coo/shipments/{sid}", "SHIPMENT_ADMIN", {"status": "DELIVERED", "shipped_date": str(date.today())}, expected=400)
+    call(client, headers, "PATCH", f"/coo/shipments/{sid}", "SHIPMENT_ADMIN", {"status": "DELIVERED", "shipped_date": str(date.today())}, expected=403)
     call(client, headers, "PATCH", f"/coo/shipments/{sid}", "SHIPMENT_ADMIN", {"status": "SHIPPED", "shipped_date": str(date.today()), "tracking_no": "TR1"})
     call(client, headers, "POST", "/coo/deliveries", "CMO_MANAGER", {"shipment_fk": sid}, expected=405)
     call(client, headers, "POST", "/cmo/delivery-confirmations", "COO_MANAGER", {"shipment_fk": sid}, expected=403)
@@ -72,10 +77,19 @@ def test_complete_workflow_separates_finance_ceo_delivery_and_closing(client, he
     delivery = call(client, headers, "POST", "/cmo/delivery-confirmations", "CMO_MANAGER", {"shipment_fk": sid, "status": "CONFIRMED", "confirmed_by_customer": "Buyer contact", "confirmation_date": str(date.today())})
     call(client, headers, "PATCH", f"/cmo/delivery-confirmations/{delivery['id']}", "CMO_SUPPORT", {"feedback": "changed"}, expected=403)
     assert call(client, headers, "GET", "/coo/deliveries", "CMO_SUPPORT")[0]["id"] == delivery["id"]
-    assert call(client, headers, "GET", "/coo/shipments", "CMO_SUPPORT")[0]["status"] == "DELIVERED"
+    assert call(client, headers, "GET", "/coo/shipments", "CMO_SUPPORT")[0]["status"] == "SHIPPED"
     db.expire_all()
-    assert db.get(m.Shipment, sid).status == "DELIVERED"
+    assert db.get(m.Shipment, sid).status == "SHIPPED"
+    call(client, headers, "POST", f"/coo/order-closing/{oid}", "CMO_MANAGER", {"order_fk": oid, "customer_close_status": "CLOSED"}, expected=400)
+    call(client, headers, "POST", f"/coo/order-closing/{oid}", "COO_MANAGER", {"order_fk": oid, "operational_close_status": "CLOSED"}, expected=400)
+    call(client, headers, "PATCH", f"/coo/shipments/{sid}", "CMO_MANAGER", {"status": "DELIVERED", "delivery_date": str(date.today())}, expected=403)
+    call(client, headers, "PATCH", f"/coo/shipments/{sid}", "SHIPMENT_ADMIN", {"status": "DELIVERED", "delivery_date": str(date.today())}, expected=403)
+    call(client, headers, "PATCH", f"/coo/shipments/{sid}", "COO_MANAGER", {"status": "DELIVERED"}, expected=400)
+    handover = call(client, headers, "PATCH", f"/coo/shipments/{sid}", "COO_MANAGER", {"status": "DELIVERED", "delivery_date": str(date.today())})
+    assert handover["status"] == "DELIVERED"
+    call(client, headers, "POST", f"/coo/order-closing/{oid}", "CMO_MANAGER", {"order_fk": oid, "customer_close_status": "CLOSED", "operational_close_status": "OPEN"}, expected=403)
     call(client, headers, "POST", f"/coo/order-closing/{oid}", "CMO_MANAGER", {"order_fk": oid, "customer_close_status": "CLOSED"})
+    call(client, headers, "PATCH", f"/coo/order-closing/{oid}", "CMO_MANAGER", {"operational_close_status": "OPEN"}, expected=403)
     call(client, headers, "PATCH", f"/coo/order-closing/{oid}", "CMO_SUPPORT", {"operational_close_status": "CLOSED"}, expected=403)
     call(client, headers, "PATCH", f"/coo/order-closing/{oid}", "CMO_MANAGER", {"operational_close_status": "CLOSED"}, expected=403)
     call(client, headers, "PATCH", f"/coo/order-closing/{oid}", "CFO_MANAGER", {"operational_close_status": "CLOSED"}, expected=403)
@@ -153,6 +167,14 @@ def test_multiple_shipments_all_require_delivery(client, headers, order, db):
             db.add(m.DeliveryConfirmation(shipment_fk=shipment.id, status="CONFIRMED"))
     db.commit()
     assert not FlowEngine._check_step_prerequisite(db.get(m.Order, order["id"]), "DELIVERED")[0]
+
+
+def test_legacy_customer_confirmation_without_handover_date_stays_open(order, db):
+    shipment = m.Shipment(order_fk=order["id"], shipment_no="LEGACY-DELIVERY", status="DELIVERED", shipped_date=date.today(), packing_status="PACKED")
+    db.add(shipment); db.flush()
+    db.add(m.DeliveryConfirmation(shipment_fk=shipment.id, status="CONFIRMED", confirmed_by_customer="Buyer", confirmation_date=date.today()))
+    db.commit()
+    assert not deliveries_ready(db, db.get(m.Order, order["id"]))
 
 
 def test_sample_only_blocks_spk_and_bad_order_articles(client, headers):

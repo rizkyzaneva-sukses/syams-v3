@@ -36,8 +36,8 @@ business policy (CEO)
   -> SPK RELEASED (CMO)
   -> movement per proses -> QC final
   -> shipment: packing PACKED -> finance gate APPROVE (CFO) -> SHIPPED
-  -> delivery confirmation (CMO) -> shipment otomatis DELIVERED
-  -> closing: customer (CMO) + financial (CFO), terpisah
+  -> serah terima fisik DELIVERED (COO) + konfirmasi customer (CMO)
+  -> closing: customer (CMO) + operasional (COO) + financial (CFO)
 ```
 
 ## Aturan yang mudah terlewat
@@ -50,11 +50,12 @@ release SPK — satu-satunya jalan adalah membuat order baru. Format:
 **Kuantitas berjenjang.** Material request harus ≥ (BOM qty_per_unit × qty
 artikel), dan purchase order harus ≥ material request. Kalau kurang, SPK ditolak.
 
-**Status `DELIVERED` tidak bisa di-PATCH manual.** Hanya berubah otomatis saat
-delivery confirmation dibuat dengan status `CONFIRMED`.
+**Status `DELIVERED` dicatat COO_MANAGER** dari `SHIPPED` dengan `delivery_date`.
+Konfirmasi customer oleh CMO_MANAGER tersimpan terpisah.
 
-**Closing butuh dua role berbeda.** `customer_close_status` hanya bisa diset
-CMO_MANAGER, `financial_close_status` hanya CFO_MANAGER — segregation of duties.
+**Closing butuh tiga role berbeda.** `customer_close_status` hanya bisa diset
+CMO_MANAGER, `operational_close_status` hanya COO_MANAGER, dan
+`financial_close_status` hanya CFO_MANAGER — segregation of duties.
 `order_close_status` bersifat turunan, jangan dikirim manual.
 
 **Sample Only tidak masuk produksi.** Order bertipe `SAMPLE_ONLY` ditolak di

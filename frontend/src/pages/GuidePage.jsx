@@ -7,20 +7,20 @@ const FLOW=[
  {step:'Finance Gate',role:'CFO',desc:'Setujui gate keuangan setelah pembayaran terekonsiliasi. Produksi terkunci sebelum ini.',warn:null},
  {step:'Material',role:'COO buat, CFO beli',desc:'Susun BOM, ajukan material request, terbitkan purchase order sampai status READY.',warn:'Material request harus ≥ kebutuhan BOM, dan PO harus ≥ material request.'},
  {step:'Production Plan',role:'COO',desc:'Buat rencana produksi lalu ubah statusnya menjadi APPROVED.',warn:'Order tipe Sample Only tidak bisa masuk produksi.'},
- {step:'SPK',role:'CMO',desc:'Rilis SPK ke produksi. Semua tahap di atas harus sudah beres.',warn:null},
+ {step:'SPK',role:'CMO Support → CMO Manager',desc:'Deby membuat draft, Generate, Preview PDF, lalu Print. Cecep merilis versi tercetak ke produksi setelah semua gate siap.',warn:'Print tidak sama dengan Release.'},
  {step:'Produksi & QC',role:'COO / PIC',desc:'Catat perpindahan proses mengikuti rute artikel, lalu lakukan QC final.',warn:'Urutan proses mengikuti rute yang diisi saat order dibuat.'},
  {step:'Shipment',role:'COO + CFO',desc:'Packing hingga PACKED, minta finance gate pengiriman ke CFO, lalu ubah ke SHIPPED.',warn:'Pengiriman dengan sisa tagihan butuh persetujuan CEO.'},
- {step:'Delivery',role:'CMO',desc:'Catat konfirmasi penerimaan dari customer.',warn:'Status DELIVERED berubah otomatis, tidak bisa diubah manual.'},
- {step:'Closing',role:'CMO + CFO',desc:'CMO menutup sisi customer, CFO menutup sisi keuangan. Order tertutup bila keduanya selesai.',warn:'Wajib dua akun berbeda — satu orang tidak bisa menutup keduanya.'},
+ {step:'Delivery',role:'COO + CMO',desc:'COO mencatat serah terima fisik dan tanggalnya. CMO mencatat konfirmasi penerimaan dari customer.',warn:'Konfirmasi customer tidak mengubah status fisik shipment.'},
+ {step:'Closing',role:'CMO + COO + CFO',desc:'CMO menutup sisi customer, COO menutup operasional, CFO menutup keuangan. Order tertutup bila ketiganya selesai.',warn:'Setiap sisi hanya dapat ditutup oleh pemilik perannya.'},
 ];
 
 const ROLES=[
  {role:'CEO',desc:'Kebijakan pricing, exception, decision tracker, approval pengiriman bermasalah. Bisa melihat seluruh modul.'},
  {role:'CMO Manager',desc:'Customer, order, quotation, sample/PPM, SPK, konfirmasi penerimaan, closing customer.'},
- {role:'CMO Support',desc:'Membantu input data CMO tanpa wewenang rilis SPK.'},
+ {role:'CMO Support',desc:'Menyiapkan draft, Generate, Preview PDF, dan Print SPK tanpa wewenang Release.'},
  {role:'CFO Manager',desc:'Approval quotation, invoice, payment, rekonsiliasi, purchase order, finance gate, closing keuangan.'},
  {role:'Finance Support',desc:'Input invoice dan pembayaran tanpa wewenang approval gate.'},
- {role:'COO Manager',desc:'Material request, BOM, rencana produksi, movement, QC, shipment.'},
+ {role:'COO Manager',desc:'Material request, BOM, rencana produksi, movement, QC, shipment, serah terima fisik, closing operasional.'},
  {role:'Sample / Printing / Production PIC',desc:'Mengerjakan tugas produksi yang ditugaskan dan mencatat progres.'},
  {role:'CHRO Manager',desc:'Karyawan, training, performance, dan isu kepegawaian.'},
  {role:'HR Support',desc:'Membantu administrasi kepegawaian.'},
@@ -28,11 +28,11 @@ const ROLES=[
 ];
 
 const FAQ=[
- {q:'Kenapa SPK tidak bisa dirilis?',a:'Cek berurutan: quotation sudah APPROVED, invoice lunas dan terekonsiliasi, finance gate disetujui, material request dan PO sudah READY, rencana produksi APPROVED, dan setiap artikel punya rute produksi. Halaman detail order menampilkan alasan pastinya.'},
+ {q:'Kenapa SPK tidak bisa dirilis?',a:'Pastikan Deby sudah Generate dan Print SPK. Cecep baru dapat Release setelah quotation, finance gate, material, rencana produksi, dan rute artikel memenuhi syarat. Halaman detail order menampilkan alasan gate yang masih tertahan.'},
  {q:'Saya lupa mengisi rute produksi, bagaimana?',a:'Rute tidak bisa diperbaiki setelah order dibuat karena belum ada fitur ubah artikel. Order tersebut harus dibuat ulang. Pastikan kolom Rute Produksi terisi sebelum menyimpan.'},
- {q:'Kenapa status pengiriman tidak bisa diubah ke DELIVERED?',a:'Status itu dikendalikan konfirmasi customer. Buat catatan konfirmasi penerimaan, dan status pengiriman akan berubah sendiri.'},
+ {q:'Siapa yang mencatat status DELIVERED?',a:'COO Manager mencatat serah terima fisik beserta tanggalnya setelah shipment SHIPPED. CMO Manager mencatat konfirmasi customer secara terpisah.'},
  {q:'Kenapa menu tertentu tidak muncul?',a:'Menu disaring sesuai wewenang peran Anda. Kalau memang membutuhkannya, minta administrator meninjau peran akun Anda.'},
- {q:'Kenapa closing tidak bisa diselesaikan sendiri?',a:'Penutupan sisi customer dan sisi keuangan sengaja dipisah ke dua peran berbeda sebagai kontrol internal.'},
+ {q:'Kenapa closing tidak bisa diselesaikan sendiri?',a:'Penutupan sisi customer, operasional, dan keuangan dipisah ke CMO, COO, dan CFO sebagai kontrol internal.'},
  {q:'Kenapa nominal terbayar di invoice tidak bisa diketik?',a:'Nilainya dijumlahkan otomatis dari catatan pembayaran supaya tidak ada selisih. Tambahkan record pembayaran untuk mengubahnya.'},
 ];
 

@@ -42,6 +42,8 @@ def call(account, method, path, payload=None):
     try:
         with urllib.request.urlopen(req, context=CTX) as r:
             raw = r.read()
+            if r.headers.get_content_type() == "application/pdf":
+                return r.status, {"pdf_bytes": len(raw)}
             return r.status, (json.loads(raw) if raw else None)
     except urllib.error.HTTPError as e:
         raw = e.read()
@@ -157,14 +159,19 @@ _, spks = call("cmo.manager", "GET", "/cmo/spk")
 spk = find(spks, "spk_no", spk_no)
 if not spk:
     spk = step(f"{spk_no}", "cmo.manager", "POST", "/cmo/spk",
-               {"order_fk": oid, "spk_no": spk_no, "status": "NEW",
+               {"order_fk": oid, "spk_no": spk_no,
                 "notes": "SPK order ber-routing"})
 else:
     print(f"  = {spk_no} (sudah ada)")
-if spk and spk.get("status") != "RELEASED":
-    step(f"Release {spk_no}", "cmo.manager", "PATCH", f"/cmo/spk/{spk['id']}",
-         {"status": "RELEASED", "notes": "Dirilis ke produksi"})
-elif spk:
+if spk and spk.get("status") == "DRAFT":
+    spk = step(f"Generate {spk_no}", "cmo.manager", "POST", f"/cmo/spk/{spk['id']}/generate")
+if spk and spk.get("status") == "GENERATED":
+    printed = step(f"Print {spk_no}", "cmo.manager", "POST", f"/cmo/spk/{spk['id']}/print")
+    if printed:
+        spk["status"] = "PRINTED"
+if spk and spk.get("status") == "PRINTED":
+    spk = step(f"Release {spk_no}", "cmo.manager", "POST", f"/cmo/spk/{spk['id']}/release")
+elif spk and spk.get("status") == "RELEASED":
     print(f"  = {spk_no} sudah RELEASED")
 
 # ── 5. Movement mengikuti rute ──────────────────────────────────────────────

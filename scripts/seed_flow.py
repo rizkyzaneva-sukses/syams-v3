@@ -156,7 +156,6 @@ for o in orders:
     step(f"{spk_no} — {o['buyer']}", "cmo.manager", "POST", "/cmo/spk", {
         "order_fk": o["id"],
         "spk_no": spk_no,
-        "status": "NEW",
         "notes": "Surat perintah kerja produksi",
     })
 
