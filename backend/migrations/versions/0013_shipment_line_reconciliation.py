@@ -14,14 +14,14 @@ depends_on = None
 
 
 def upgrade():
-    # The temporary server default labels existing rows as legacy without
-    # inventing quantities.  It is removed immediately; the application model
-    # supplies True for all subsequently created shipments.
-    with op.batch_alter_table("shipments") as batch:
-        batch.add_column(sa.Column("line_reconciliation_required", sa.Boolean(), nullable=False,
-                                   server_default=sa.false()))
-    with op.batch_alter_table("shipments") as batch:
-        batch.alter_column("line_reconciliation_required", server_default=None)
+    # The server default labels existing rows as legacy without inventing
+    # quantities. API-created shipments explicitly set this field to True.
+    # Keeping the default also avoids a second ALTER TABLE during startup.
+    op.add_column(
+        "shipments",
+        sa.Column("line_reconciliation_required", sa.Boolean(), nullable=False,
+                  server_default=sa.false()),
+    )
 
     op.create_table(
         "shipment_lines",
