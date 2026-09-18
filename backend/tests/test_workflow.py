@@ -80,8 +80,12 @@ def test_complete_workflow_separates_finance_ceo_delivery_and_closing(client, he
     assert spk.correction_reason is None
     assert json.loads(spk.release_prerequisites)["evidence"]["spk_version_id"] == spk.id
     assert db.query(m.AuditLog).filter_by(entity="SPK", entity_id=spk.id, action="SPK_RELEASE").count() == 1
-    shipment = call(client, headers, "POST", "/coo/shipments", "SHIPMENT_ADMIN", {"order_fk": oid, "shipment_no": "S1", "packing_status": "PACKED"})
+    shipment = call(client, headers, "POST", "/coo/shipments", "SHIPMENT_ADMIN", {"order_fk": oid, "shipment_no": "S1", "packing_status": "PACKED", "lines": [
+        {"article_id": order["articles"][0]["id"], "qty": order["articles"][0]["qty"]},
+        {"article_id": order["articles"][1]["id"], "qty": order["articles"][1]["qty"]},
+    ]})
     sid = shipment["id"]
+    assert shipment["line_total_qty"] == 15 and {line["article_code"] for line in shipment["lines"]} == {"A", "B"}
     call(client, headers, "POST", f"/coo/order-closing/{oid}", "COO_MANAGER", {"order_fk": oid, "operational_close_status": "CLOSED"}, expected=400)
     call(client, headers, "POST", f"/coo/order-closing/{oid}", "CMO_SUPPORT", {"order_fk": oid, "operational_close_status": "CLOSED"}, expected=403)
     call(client, headers, "GET", "/coo/order-closing", "CMO_SUPPORT", expected=403)
@@ -194,6 +198,30 @@ def test_multiple_shipments_all_require_delivery(client, headers, order, db):
             db.add(m.DeliveryConfirmation(shipment_fk=shipment.id, status="CONFIRMED"))
     db.commit()
     assert not FlowEngine._check_step_prerequisite(db.get(m.Order, order["id"]), "DELIVERED")[0]
+
+
+def test_shipment_lines_reconcile_articles_and_prevent_overallocation(client, headers, order):
+    ready_order(client, headers, order)
+    a, b = order["articles"]
+    call(client, headers, "POST", "/coo/shipments", "SHIPMENT_ADMIN", {
+        "order_fk": order["id"], "shipment_no": "LINES-EMPTY", "packing_status": "PACKED",
+    }, expected=400)
+    first = call(client, headers, "POST", "/coo/shipments", "SHIPMENT_ADMIN", {
+        "order_fk": order["id"], "shipment_no": "LINES-A", "packing_status": "PACKED",
+        "lines": [{"article_id": a["id"], "qty": a["qty"]}],
+    })
+    assert first["lines"][0]["article_code"] == "A"
+    call(client, headers, "POST", "/coo/shipments", "SHIPMENT_ADMIN", {
+        "order_fk": order["id"], "shipment_no": "LINES-OVER", "lines": [{"article_id": a["id"], "qty": 1}],
+    }, expected=400)
+    second = call(client, headers, "POST", "/coo/shipments", "SHIPMENT_ADMIN", {
+        "order_fk": order["id"], "shipment_no": "LINES-B", "packing_status": "PACKED",
+        "lines": [{"article_id": b["id"], "qty": b["qty"]}],
+    })
+    assert call(client, headers, "GET", f"/coo/shipments/{second['id']}/lines", "COO_MANAGER")[0]["qty"] == b["qty"]
+    call(client, headers, "PATCH", f"/coo/shipments/{second['id']}", "SHIPMENT_ADMIN", {
+        "lines": [{"article_id": b["id"], "qty": b["qty"] + 1}],
+    }, expected=400)
 
 
 def test_legacy_customer_confirmation_without_handover_date_stays_open(order, db):

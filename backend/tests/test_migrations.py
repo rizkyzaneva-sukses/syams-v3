@@ -18,11 +18,14 @@ def test_fresh_database_migrates_to_head():
                                  "upgrade", "head"], cwd=backend, env=env, capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
         with closing(sqlite3.connect(database)) as db:
-            assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0012_spk_release_authority"
+            assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0013_shipment_line_reconciliation"
             names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             assert {"orders", "po_intakes", "quotations", "bom_items", "material_consumptions", "production_cost_entries", "cost_reviews", "qc_records", "revision_proposals", "revision_status_events"} <= names
             spk_columns = {row[1] for row in db.execute("PRAGMA table_info(spks)")}
             assert {"released_by", "released_at", "released_version", "release_prerequisites", "release_reason", "correction_reason"} <= spk_columns
+            shipment_columns = {row[1] for row in db.execute("PRAGMA table_info(shipments)")}
+            assert "line_reconciliation_required" in shipment_columns
+            assert "shipment_lines" in names
 
 
 def test_po_document_bytes_survive_following_migrations():

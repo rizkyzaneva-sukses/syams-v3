@@ -258,10 +258,88 @@ def qc_ready(db, order):
     return True
 
 
+def _shipment_lines(db, shipment):
+    """Return effective lines, including unflushed ORM changes.
+
+    Packing edits replace lines in one transaction, so this deliberately avoids
+    autoflush while collecting both persistent and pending rows.
+    """
+    with db.no_autoflush:
+        stored = ([] if shipment.id is None else db.query(m.ShipmentLine)
+                  .filter_by(shipment_fk=shipment.id).all())
+    rows = [line for line in stored if line not in db.deleted]
+    for line in db.new:
+        if not isinstance(line, m.ShipmentLine) or line in db.deleted:
+            continue
+        if line.shipment is shipment or (shipment.id is not None and line.shipment_fk == shipment.id):
+            if line not in rows:
+                rows.append(line)
+    return rows
+
+
+def _order_shipment_lines(db, order_id):
+    """Return effective lines for one order without flushing pending changes."""
+    with db.no_autoflush:
+        stored = (db.query(m.ShipmentLine).join(m.Shipment)
+                  .filter(m.Shipment.order_fk == order_id).all())
+    rows = [line for line in stored if line not in db.deleted]
+    for line in db.new:
+        if not isinstance(line, m.ShipmentLine) or line in db.deleted or line in rows:
+            continue
+        shipment = line.shipment or (db.get(m.Shipment, line.shipment_fk) if line.shipment_fk else None)
+        if shipment and shipment.order_fk == order_id:
+            rows.append(line)
+    return rows
+
+
+def shipment_lines_reconciled(db, shipment):
+    """Validate a new shipment's article allocation before packing or dispatch."""
+    if not shipment.line_reconciliation_required:
+        return True
+    lines = _shipment_lines(db, shipment)
+    if not lines:
+        return False
+    seen = set()
+    for line in lines:
+        if not line.article_id or line.article_id in seen or not line.qty or line.qty <= 0:
+            return False
+        seen.add(line.article_id)
+        article = db.get(m.Article, line.article_id)
+        if article is None or article.order_fk != shipment.order_fk:
+            return False
+    for article in db.query(m.Article).filter_by(order_fk=shipment.order_fk).all():
+        allocated = sum(line.qty for line in _order_shipment_lines(db, shipment.order_fk)
+                        if line.article_id == article.id)
+        if allocated > article.qty:
+            return False
+    return True
+
+
+def delivered_lines_ready(db, order):
+    """Require complete per-article delivery once an order uses line tracking.
+
+    A fully legacy order is left readable and closable under its historic rules;
+    a mixed order is not provable and must be reconciled before operational
+    closing can attest completion.
+    """
+    shipments = db.query(m.Shipment).filter_by(order_fk=order.id).all()
+    if not any(s.line_reconciliation_required for s in shipments):
+        return True
+    if any(not s.line_reconciliation_required for s in shipments):
+        return False
+    for shipment in shipments:
+        if shipment.status != "DELIVERED" or not shipment_lines_reconciled(db, shipment):
+            return False
+    lines = _order_shipment_lines(db, order.id)
+    return all(sum(line.qty for line in lines if line.article_id == article.id) == article.qty
+               for article in db.query(m.Article).filter_by(order_fk=order.id).all())
+
+
 def shipment_ready(db, shipment):
     order = get(db, m.Order, shipment.order_fk)
     production_ready(db, order)
-    if not qc_ready(db, order) or shipment.packing_status != "PACKED":
+    if (not qc_ready(db, order) or shipment.packing_status != "PACKED"
+            or not shipment_lines_reconciled(db, shipment)):
         fail("Final QC PASS for every article and PACKED shipment are required")
     total, paid = invoices_total(db, order.id)
     outstanding = max(total - paid, Decimal(0))
@@ -296,6 +374,8 @@ def operational_ready(db, order):
     shipments = db.query(m.Shipment).filter_by(order_fk=order.id).all()
     if not shipments or any(s.status != "DELIVERED" or not s.delivery_date or s.packing_status != "PACKED" for s in shipments):
         fail("Every shipment must be packed and physically handed over")
+    if not delivered_lines_ready(db, order):
+        fail("Every ordered article quantity must be reconciled across delivered shipments")
 
 
 STATUSES = {
@@ -588,6 +668,17 @@ def validate(db, obj, user, deleting=False):
                 completed = sum(x.qty_done for x in db.query(m.ProductionMovement).filter_by(article_id=a.id).all() if x.process.upper() == prior)
                 if obj.total_checked > completed:
                     fail("Final QC exceeds completed production quantity")
+    elif isinstance(obj, m.ShipmentLine):
+        shipment = obj.shipment or get(db, m.Shipment, obj.shipment_fk)
+        if shipment.status in ("SHIPPED", "DELIVERED"):
+            fail("Dispatched shipment lines cannot be changed")
+        article = get(db, m.Article, obj.article_id)
+        if article.order_fk != shipment.order_fk:
+            fail("Shipment line article must belong to the shipment order")
+        if obj.qty is None or obj.qty <= 0:
+            fail("Shipment line quantity must be positive")
+        if _shipment_lines(db, shipment) and not shipment_lines_reconciled(db, shipment):
+            fail("Shipment lines must be unique, valid, and within each article quantity")
     elif isinstance(obj, m.Shipment):
         if creating:
             if obj.finance_gate not in (None, "PENDING") or obj.ceo_approval not in (None, "NOT_REQUIRED"):
@@ -598,6 +689,8 @@ def validate(db, obj, user, deleting=False):
             fail("Invalid packing status")
         if obj.packing_status == "PACKED" and not qc_ready(db, get(db, m.Order, obj.order_fk)):
             fail("Final QC must pass before packing")
+        if obj.line_reconciliation_required and obj.packing_status == "PACKED" and not shipment_lines_reconciled(db, obj):
+            fail("PACKED shipment requires reconciled article quantities")
         if not creating and original(obj, "status") in ("SHIPPED", "DELIVERED"):
             if deleting or "packing_status" in changed:
                 fail("Dispatched shipment packing cannot be changed")
@@ -730,6 +823,9 @@ def commit_changes(db, user):
                 oid = get(db, m.Article, obj.article_id).order_fk
             elif isinstance(obj, m.DeliveryConfirmation):
                 oid = get(db, m.Shipment, obj.shipment_fk).order_fk
+            elif isinstance(obj, m.ShipmentLine):
+                shipment = obj.shipment or get(db, m.Shipment, obj.shipment_fk)
+                oid = shipment.order_fk
             if oid:
                 order_ids.add(oid)
         for oid in sorted(order_ids):

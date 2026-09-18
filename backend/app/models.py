@@ -376,7 +376,22 @@ class Shipment(Base):
     delivery_date = Column(Date, nullable=True)
     shipped_date = Column(Date, nullable=True)
     tracking_no = Column(String(120), nullable=True)
+    # Rows created before shipment_lines existed remain explicitly marked as
+    # legacy.  New rows must reconcile their article quantities before packing.
+    line_reconciliation_required = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    lines = relationship("ShipmentLine", back_populates="shipment", cascade="all, delete-orphan")
+
+class ShipmentLine(Base):
+    __tablename__ = "shipment_lines"
+    __table_args__ = (UniqueConstraint("shipment_fk", "article_id", name="uq_shipment_line_article"),)
+    id = Column(Integer, primary_key=True)
+    shipment_fk = Column(Integer, ForeignKey("shipments.id", ondelete="CASCADE"), nullable=False, index=True)
+    article_id = Column(Integer, ForeignKey("articles.id", ondelete="RESTRICT"), nullable=False, index=True)
+    qty = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    shipment = relationship("Shipment", back_populates="lines")
+    article = relationship("Article")
 
 class Employee(Base):
     __tablename__ = "employees"

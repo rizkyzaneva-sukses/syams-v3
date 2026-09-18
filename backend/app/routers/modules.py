@@ -670,20 +670,51 @@ def delete_qc(qc_id:int, db:Session=Depends(get_db), user=Depends(require_roles(
     x=get_or_404(db,models.QCRecord,qc_id); db.delete(x); commit_changes(db, user); return {"ok":True}
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ COO: SHIPMENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+class ShipmentLineIn(BaseModel):
+    article_id:int
+    qty:int=Field(gt=0)
+
 class ShipmentIn(BaseModel):
     order_fk:int; shipment_no:str; status:str="PREPARING"; finance_gate:str="PENDING"; ceo_approval:str="NOT_REQUIRED"; notes:Optional[str]=None; tracking_no:Optional[str]=None; shipped_date:Optional[date]=None; delivery_date:Optional[date]=None; packing_status:str="PENDING"
+    lines:list[ShipmentLineIn]=Field(default_factory=list)
 
 class ShipmentUpdate(BaseModel):
     status:Optional[str]=None; finance_gate:Optional[str]=None; ceo_approval:Optional[str]=None; notes:Optional[str]=None; tracking_no:Optional[str]=None; shipped_date:Optional[date]=None; delivery_date:Optional[date]=None; packing_status:Optional[str]=None
+    lines:Optional[list[ShipmentLineIn]]=None
+
+def shipment_out(shipment):
+    fields = ("id", "order_fk", "shipment_no", "status", "finance_gate", "packing_status",
+              "finance_assessed_by_id", "approved_outstanding", "ceo_approval", "notes",
+              "delivery_date", "shipped_date", "tracking_no", "created_at",
+              "line_reconciliation_required")
+    lines = [{"id": line.id, "article_id": line.article_id,
+              "article_code": line.article.article_code if line.article else None, "qty": line.qty}
+             for line in shipment.lines]
+    return {**{field: getattr(shipment, field) for field in fields}, "lines": lines,
+            "line_total_qty": sum(line["qty"] for line in lines)}
+
+def replace_shipment_lines(shipment, lines):
+    article_ids = [line.article_id for line in lines]
+    if len(article_ids) != len(set(article_ids)):
+        raise HTTPException(400, "Each article may appear only once in a shipment")
+    shipment.lines[:] = [models.ShipmentLine(article_id=line.article_id, qty=line.qty) for line in lines]
+    shipment.line_reconciliation_required = True
 
 @router.get("/coo/shipments")
 def list_shipments(db:Session=Depends(get_db), user=Depends(get_current_user)):
     require(user,"CEO","COO_MANAGER","SHIPMENT_ADMIN","CFO_MANAGER","CMO_MANAGER","CMO_SUPPORT")
-    return db.query(models.Shipment).order_by(desc(models.Shipment.id)).all()
+    return [shipment_out(x) for x in db.query(models.Shipment).order_by(desc(models.Shipment.id)).all()]
+
+@router.get("/coo/shipments/{sh_id}/lines")
+def shipment_lines(sh_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
+    require(user,"CEO","COO_MANAGER","SHIPMENT_ADMIN","CFO_MANAGER","CMO_MANAGER","CMO_SUPPORT")
+    return shipment_out(get_or_404(db, models.Shipment, sh_id, "Shipment not found"))["lines"]
 
 @router.post("/coo/shipments")
 def create_shipment(data:ShipmentIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.COO_MANAGER,models.Role.SHIPMENT_ADMIN))):
-    x=models.Shipment(**data.model_dump()); db.add(x); commit_changes(db, user); db.refresh(x); return x
+    x=models.Shipment(**data.model_dump(exclude={"lines"}), line_reconciliation_required=True)
+    replace_shipment_lines(x, data.lines)
+    db.add(x); commit_changes(db, user); db.refresh(x); return shipment_out(x)
 
 @router.patch("/coo/shipments/{sh_id}")
 def update_shipment(sh_id:int, data:ShipmentUpdate, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.COO_MANAGER,models.Role.SHIPMENT_ADMIN))):
@@ -691,7 +722,19 @@ def update_shipment(sh_id:int, data:ShipmentUpdate, db:Session=Depends(get_db), 
         raise HTTPException(403, "Use CFO and CEO approval endpoints")
     if role(user) != "COO_MANAGER" and (data.status == "DELIVERED" or "delivery_date" in data.model_fields_set):
         raise HTTPException(403, "Only COO Manager may record physical handover")
-    return apply_update(get_or_404(db, models.Shipment, sh_id, "Shipment not found"), data, db, user)
+    x = get_or_404(db, models.Shipment, sh_id, "Shipment not found")
+    if data.lines is not None:
+        if x.status in ("SHIPPED", "DELIVERED"):
+            raise HTTPException(400, "Dispatched shipment lines cannot be changed")
+        replace_shipment_lines(x, data.lines)
+    for key, value in data.model_dump(exclude_unset=True, exclude={"lines"}).items():
+        setattr(x, key, value)
+    # Historical headers stay readable as legacy data.  The moment an operator
+    # re-packs or dispatches one, its quantities must be explicitly reconciled.
+    if data.packing_status == "PACKED" or data.status in ("SHIPPED", "DELIVERED"):
+        x.line_reconciliation_required = True
+    commit_changes(db, user); db.refresh(x)
+    return shipment_out(x)
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CFO: SHIPMENT GATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class ShipmentFinanceGateIn(BaseModel):
