@@ -47,12 +47,17 @@ def _require_view(user):
 
 
 def _stage_for_order(order):
-    """Map an order's recorded progress to a pipeline stage."""
+    """Map an order's recorded progress to a pipeline stage.
+
+    ``production_status`` lives on Article, not Order, so production progress is
+    derived from the order's articles.
+    """
     if order.overall_status == "CLOSED" or order.financial_close_status == "CLOSED":
         return "CLOSED"
     if order.shipment_status in {"SHIPPED", "DELIVERED"}:
         return "SHIPMENT"
-    if order.production_status in {"IN_PROGRESS", "DONE"}:
+    article_statuses = {article.production_status for article in order.articles}
+    if article_statuses & {"IN_PROGRESS", "DONE"}:
         return "PRODUCTION"
     return "ORDER"
 

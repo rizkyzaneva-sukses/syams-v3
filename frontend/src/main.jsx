@@ -38,6 +38,8 @@ import BusinessPolicyPage from './pages/BusinessPolicyPage';
 import BOMCostPage from './pages/BOMCostPage';
 import RevisionPage from './pages/RevisionPage';
 import CMOPriorityPage from './pages/CMOPriorityPage';
+import SalesPipelinePage from './pages/SalesPipelinePage';
+import CMOReportsPage from './pages/CMOReportsPage';
 import GuidePage from './pages/GuidePage';
 import Access from './components/Access';
 import Layout from './components/Layout';
@@ -57,6 +59,8 @@ function App(){return <BrowserRouter><Routes>
     {/* CMO */}
     <Route path="cmo" element={<Access><CMOHome/></Access>}/>
     <Route path="cmo/priority" element={<Access><CMOPriorityPage/></Access>}/>
+    <Route path="cmo/sales-pipeline" element={<Access><SalesPipelinePage/></Access>}/>
+    <Route path="cmo/reports" element={<Access><CMOReportsPage/></Access>}/>
     <Route path="cmo/customers" element={<Access><CustomerList/></Access>}/>
     <Route path="cmo/orders" element={<Access><OrderList/></Access>}/>
     <Route path="cmo/orders/new" element={<Navigate to="/cmo/po-inbox/new" replace/>}/>
