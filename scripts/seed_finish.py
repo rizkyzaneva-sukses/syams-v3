@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Finish the routed order: packing, finance gate, shipping, delivery, closing."""
 import json
+import os
 import ssl
+import sys
 import urllib.error
 import urllib.request
 from datetime import date, timedelta
 
-BASE = "https://client-bos-syam-fix.zvusml.easypanel.host"
+BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 PASSWORD = "demo123456789"
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
@@ -87,11 +89,15 @@ print(f"  status={sh.get('status')} packing={sh.get('packing_status')} "
 
 # ── 1. Packing ──────────────────────────────────────────────────────────────
 print("\n1) Packing (COO)")
+article = order["articles"][0]
+aid = article["id"]
+qty = article["qty"]
 if sh.get("packing_status") == "PACKED":
     print("  = sudah PACKED")
 else:
     step("Packing -> PACKED", "coo.manager", "PATCH", f"/coo/shipments/{sh['id']}",
-         {"packing_status": "PACKED", "notes": "Barang selesai dikemas"})
+         {"packing_status": "PACKED", "notes": "Barang selesai dikemas",
+          "lines": [{"article_id": aid, "qty": qty}]})
 
 # ── 2. Finance gate shipment (CFO) ──────────────────────────────────────────
 print("\n2) Finance gate shipment (CFO)")

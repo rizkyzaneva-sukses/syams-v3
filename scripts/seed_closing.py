@@ -5,12 +5,14 @@ Customer, operational, and financial closing belong to CMO_MANAGER,
 COO_MANAGER, and CFO_MANAGER respectively. order_close_status is derived.
 """
 import json
+import os
 import ssl
+import sys
 import urllib.error
 import urllib.request
 from datetime import date
 
-BASE = "https://client-bos-syam-fix.zvusml.easypanel.host"
+BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 PASSWORD = "demo123456789"
 CTX = ssl.create_default_context()
 CTX.check_hostname = False

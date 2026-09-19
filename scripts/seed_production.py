@@ -8,13 +8,15 @@ Chain required by the backend invariants:
 Quantities are computed from the BOM so the >= checks in materials_ready pass.
 """
 import json
+import os
 import ssl
+import sys
 import urllib.error
 import urllib.request
 from datetime import date, timedelta
 from decimal import Decimal
 
-BASE = "https://client-bos-syam-fix.zvusml.easypanel.host"
+BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 PASSWORD = "demo123456789"
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
