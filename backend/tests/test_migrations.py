@@ -7,9 +7,26 @@ import tempfile
 from contextlib import closing
 from pathlib import Path
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+
+
+def migration_head_revisions(backend):
+    """Read the real head revision(s) from the Alembic script directory.
+
+    Deriving the head instead of hardcoding a revision id keeps this test from
+    going stale every time a new migration lands. Returns a sorted list so a
+    branched (multi-head) history is reported explicitly rather than silently
+    picking one side.
+    """
+    script = ScriptDirectory.from_config(Config(str(backend / "alembic.ini")))
+    return sorted(script.get_heads())
+
 
 def test_fresh_database_migrates_to_head():
     backend = Path(__file__).resolve().parents[1]
+    heads = migration_head_revisions(backend)
+    assert len(heads) == 1, f"migration history is branched, expected a single head: {heads}"
     with tempfile.TemporaryDirectory() as directory:
         database = Path(directory) / "migration.sqlite"
         env = {**os.environ, "DATABASE_URL": f"sqlite:///{database.as_posix()}",
@@ -18,7 +35,9 @@ def test_fresh_database_migrates_to_head():
                                  "upgrade", "head"], cwd=backend, env=env, capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
         with closing(sqlite3.connect(database)) as db:
-            assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0014_sample_evidence"
+            applied = db.execute("SELECT version_num FROM alembic_version").fetchall()
+            assert [row[0] for row in applied] == heads
+            assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == heads[0]
             names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             assert {"orders", "po_intakes", "quotations", "bom_items", "material_consumptions", "production_cost_entries", "cost_reviews", "qc_records", "revision_proposals", "revision_status_events"} <= names
             spk_columns = {row[1] for row in db.execute("PRAGMA table_info(spks)")}
