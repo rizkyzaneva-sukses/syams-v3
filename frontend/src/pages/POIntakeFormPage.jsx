@@ -1,13 +1,18 @@
 import React,{useEffect,useState} from 'react';
-import {Link,useNavigate,useParams} from 'react-router-dom';
+import {Link,useNavigate,useParams,useLocation} from 'react-router-dom';
 import {api} from '../api';
 
 const blankArticle={article_code:'',garment_type:'',qty:'',size_breakdown:'',sample_required:false,production_route:''};
 const blank={po_number:'',buyer:'',order_type:'SAMPLE_PRODUCTION',buyer_deadline:'',notes:'',follow_up_note:'',articles:[{...blankArticle}]};
 
 export default function POIntakeFormPage(){
-  const {poId}=useParams(),nav=useNavigate();
-  const [form,setForm]=useState(blank),[file,setFile]=useState(null),[existing,setExisting]=useState(null),[busy,setBusy]=useState(false),[err,setErr]=useState('');
+  const {poId}=useParams(),nav=useNavigate(),{state}=useLocation();
+  /* Pintu masuk dari PO Inbox (draft order tanpa PO, blueprint REF-DEBY poin 3-4):
+     draft order yang diklik Deby sudah mengisi data yang diketahui (buyer, tipe
+     order, deadline, article) sehingga Deby tinggal melengkapi nomor PO dan
+     dokumen buyer. Hanya dipakai untuk pembuatan baru, tidak menimpa mode edit. */
+  const seed=!poId&&state?.draftOrder?state:{};
+  const [form,setForm]=useState(seed.prefill?{...blank,...seed.prefill}:blank),[file,setFile]=useState(null),[existing,setExisting]=useState(null),[busy,setBusy]=useState(false),[err,setErr]=useState('');
   useEffect(()=>{if(!poId)return;api(`/cmo/po-intake/${poId}`).then(row=>{setExisting(row);setForm({...blank,...row,articles:row.articles?.length?row.articles:[{...blankArticle}]})}).catch(e=>setErr(e.message))},[poId]);
   const setArticle=(index,key,value)=>setForm(current=>({...current,articles:current.articles.map((article,i)=>i===index?{...article,[key]:value}:article)}));
   async function save(event){
@@ -22,6 +27,7 @@ export default function POIntakeFormPage(){
   return <div className="page">
     <div className="page-title"><div><Link to="/cmo/po-inbox" className="back-link">← Kembali ke PO Inbox</Link><h1>{poId?'Edit PO Draft':'Terima PO Baru'}</h1><p>Deby menyiapkan data dan dokumen; Order belum dibuat sampai Cecep menerima PO.</p></div></div>
     {err&&<div className="notice danger" role="alert">{err}</div>}
+    {seed.draftOrder&&<div className="notice">PO intake dibuat dari Draft Order <b>{seed.prefill?.order_id||('#'+seed.draftOrder)}</b>. Data buyer, article, dan deadline diisi dari draft order — lengkapi nomor PO dan dokumen buyer, lalu simpan.</div>}
     {existing?.has_document&&<div className="notice">Dokumen saat ini: <b>{existing.document_name}</b>. Unggah file baru hanya jika perlu mengganti dokumen.</div>}
     <form onSubmit={save} className="panel form-stack">
       <div className="form-grid">
