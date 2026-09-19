@@ -387,6 +387,10 @@ class Payment(Base):
     id = Column(Integer, primary_key=True)
     invoice_no = Column(String(80), nullable=False)
     invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True, index=True)
+    # INT-ORDER-001 poin 3/4: setiap transaksi wajib bisa ditelusuri ke Order ID
+    # yang sama. Sebelumnya payment hanya menaut lewat invoice_no (string bebas,
+    # bukan FK), sehingga pembayaran bisa yatim dan tidak bisa di-query per order.
+    order_fk = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=True, index=True)
     amount = Column(Numeric(18,2), nullable=False)
     payment_date = Column(Date, nullable=True)
     method = Column(String(80), nullable=True)

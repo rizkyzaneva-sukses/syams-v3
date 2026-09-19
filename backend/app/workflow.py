@@ -399,7 +399,7 @@ STATUSES = {
 def validate(db, obj, user, deleting=False):
     creating = obj in db.new
     changed = changes(obj)
-    if getattr(obj, "order_fk", None) and not isinstance(obj, (m.DeliveryConfirmation, m.OrderClosing, m.Task, m.ExceptionItem)):
+    if getattr(obj, "order_fk", None) and not isinstance(obj, (m.DeliveryConfirmation, m.OrderClosing, m.Task, m.ExceptionItem, m.Payment)):
         dispatched = db.query(m.Shipment).filter(m.Shipment.order_fk == obj.order_fk, m.Shipment.status.in_(("SHIPPED", "DELIVERED"))).first()
         if dispatched and not isinstance(obj, m.Shipment):
             fail("Dispatched order source records are immutable")

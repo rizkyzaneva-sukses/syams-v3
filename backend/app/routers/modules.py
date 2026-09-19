@@ -567,6 +567,7 @@ def delete_po(po_id:int, db:Session=Depends(get_db), user=Depends(require_roles(
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CFO: PAYMENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class PaymentIn(BaseModel):
     invoice_no:str; amount:float; payment_date:Optional[date]=None; method:Optional[str]=None; notes:Optional[str]=None
+    invoice_id:Optional[int]=None
 
 @router.get("/cfo/payments")
 def list_payments(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT,models.Role.CEO))):
@@ -574,7 +575,21 @@ def list_payments(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db
 
 @router.post("/cfo/payments")
 def create_payment(data:PaymentIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT))):
-    x=models.Payment(**data.model_dump()); db.add(x); commit_changes(db, user); db.refresh(x); return x
+    # INT-ORDER-001 poin 3: resolusi Order ID saat pembayaran dibuat supaya
+    # transaksi tidak pernah yatim. Invoice dicari lewat invoice_id bila ada,
+    # kalau tidak lewat invoice_no. Gagal resolve = pembayaran ditolak, bukan
+    # disimpan tanpa jejak order.
+    invoice = None
+    if data.invoice_id:
+        invoice = db.get(models.Invoice, data.invoice_id)
+    if invoice is None:
+        invoice = (db.query(models.Invoice)
+                   .filter_by(invoice_no=data.invoice_no)
+                   .order_by(models.Invoice.id.desc()).first())
+    if invoice is None:
+        raise HTTPException(400, "Payment must reference a known invoice so its Order ID can be resolved")
+    x=models.Payment(**data.model_dump(exclude={"invoice_id"}), invoice_id=invoice.id, order_fk=invoice.order_fk)
+    db.add(x); commit_changes(db, user); db.refresh(x); return x
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ COO: MATERIAL REQUESTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class BOMIn(BaseModel):
