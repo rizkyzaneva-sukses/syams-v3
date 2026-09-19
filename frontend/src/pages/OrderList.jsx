@@ -2,6 +2,7 @@ import React,{useEffect,useState} from 'react';
 import {Link} from 'react-router-dom';
 import {api} from '../api';
 import {Plus,Search,ExternalLink} from 'lucide-react';
+import {FLOW_LABELS as STEP_NAMES,stepAction,missingEvidence,queueSource,isOverdue} from '../queue';
 
 const statusCls=v=>(v||'').includes('PAID')||v==='READY'||v==='ACTIVE'||v==='NEW'?'green':(v||'').includes('PARTIAL')?'amber':v==='DELAYED'||v==='HOLD'?'red':'gray';
 
@@ -92,33 +93,32 @@ export default function OrderList(){
         <table>
           <thead>
             <tr>
-              <th>Order ID</th><th>Buyer</th><th>Tipe</th><th>Articles</th>
-              <th>Total Qty</th><th>Deadline</th><th>Flow</th>
-              <th>Finance</th><th>Material</th><th>Status</th><th></th>
+              <th>Order ID</th><th>Buyer</th><th>Tipe</th><th>Total Qty</th><th>Tahap</th>
+              <th>Status</th><th>Yang Kurang</th><th>Next Action</th><th>Owner</th>
+              <th>Due / SLA</th><th>Handoff</th><th>Sumber</th><th></th>
             </tr>
           </thead>
           <tbody>
-            {f2.map(o=>(
-              <tr key={o.id}>
+            {f2.map(o=>{
+              const act=stepAction(o.flow_step);
+              const missing=missingEvidence(o);
+              return <tr key={o.id}>
                 <td><Link to={'/orders/'+o.order_id}><b>{o.order_id}</b></Link></td>
                 <td>{o.buyer}</td>
                 <td><span className="badge gray">{o.order_type?.replace(/_/g,' ')}</span></td>
-                <td>{o.articles?.map(a=>a.article_code).join(', ')||'-'}</td>
                 <td>{o.articles?.reduce((s,a)=>s+a.qty,0)||0}</td>
-                <td>{o.buyer_deadline||'-'}</td>
-                <td>
-                  <Link to={'/orders/'+o.order_id} style={{display:'flex',flexDirection:'column',gap:4,textDecoration:'none',color:'inherit'}}>
-                    <MiniFlowDots order={o}/>
-                    <span style={{fontSize:11,color:'#64748b'}}>{FLOW_STEP_LABELS[o.flow_step]||o.flow_step||'-'}</span>
-                  </Link>
-                </td>
-                <td><span className={'badge '+statusCls(o.finance_status)}>{o.finance_status}</span></td>
-                <td><span className={'badge '+statusCls(o.material_status)}>{o.material_status}</span></td>
+                <td><Link to={'/orders/'+o.order_id}><span className="badge blue">{STEP_NAMES[o.flow_step]||o.flow_step||'—'}</span></Link></td>
                 <td><span className={'badge '+statusCls(o.overall_status)}>{o.overall_status}</span></td>
+                <td>{missing.length?<span className="badge amber">{missing.join(', ')}</span>:<span className="badge green">Lengkap</span>}</td>
+                <td>{act.action}</td>
+                <td><span className="badge gray">{act.owner}</span></td>
+                <td>{o.buyer_deadline?(isOverdue(o.buyer_deadline)?<span className="badge red">{o.buyer_deadline} · lewat</span>:o.buyer_deadline):'—'}</td>
+                <td><small>{act.handoff}</small></td>
+                <td><small>{queueSource(o)}</small></td>
                 <td><Link to={'/orders/'+o.order_id} className="icon-btn" title="Detail"><ExternalLink size={15}/></Link></td>
-              </tr>
-            ))}
-            {f2.length===0&&<tr><td colSpan={11} className="empty">Tidak ada order ditemukan</td></tr>}
+              </tr>;
+            })}
+            {f2.length===0&&<tr><td colSpan={13} className="empty">Tidak ada order ditemukan</td></tr>}
           </tbody>
         </table>
       </div>
