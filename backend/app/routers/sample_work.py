@@ -119,10 +119,13 @@ TASK_STATUSES = ("OPEN", "IN_PROGRESS", "DONE", "BLOCKED", "CANCELLED")
 
 # Kolom-kolom kunci yang harus ada sebelum modul ini "berbicara eksplisit".
 # Diperiksa sekali per proses lewat `schema_capabilities()`.
+# PENTING: tabel harus terdaftar di sini, kalau tidak `_column_present()`
+# selalu False dan jalur eksplisitnya tidak pernah aktif.
 REQUIRED_COLUMNS = {
     "sample_records": ("sample_version", "previous_version_id", "revision_reason",
                        "submitted_by_id", "submitted_at"),
     "sample_evidence": ("evidence_kind", "sample_version"),
+    "exceptions": ("sample_fk", "sample_version", "scope"),
 }
 REQUIRED_TABLES = ("sample_versions", "sample_tasks", "sample_task_prerequisites")
 
@@ -175,7 +178,6 @@ def schema_capabilities(db):
     key = (id(key), str(getattr(key, "url", key)))
     if key in _CAPS_CACHE:
         return _CAPS_CACHE[key]
-
     caps = {"columns": {}, "tables": {}}
     try:
         inspector = sa_inspect(db.get_bind())
@@ -208,13 +210,14 @@ def _table_present(db, table):
 def _explicit_version(db, sample):
     """Versi eksplisit dari `sample_records.sample_version` (batch 2).
 
-    Mengembalikan None bila kolomnya belum ada ATAU belum diisi (data lama),
-    supaya pemanggil bisa memakai fallback turunan-id dan menandainya.
+    Kolomnya kini ada dengan default 1, jadi nilai 1 adalah pernyataan
+    tersimpan (bukan tebakan). Fallback turunan-`id` hanya dipakai kalau
+    kolomnya benar-benar tidak ada.
     """
     if not _column_present(db, "sample_records", "sample_version"):
         return None
     value = getattr(sample, "sample_version", None)
-    return int(value) if value else None
+    return int(value) if value else 1
 
 
 def _explicit_revision_reason(db, sample):
@@ -231,18 +234,25 @@ def _explicit_submission(db, sample):
 
 
 def _version_sources(db):
-    """Dari mana versi/task/bukti/exception dibaca — untuk dilaporkan ke UI."""
+    """Dari mana versi/task/bukti/exception dibaca — untuk dilaporkan ke UI.
+
+    Nilai yang berarti "dibaca eksplisit" adalah nama kolom/tabel nyata; nilai
+    bertanda `_LEGACY_*`/`EPHEMERAL_*`/`NOT_STORED` berarti fallback terpakai.
+    """
+    evidence_column = _column_present(db, "sample_evidence", "evidence_kind")
     return {
         "sample_version": ("sample_records.sample_version"
                            if _column_present(db, "sample_records", "sample_version")
-                           else "DERIVED_FROM_ID_ORDER"),
+                           else "LEGACY_DERIVED_FROM_ID_ORDER"),
         "sample_versions_table": _table_present(db, "sample_versions"),
-        "evidence_kind": ("sample_evidence.evidence_kind"
-                          if _column_present(db, "sample_evidence", "evidence_kind")
+        # Kolomnya bisa ada sementara baris lama masih NULL → tetap fallback,
+        # dan itu ditandai supaya tidak menyamar sebagai data pasti.
+        "evidence_kind": ("sample_evidence.evidence_kind" if evidence_column
                           else "LEGACY_SUBSTRING_HEURISTIC"),
+        "evidence_kind_fallback_for_null_rows": True,
         "evidence_version": ("sample_evidence.sample_version"
                              if _column_present(db, "sample_evidence", "sample_version")
-                             else "NOT_STORED"),
+                             else "LEGACY_NOT_STORED"),
         "exception_link": ("exceptions.sample_fk"
                            if _column_present(db, "exceptions", "sample_fk")
                            else "LEGACY_SOURCE_ENTITY_STRING"),
@@ -253,10 +263,9 @@ def _version_sources(db):
                                else "EPHEMERAL_NOT_PERSISTED"),
         "revision_reason": ("sample_records.revision_reason"
                             if _column_present(db, "sample_records", "revision_reason")
-                            else "NOT_STORED"),
-        "submission": ("sample_records.submitted_at/submitted_by_id"
-                       if _column_present(db, "sample_records", "submitted_at")
-                       else "DERIVED_FROM_completed_date"),
+                            else "LEGACY_NOT_STORED"),
+        "submission": ("sample_records.submitted_at" if _column_present(
+            db, "sample_records", "submitted_at") else "LEGACY_NOT_STORED"),
     }
 
 
@@ -467,21 +476,26 @@ def _sample_exceptions(db, sample_ids):
     if not ids:
         return {}
     query = db.query(m.ExceptionItem)
-    if _column_present(db, "exceptions", "sample_fk"):
+    explicit = _column_present(db, "exceptions", "sample_fk")
+    if explicit:
         query = query.filter(m.ExceptionItem.sample_fk.in_(ids))
-    else:
+    else:  # pragma: no cover — hanya kalau kolom belum ada
         query = query.filter(m.ExceptionItem.source_entity == "SampleRecord",
                              m.ExceptionItem.source_entity_id.in_(ids))
     rows = (query
             .filter(m.ExceptionItem.confidential.is_(False),
                     m.ExceptionItem.status.in_(["OPEN", "IN_PROGRESS"]))
             .order_by(m.ExceptionItem.id.asc()).all())
-    explicit = _column_present(db, "exceptions", "sample_fk")
+    wanted = set(ids)
     result = {}
     for row in rows:
-        link = getattr(row, "sample_fk", None) if explicit else None
-        key = link if link is not None else row.source_entity_id
-        result.setdefault(key, []).append(row)
+        key = getattr(row, "sample_fk", None) if explicit else None
+        if key is None:
+            # Exception lama tanpa `sample_fk`: jatuh ke source_entity_id, dan
+            # jalur fallback ini tercatat di `data_source.heuristics_active`.
+            key = row.source_entity_id
+        if key in wanted:
+            result.setdefault(key, []).append(row)
     return result
 
 
@@ -537,20 +551,17 @@ def _build_rows(db, user):
     # Urutan versi sample per artikel/artikel-code: v1, v2, dst.
     #
     # Batch 2: kolom eksplisit `sample_records.sample_version` menang. Urutan
-    # `id` hanya dipakai sebagai fallback untuk data lama, dan pemakaian
-    # fallback itu dicatat di `heuristic_flags` supaya bisa dilaporkan.
-    explicit_version = _column_present(db, "sample_records", "sample_version")
+    # `id` hanya dipakai sebagai fallback kalau kolomnya tidak ada, dan
+    # pemakaian fallback itu dicatat di `heuristic_flags` supaya bisa dilaporkan.
     heuristic_flags = {"version_from_id_order": False, "evidence_kind_guessed": False}
     version_chain = {}      # urutan fallback per (order, article)
     sample_version_by_id = {}
 
     for sample in samples:
-        # Kolom eksplisit menang; urutan `id` hanya fallback data lama dan
-        # pemakaiannya dicatat supaya bisa dilaporkan terbuka.
-        explicit = getattr(sample, "sample_version", None) if explicit_version else None
-        if explicit:
-            sample_version_by_id[sample.id] = int(explicit)
-            sample._sample_version_source = "COLUMN"
+        explicit = _explicit_version(db, sample)
+        if explicit is not None:
+            sample_version_by_id[sample.id] = explicit
+            sample._sample_version_source = "sample_records.sample_version"
             continue
         heuristic_flags["version_from_id_order"] = True
         key = (sample.order_fk, sample.article_id, sample.article_code)
@@ -693,6 +704,8 @@ def _row(*, article, order, sample, sample_version, eligible, ppm_version,
         "sample_fk": sample.id if sample is not None else None,
         "sample_version": sample_version,
         "sample_version_source": version_source or ("NOT_STORED" if sample is not None else None),
+        "previous_version_id": (_previous_version_sample_id(db, sample)
+                                if (db is not None and sample is not None) else None),
         "order_id": order.order_id if order is not None else None,
         "order_fk": order.id if order is not None else article.order_fk,
         "buyer": order.buyer if order is not None else None,
@@ -738,6 +751,12 @@ def _row(*, article, order, sample, sample_version, eligible, ppm_version,
                             if (db is not None and sample is not None) else None),
         "submitted_at": None,
         "submitted_by_id": None,
+        # Batch 2: default untuk baris non-task; diisi di bawah bila dipersist.
+        "task_db_id": None,
+        "task_no": None,
+        "persistence": None,
+        "persisted_task": None,
+        "prerequisites": None,
         # Pagar eksplisit: aksi yang boleh/tidak boleh dipanggil Fahrul.
         "allowed_actions": list(SAMPLE_WORK_ACTIONS),
         "denied_actions": list(BUYER_DECISION_ACTIONS),
@@ -745,13 +764,20 @@ def _row(*, article, order, sample, sample_version, eligible, ppm_version,
 
     if sample is not None and db is not None:
         submitted_at, submitted_by = _explicit_submission(db, sample)
-        payload["submitted_at"] = _iso(submitted_at or sample.completed_date)
+        locked = _column_present(db, "sample_records", "submitted_at")
+        # #34: submission punya kolomnya sendiri. Kalau kolomnya ada tapi
+        # kosong, hasilnya tetap null — `completed_date` TIDAK dipakai sebagai
+        # pengganti (itu tebakan; dulu justru itu yang salah).
+        payload["submitted_at"] = _iso(submitted_at)
         payload["submitted_by_id"] = submitted_by
-        payload["submitted_at_source"] = ("COLUMN" if submitted_at is not None
-                                          else "DERIVED_FROM_completed_date")
-    elif sample is not None:
-        payload["submitted_at"] = _iso(sample.completed_date)
-        payload["submitted_at_source"] = "DERIVED_FROM_completed_date"
+        payload["completed_date"] = _iso(sample.completed_date)
+        payload["submitted_at_source"] = ("COLUMN" if locked
+                                          else "NOT_STORED_column_absent")
+    elif sample is not None:  # pragma: no cover
+        payload["submitted_at"] = None
+        payload["submitted_by_id"] = None
+        payload["completed_date"] = _iso(sample.completed_date)
+        payload["submitted_at_source"] = "NOT_STORED_column_absent"
 
     # Batch 2: task CREATE_SAMPLE dipersist ke `sample_tasks` + prasyaratnya.
     if db is not None and required_action == "CREATE_SAMPLE" and eligible:
@@ -776,8 +802,19 @@ def _has_attr(model_or_class, name):
     return hasattr(model_or_class, name)
 
 
+def _previous_version_sample_id(db, sample):
+    """`sample_records.previous_version_id` — rantai revisi eksplisit (#34).
+
+    Mengembalikan None bila kolomnya belum ada / belum diisi; kelas versi di
+    router lifecycle tetap memakai urutan rantai sebagai fallback.
+    """
+    if not _column_present(db, "sample_records", "previous_version_id"):
+        return None
+    return getattr(sample, "previous_version_id", None)
+
+
 def _sample_version_no(sample, sample_version_by_id):
-    """Nomor versi satu baris: kolom eksplisit dulu, fallback urutan `id`."""
+    """Nomor versi satu baris: kolom eksplisit dulu, fallback urutan rantai."""
     explicit = getattr(sample, "sample_version", None)
     if explicit:
         return int(explicit)
@@ -807,6 +844,8 @@ def _persist_create_sample_task(db, payload):
             "task_no": None,
             "persistence": "BLOCKED_TABLE_ABSENT",
             "persisted_task": None,
+            "prerequisites": {"store": "BLOCKED_TABLE_ABSENT", "rows": [],
+                              "satisfied": 0, "pending": len(CREATE_SAMPLE_REQUIREMENTS)},
         }
 
     article_id = payload.get("article_id")
@@ -923,17 +962,40 @@ def _summary(rows):
     }
 
 
-def _data_source(db):
-    """Laporan terbuka: mana yang tersimpan eksplisit, mana yang fallback."""
+_LEGACY_MARKERS = ("EPHEMERAL_NOT_PERSISTED", "LEGACY_")
+
+
+def _data_source(db, rows=None):
+    """Laporan terbuka: mana yang tersimpan eksplisit, mana yang fallback.
+
+    `sources` adalah kapabilitas **skema** (kolom/tabel ada atau tidak).
+    `heuristics_active` lebih ketat: ia menambahkan fallback yang **benar-benar
+    terpakai pada request ini** (mis. baris lama yang `evidence_kind`-nya masih
+    NULL tapi ada bukti), supaya tidak ada tebakan yang disembunyikan.
+    """
     sources = _version_sources(db)
     heuristics = [key for key, value in sources.items()
-                  if isinstance(value, str) and value in {
-                      "DERIVED_FROM_ID_ORDER", "LEGACY_SUBSTRING_HEURISTIC",
-                      "LEGACY_SOURCE_ENTITY_STRING", "EPHEMERAL_NOT_PERSISTED",
-                      "NOT_STORED", "DERIVED_FROM_completed_date"}]
+                  if isinstance(value, str) and value.startswith(_LEGACY_MARKERS)]
+    if rows is not None:
+        if any(row.get("sample_version_source") == "DERIVED_FROM_ID_ORDER" for row in rows):
+            heuristics.append("version_from_id_order")
+        if any(row.get("evidence_kind_source") == "LEGACY_SUBSTRING_HEURISTIC"
+               for row in rows):
+            heuristics.append("evidence_kind")
+        if not _column_present(db, "exceptions", "sample_fk"):
+            heuristics.append("exception_link")
     return {
         "sources": sources,
-        "heuristics_active": heuristics,
+        "heuristics_active": sorted(set(heuristics)),
+        "evidence_kind_source": ("sample_evidence.evidence_kind"
+                                 if _column_present(db, "sample_evidence", "evidence_kind")
+                                 else "LEGACY_SUBSTRING_HEURISTIC"),
+        "explicit_vs_fallback": {
+            "sample_version": "explicit column (sample_records.sample_version)",
+            "evidence_kind": "explicit column, fallback hanya untuk baris NULL",
+            "exception_link": "explicit column (exceptions.sample_fk)",
+            "create_sample_task": "explicit table (sample_tasks + sample_task_prerequisites)",
+        },
         "write_support": {
             "create_sample_task": ("sample_tasks"
                                    if _table_present(db, "sample_tasks")
@@ -980,16 +1042,19 @@ def _persisted_tasks(db, rows):
             "bottleneck_reason": getattr(task, "bottleneck_reason", None),
             "created_at": _iso(getattr(task, "created_at", None)),
         }
-        prerequisites = (db.query(getattr(m, "SampleTaskPrerequisite"))
-                         .filter(getattr(m, "SampleTaskPrerequisite").task_id == task.id)
-                         .all()
-                         if getattr(m, "SampleTaskPrerequisite", None) is not None
-                         and _table_present(db, "sample_task_prerequisites") else [])
+        prereq_model = getattr(m, "SampleTaskPrerequisite", None)
+        prerequisites = []
+        if prereq_model is not None and _table_present(db, "sample_task_prerequisites"):
+            prerequisites = (db.query(prereq_model)
+                             .filter(prereq_model.task_id == task.id).all())
+        rows_out = [{"requirement_key": p.requirement_key, "label": p.label,
+                     "satisfied": bool(p.satisfied), "satisfied_at": _iso(p.satisfied_at)}
+                    for p in prerequisites]
         row["prerequisites"] = {
-            "store": "sample_task_prerequisites" if prerequisites else "BLOCKED_TABLE_ABSENT",
-            "rows": [{"requirement_key": p.requirement_key, "label": p.label,
-                      "satisfied": bool(p.satisfied), "satisfied_at": _iso(p.satisfied_at)}
-                     for p in prerequisites],
+            "store": "sample_task_prerequisites" if rows_out else "EMPTY_NOT_SEEDED",
+            "rows": rows_out,
+            "satisfied": sum(1 for item in rows_out if item["satisfied"]),
+            "pending": sum(1 for item in rows_out if not item["satisfied"]),
         }
         dump.append({"task_db_id": task.id, "task_id": row.get("task_id"),
                      "order_id": row.get("order_id"), "article_code": row.get("article_code")})
@@ -1028,7 +1093,7 @@ def sample_today(db: Session = Depends(get_db), user=Depends(get_current_user)):
         "sections": [{"key": key, "label": label, "rows": value} for key, label, value in buckets],
         "not_eligible": [r for r in rows if not r["eligible"]],
         # Batch 2: laporan terbuka tentang sumber data & persistensi task.
-        "data_source": _data_source(db),
+        "data_source": _data_source(db, rows),
         "task_persistence": _persisted_tasks(db, rows),
         # Pagar akses yang ditampilkan ke UI (ditegakkan juga di server).
         "access": _access_contract(),
@@ -1064,7 +1129,7 @@ def my_sample_tasks(status: str = None, order_id: str = None,
         "tasks": rows,
         "lifecycle": list(LIFECYCLE),
         "sla_source": "Master (buyer_deadline order / completed_date sample) — bukan input Sample PIC",
-        "data_source": _data_source(db),
+        "data_source": _data_source(db, rows),
         "task_persistence": persisted,
         "access": _access_contract(),
     }

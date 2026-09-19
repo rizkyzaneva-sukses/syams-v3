@@ -59,21 +59,33 @@ def make_article(db, order, code="ART-1", *, sample_required=True, sample_status
 
 
 def make_sample(db, order, code, *, status="PROCESS", version=None, submitted=None,
-                evidence=(), completed=None, notes=None):
-    """Sample Request + versi PPM/mockup eligible."""
+                evidence=(), completed=None, notes=None, sample_version=None,
+                article_id=None, evidence_kind=None):
+    """Sample Request + versi PPM/mockup eligible.
+
+    `sample_version` = kolom eksplisit `sample_records.sample_version`. Bila
+    tidak diisi, baris sengaja dibiarkan pada default kolom (1) supaya tes ini
+    juga membuktikan tidak ada penomoran ulang dari urutan `id`.
+    """
     ppm = version if version is not None else 1
     payload = {"ppm_version": {"version": ppm, "eligible": True,
                                "submitted": bool(submitted)}}
     if submitted is not None and not submitted:
         payload["ppm_version"]["submitted"] = False
-    sample = m.SampleRecord(order_fk=order.id, article_code=code, status=status,
-                            notes=notes if notes is not None else json.dumps(payload),
-                            completed_date=completed)
+    values = dict(order_fk=order.id, article_code=code, status=status,
+                  notes=notes if notes is not None else json.dumps(payload),
+                  completed_date=completed)
+    if article_id is not None:
+        values["article_id"] = article_id
+    if sample_version is not None:
+        values["sample_version"] = sample_version
+    sample = m.SampleRecord(**values)
     db.add(sample)
     db.commit()
     for name in evidence:
         db.add(m.SampleEvidence(sample_fk=sample.id, file_name=name, file_mime="application/pdf",
-                                file_data=b"%PDF-1.4", uploaded_by_id=1))
+                                file_data=b"%PDF-1.4", uploaded_by_id=1,
+                                evidence_kind=evidence_kind))
     db.commit()
     return sample
 
@@ -207,12 +219,11 @@ def test_article_without_ppm_version_is_ineligible_with_reason(sample_client, db
 def test_row_binds_order_article_and_version(sample_client, db, headers):
     order = make_order(db, "SO-EL-3")
     article = make_article(db, order, "ART-V")
-    first = make_sample(db, order, "ART-V", version=1, submitted=False)
-    second = make_sample(db, order, "ART-V", version=2, submitted=False)
-    # Samakan article_id seperti form yang benar (bukan free text).
-    for sample in (first, second):
-        sample.article_id = article.id
-    db.commit()
+    # Versi EKSPLISIT (kolom), bukan turunan urutan id.
+    first = make_sample(db, order, "ART-V", version=1, submitted=False,
+                        article_id=article.id, sample_version=1)
+    second = make_sample(db, order, "ART-V", version=2, submitted=False,
+                         article_id=article.id, sample_version=2)
 
     data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
     rows = [r for r in data["tasks"] if r["article_code"] == "ART-V"]
@@ -222,6 +233,191 @@ def test_row_binds_order_article_and_version(sample_client, db, headers):
         assert row["article_id"] == article.id
         assert row["order_article_id"] == article.id
         assert row["sample_id"] is not None
+        # Batch 2: versi dibaca dari kolom, dan sumbernya dilaporkan.
+        assert row["sample_version_source"] == "sample_records.sample_version"
+    assert data["data_source"]["sources"]["sample_version"] == "sample_records.sample_version"
+    assert "version_from_id_order" not in data["data_source"]["heuristics_active"]
+
+
+def test_explicit_version_wins_over_id_order(sample_client, db, headers):
+    """Revisi #34: versi tersimpan, bukan ditebak dari urutan `id`.
+
+    Baris kedua sengaja TIDAK diberi nomor unik — default kolom 1. Kalau
+    router masih menomori dari urutan id, ia akan melaporkan 1 dan 2.
+    """
+    order = make_order(db, "SO-VER-EXPLICIT")
+    article = make_article(db, order, "ART-VER")
+    make_sample(db, order, "ART-VER", article_id=article.id)          # default → 1
+    make_sample(db, order, "ART-VER", article_id=article.id)          # default → 1 juga
+
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    rows = [r for r in data["tasks"] if r["article_code"] == "ART-VER"]
+    assert {r["sample_version"] for r in rows} == {1}, \
+        "versi harus dari kolom sample_version, bukan urutan id"
+    assert all(r["sample_version_source"] == "sample_records.sample_version" for r in rows)
+
+    # Versi eksplisit 3 → dilaporkan 3 walaupun ia baris pertama artikel ini.
+    third = make_sample(db, order, "ART-VER", article_id=article.id, sample_version=3)
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    row = next(r for r in data["tasks"] if r["sample_id"] == third.id)
+    assert row["sample_version"] == 3
+
+
+# ─────────────────── jenis bukti eksplisit (SMP-F-005 / #35) ───────────────────
+def test_evidence_kind_column_classifies_unnamed_files(sample_client, db, headers):
+    """`IMG_2231.pdf` gagal ditebak dari nama; kolom `evidence_kind` menyelesaikannya."""
+    order = make_order(db, "SO-EK-1")
+    article = make_article(db, order, "ART-EK")
+    sample = make_sample(db, order, "ART-EK", article_id=article.id, submitted=True)
+    db.add_all([
+        m.SampleEvidence(sample_fk=sample.id, file_name="IMG_2231.pdf",
+                         file_mime="application/pdf", file_data=b"%PDF-1.4",
+                         uploaded_by_id=1, evidence_kind="INSPECTION"),
+        m.SampleEvidence(sample_fk=sample.id, file_name="IMG_2232.pdf",
+                         file_mime="application/pdf", file_data=b"%PDF-1.4",
+                         uploaded_by_id=1, evidence_kind="RESULT"),
+        m.SampleEvidence(sample_fk=sample.id, file_name="IMG_2233.pdf",
+                         file_mime="application/pdf", file_data=b"%PDF-1.4",
+                         uploaded_by_id=1, evidence_kind="PROGRESS"),
+    ])
+    db.commit()
+
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    row = next(r for r in data["tasks"] if r["sample_id"] == sample.id)
+    assert row["evidence"]["complete"] is True
+    assert row["evidence"]["missing"] == []
+    assert row["evidence_kind_source"] == "sample_evidence.evidence_kind"
+    assert row["evidence_unclassified"] == []
+    assert set(row["evidence_kinds"].values()) == {"PROGRESS", "INSPECTION", "RESULT"}
+    assert data["data_source"]["sources"]["evidence_kind"] == "sample_evidence.evidence_kind"
+    assert "evidence_kind" not in data["data_source"]["heuristics_active"]
+
+
+def test_missing_evidence_kind_falls_back_and_says_so(sample_client, db, headers):
+    """Fallback tebakan nama tetap ada untuk data lama, TAPI ditandai jelas."""
+    order = make_order(db, "SO-EK-2")
+    article = make_article(db, order, "ART-EK2")
+    # Nama file polos: tidak ada kata kunci inspeksi/hasil → tidak terklasifikasi.
+    sample = make_sample(db, order, "ART-EK2", article_id=article.id, evidence=("IMG_2231.pdf",))
+
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    row = next(r for r in data["tasks"] if r["sample_id"] == sample.id)
+    assert row["evidence_kind_source"] == "LEGACY_SUBSTRING_HEURISTIC"
+    assert row["evidence_unclassified"] == ["IMG_2231.pdf"]
+    assert row["evidence"]["missing"] == ["evidence_inspection", "evidence_result"]
+    assert "evidence_kind" in data["data_source"]["heuristics_active"]
+
+    # Dan begitu kolomnya diisi, tebakan berhenti dipakai untuk baris itu.
+    sample.evidence[0].evidence_kind = "INSPECTION"
+    db.commit()
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    row = next(r for r in data["tasks"] if r["sample_id"] == sample.id)
+    assert row["evidence_kind_source"] == "sample_evidence.evidence_kind"
+    assert row["evidence_unclassified"] == []
+
+
+# ─────────────────── task CREATE_SAMPLE dipersist (#33/#35) ───────────────────
+def test_create_sample_task_is_persisted_with_prerequisites(sample_client, db, headers):
+    """Task CREATE_SAMPLE jadi baris `sample_tasks` + prasyaratnya, idempoten."""
+    order = make_order(db, "SO-PERSIST")
+    article = make_article(db, order, "ART-PERSIST", sample_required=True,
+                           sample_status="REQUIRED")
+
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    row = next(r for r in data["tasks"] if r["article_code"] == "ART-PERSIST")
+    assert row["required_action"] == "CREATE_SAMPLE"
+    assert row["persistence"] == "PERSISTED", row
+    assert row["task_db_id"] is not None
+
+    task = db.get(m.SampleTask, row["task_db_id"])
+    assert task is not None
+    assert task.order_fk == order.id
+    assert task.article_id == article.id
+    assert task.required_action == "CREATE_SAMPLE"
+    assert task.stage == "OPEN" and task.status == "OPEN"
+    assert task.blocker_owner == "CMO_MANAGER"
+    assert task.bottleneck_reason and "Sample Request belum dibuat" in task.bottleneck_reason
+    assert task.sla_source and "Master" in task.sla_source
+
+    prereqs = db.query(m.SampleTaskPrerequisite).filter(
+        m.SampleTaskPrerequisite.task_id == task.id).all()
+    keys = {p.requirement_key for p in prereqs}
+    assert keys == {"sample_request", "ppm_version", "article_routed"}
+    satisfied = {p.requirement_key: p.satisfied for p in prereqs}
+    assert satisfied["article_routed"] is True
+    assert satisfied["sample_request"] is False and satisfied["ppm_version"] is False
+
+    # Persistensi terlihat di payload, dan bisa dibaca ulang (idempoten).
+    assert data["task_persistence"]["store"] == "sample_tasks"
+    assert data["task_persistence"]["persisted"] >= 1
+    assert data["task_persistence"]["missing"] == []
+    detail = next(r for r in data["task_persistence"]["rows"] if r["task_db_id"] == task.id)
+    assert detail["order_id"] == "SO-PERSIST"
+    assert row["prerequisites"]["satisfied"] == 1 and row["prerequisites"]["pending"] == 2
+
+    before = db.query(m.SampleTask).count()
+    again = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    assert db.query(m.SampleTask).count() == before, "membaca ulang tidak boleh menduplikasi task"
+    assert again["task_persistence"]["persisted"] == data["task_persistence"]["persisted"]
+
+    # Artikel yang TIDAK butuh sample tidak boleh membuat task.
+    make_article(db, order, "ART-NO-TASK", sample_required=False, sample_status="NOT_REQUIRED")
+    sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC"))
+    assert db.query(m.SampleTask).filter(m.SampleTask.article_id != article.id).count() == 0
+
+
+def test_create_sample_task_not_duplicated_when_sample_request_exists(sample_client, db, headers):
+    """Begitu Sample Request ada, task CREATE_SAMPLE berhenti ditawarkan."""
+    order = make_order(db, "SO-PERSIST-2")
+    article = make_article(db, order, "ART-PERSIST-2")
+    sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC"))
+    assert db.query(m.SampleTask).count() == 1
+
+    make_sample(db, order, "ART-PERSIST-2", article_id=article.id)
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    row = next(r for r in data["tasks"] if r["article_code"] == "ART-PERSIST-2")
+    assert row["required_action"] is None and row["persistence"] is None
+    assert data["create_sample_tasks"] == 0
+    assert db.query(m.SampleTask).count() == 1
+
+
+# ─────────────────── exception terikat ke sample & versinya (#37) ───────────────────
+def test_exception_links_via_sample_fk_and_version(sample_client, db, headers):
+    order = make_order(db, "SO-EX-FK")
+    article = make_article(db, order, "ART-EX-FK")
+    sample = make_sample(db, order, "ART-EX-FK", article_id=article.id,
+                         evidence=("foto-progres.pdf",), sample_version=2)
+    db.add_all([
+        # Ikatan eksplisit: sample_fk + versi, TANPA source_entity.
+        m.ExceptionItem(title="Warna meleset", category="Sample Material", severity="RED",
+                        owner_role="SAMPLE_PIC", status="OPEN",
+                        sample_fk=sample.id, sample_version=2),
+        # Exception lama (belum di-backfill): masih lewat source_entity.
+        m.ExceptionItem(title="Ukuran kurang", category="Sample Material", severity="YELLOW",
+                        owner_role="SAMPLE_PIC", status="OPEN",
+                        sample_fk=sample.id, source_entity="SampleRecord",
+                        source_entity_id=sample.id),
+    ])
+    db.commit()
+
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    row = next(r for r in data["tasks"] if r["sample_id"] == sample.id)
+    assert {e["problem"] for e in row["exceptions"]} == {"Warna meleset", "Ukuran kurang"}
+    explicit = next(e for e in row["exceptions"] if e["problem"] == "Warna meleset")
+    assert explicit["sample_fk"] == sample.id
+    assert explicit["sample_version"] == 2
+    assert row["stage"] == "WORK_REVISION"
+    assert data["data_source"]["sources"]["exception_link"] == "exceptions.sample_fk"
+    assert "exception_link" not in data["data_source"]["heuristics_active"]
+
+    # Exception milik sample LAIN tidak boleh menempel.
+    other = make_sample(db, order, "ART-EX-FK2", article_id=None, evidence=("foto-progres.pdf",))
+    db.add(m.ExceptionItem(title="Punya sample lain", category="Sample Material", severity="RED",
+                           owner_role="SAMPLE_PIC", status="OPEN", sample_fk=other.id))
+    db.commit()
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    row = next(r for r in data["tasks"] if r["sample_id"] == sample.id)
+    assert "Punya sample lain" not in {e["problem"] for e in row["exceptions"]}
 
 
 # ─────────────────── SLA, evidence & lifecycle (SMP-F-005 / #35) ───────────────────
@@ -364,16 +560,17 @@ def test_exception_scopes_to_sample_and_denies_resolve(sample_client, db, header
     db.add_all([
         m.ExceptionItem(title="Bahan sample terlambat", category="Sample Material",
                         severity="RED", owner_role="SAMPLE_PIC", status="OPEN",
-                        source_entity="SampleRecord", source_entity_id=sample.id,
+                        sample_fk=sample.id, sample_version=1,
                         next_action="Unggah bukti bahan pengganti", due_date=date.today(),
                         escalation_reason="Supplier belum konfirmasi", confidential=False),
         m.ExceptionItem(title="Setup mesin bordir", category="Production", severity="YELLOW",
                         owner_role="COO_MANAGER", status="OPEN",
-                        source_entity="SampleRecord", source_entity_id=other.id,
+                        sample_fk=other.id, sample_version=1,
                         source_module="Production", confidential=False),
         m.ExceptionItem(title="Kasus HR", category="Sample HR", severity="RED",
                         owner_role="SAMPLE_PIC", status="OPEN", confidential=True,
-                        source_entity="SampleRecord", source_entity_id=sample.id),
+                        sample_fk=sample.id, source_entity="SampleRecord",
+                        source_entity_id=sample.id),
     ])
     db.commit()
 
