@@ -45,6 +45,7 @@ import SampleApprovalFeedPage from './pages/SampleApprovalFeedPage';
 import ReleaseToCOOPage from './pages/ReleaseToCOOPage';
 import ExceptionCenterPage from './pages/ExceptionCenterPage';
 import DebyTodayPage from './pages/DebyTodayPage';
+import AfterSalesPage from './pages/AfterSalesPage';
 import GuidePage from './pages/GuidePage';
 import Access from './components/Access';
 import Layout from './components/Layout';
@@ -84,6 +85,7 @@ function App(){return <BrowserRouter><Routes>
     <Route path="cmo/quotations" element={<Access><QuotationPage/></Access>}/>
     <Route path="cmo/samples" element={<Access><SamplePPMPage/></Access>}/>
     <Route path="cmo/spk" element={<Access><SPKPage/></Access>}/>
+    <Route path="cmo/after-sales" element={<Access><AfterSalesPage/></Access>}/>
     {/* CFO */}
     <Route path="cfo" element={<Access><CFOHome/></Access>}/>
     <Route path="cfo/invoices" element={<Access><InvoicePage/></Access>}/>
