@@ -32,8 +32,20 @@ export function blockersFor(row){
   if(row.evidence&&!row.evidence.complete) out.push(`Bukti kurang: ${(row.evidence.missing||[]).join(', ')}`);
   const reqs=row.requirements||{};
   for(const [key,v] of Object.entries(reqs)) if(v&&!v.ok) out.push(v.label);
+  /* Bukti yang jenisnya tidak diketahui tidak dihitung terpenuhi — sebutkan
+     apa adanya supaya tidak terlihat seperti "sudah lengkap". */
+  if(row.evidence_unclassified&&row.evidence_unclassified.length)
+    out.push(`Bukti belum berjenis (tidak dihitung): ${row.evidence_unclassified.join(', ')}`);
   if(row.blocker) out.push(`${row.blocker} (owner ${row.blocker_owner||'—'})`);
   return [...new Set(out)];
+}
+
+/* Sumber data yang dipakai server. Kalau ada jalur heuristik yang aktif, UI
+   mengatakannya — supaya angka di layar tidak menyamar sebagai data pasti. */
+export function dataSourceNote(data){
+  const src=(data&&data.data_source)||{};
+  const active=src.heuristics_active||[];
+  return {sources:src.sources||{},active,persisted:(data&&data.task_persistence)||null};
 }
 
 export function LifecycleTrack({stage}){
@@ -47,10 +59,15 @@ export function LifecycleTrack({stage}){
   </div>;
 }
 
-export function TaskCard({row}){
+export function TaskCard({row,onAction,busy}){
   const blockers=blockersFor(row);
   const actions=allowedActions(row);
   const decided=row.buyer_decision&&row.buyer_decision.decided;
+  /* Aksi yang benar-benar bisa DIJALANKAN: hanya kalau task sudah tersimpan
+     (`task_db_id`) dan server tidak memblokirnya. `blocked_actions` dikirim
+     backend beserta prasyarat yang kurang — UI tidak menebak. */
+  const canRun=(row.task_db_id!=null&&typeof onAction==='function')?actions:[];
+  const hasTask=row.task_db_id!=null;
   return <section className="panel">
     <div className="panel-head">
       <h2>{row.sample_id?`SMP-${row.sample_id}`:'SMP-BARU'} · {row.article_code||'—'} v{row.sample_version||1}</h2>
@@ -68,7 +85,10 @@ export function TaskCard({row}){
         <p><b>SLA / due:</b> <span className={'badge '+((row.sla&&row.sla.state==='OVERDUE')?'red':'green')}>
           {(row.sla&&row.sla.label)||'—'}</span> {(row.sla&&row.sla.due)?`· ${row.sla.due}`:''}</p>
         <p><b>Evidence:</b> <span className={'badge '+(row.evidence&&row.evidence.complete?'green':'amber')}>
-          {row.evidence?`${row.evidence.uploaded}/${row.evidence.required}`:'—'}</span></p>
+          {row.evidence?`${row.evidence.uploaded}/${row.evidence.required}`:'—'}</span>
+          {row.evidence_kind_source?<> <small>jenis bukti: {row.evidence_kind_source}</small></>:null}</p>
+        {row.submitted_at&&<p><b>Submitted:</b> <small>{row.submitted_at}</small>
+          {row.submitted_at_source?<> · <span className="badge gray">{row.submitted_at_source}</span></>:null}</p>}
         <p><b>Handoff berikutnya:</b> <small>{row.handoff}</small></p>
         <p><b>Updated:</b> <small>{row.updated_at?new Date(row.updated_at+'Z').toLocaleString('id-ID'):'—'}</small></p>
       </div>
@@ -82,6 +102,7 @@ export function TaskCard({row}){
       <ul>{row.exceptions.map(e=><li key={e.exception_id}>
         [{e.severity}] {e.problem} — owner {e.owner}
         {e.next_action?` · next: ${e.next_action}`:''}
+        {e.sample_version?` · versi ${e.sample_version}`:''}
         {' · '}<span className="badge gray">{e.can_edit?'boleh update bukti/aksi':'lihat saja'}</span>
         {e.can_escalate&&<> <span className="badge amber">bisa dieskalasi</span></>}
         {!e.can_resolve&&<> <span className="badge gray">resolve bukan hak Sample PIC</span></>}
@@ -99,15 +120,24 @@ export function TaskCard({row}){
       {actions.length?actions.map(a=><span className="badge blue" key={a}>{a}</span>):'—'}
       {' '}<b>Keputusan buyer APPROVED/REJECTED bukan aksi halaman ini.</b>
       {decided&&<> Sudah dicatat CMO_MANAGER: <span className="badge green">{row.buyer_decision.status}</span>
-        {row.buyer_decision.reason?` — ${row.buyer_decision.reason}`:''}</>}
+        {row.buyer_decision.reason?` — ${row.buyer_decision.reason}`:''}
+        {row.buyer_decision.source?<> <small>(sumber: {row.buyer_decision.source})</small></>:null}</>}
       {!decided&&<> Menunggu <b>CMO_MANAGER</b> mencatat keputusan buyer.</>}
     </div>
+
+    {canRun.length>0&&<div className="notice info">
+      <b>Jalankan pekerjaan</b>{' '}
+      {canRun.map(a=><button className="btn" key={a} disabled={busy}
+        onClick={()=>onAction(row,a)}>{a.replace(/_/g,' ')}</button>)}
+      {hasTask&&<small> Setiap aksi tercatat di audit dengan tahap lama → tahap baru.</small>}
+    </div>}
   </section>;
 }
 
 export default function SampleTaskPage(){
   const [params,setParams]=useSearchParams();
   const [data,setData]=useState(null),[err,setErr]=useState(''),[busy,setBusy]=useState(false);
+  const [msg,setMsg]=useState('');
   const orderFilter=params.get('order_id')||'';
   const stageFilter=params.get('stage')||'';
 
@@ -123,11 +153,29 @@ export default function SampleTaskPage(){
   }
   useEffect(()=>{load()},[orderFilter,stageFilter]);
 
+  /* Aksi pekerjaan dikirim ke endpoint task. `WORK_REVISION` wajib alasan —
+     server menolaknya (422) kalau kosong, jadi UI menanyakannya lebih dulu. */
+  async function runAction(row,action){
+    let body={action};
+    if(action==='WORK_REVISION'){
+      const reason=window.prompt('Alasan revisi (wajib):');
+      if(!reason||!reason.trim()) return;
+      body.reason=reason.trim();
+    }
+    setBusy(true);
+    try{
+      const res=await api('/sample/tasks/'+row.task_db_id+'/actions',{method:'POST',body:JSON.stringify(body)});
+      setMsg(`${action} berhasil — tahap sekarang ${res.stage}.`);
+      setErr(''); await load();
+    }catch(e){setErr(e.message); setMsg('')}finally{setBusy(false)}
+  }
+
   const tasks=useMemo(()=>data?data.tasks||[]:[],[data]);
   if(err&&!data) return <div className="page"><div className="notice danger">{err}</div></div>;
   if(!data) return <div className="page">Memuat tugas sample...</div>;
 
   const access=data.access||{};
+  const src=dataSourceNote(data);
   return <div className="page">
     <div className="page-title">
       <div>
@@ -144,10 +192,30 @@ export default function SampleTaskPage(){
       <div className={'stat '+(data.overdue?'red':'green')}><strong>{data.overdue||0}</strong><span>Lewat SLA</span></div>
     </div>
 
+    {msg&&<div className="notice success">{msg}</div>}
+    {err&&<div className="notice danger">{err}</div>}
+
     <div className="notice info">
       {data.sla_source}. Lifecycle: {STAGES.join(' → ')}.
       Task tidak pernah DONE tanpa sample version submitted dan seluruh required evidence.
     </div>
+
+    {/* Revisi #34: versi dibaca dari kolom, bukan urutan id. Kalau ada jalur
+        heuristik yang masih dipakai, katakan — jangan diam. */}
+    <section className="panel">
+      <div className="panel-head"><h2>Sumber data</h2>
+        <span>{src.active.length?`${src.active.length} jalur fallback aktif`:'semua eksplisit'}</span></div>
+      <p><b>Versi sample:</b> <code>{src.sources.sample_version}</code></p>
+      <p><b>Jenis bukti:</b> <code>{src.sources.evidence_kind}</code></p>
+      <p><b>Ikatan exception:</b> <code>{src.sources.exception_link}</code></p>
+      <p><b>Penyimpanan task:</b> <code>{src.sources.task_store}</code>
+        {src.persisted&&src.persisted.persisted!=null?<> · <span className="badge green">
+          {src.persisted.persisted} task tersimpan</span></>:null}</p>
+      {src.active.length>0&&<div className="notice amber">
+        <b>Fallback yang masih dipakai:</b> {src.active.map(a=><span className="badge amber" key={a}>{a}</span>)}
+        <small> Angka dari jalur ini bukan data tersimpan.</small>
+      </div>}
+    </section>
 
     <section className="panel">
       <div className="panel-head"><h2>Filter</h2><span>{tasks.length} tugas ditampilkan</span></div>
@@ -163,7 +231,7 @@ export default function SampleTaskPage(){
     </section>
 
     {tasks.length===0&&<div className="notice success">Tidak ada tugas sample yang cocok dengan filter.</div>}
-    {tasks.map(row=><TaskCard key={row.task_id+'+'+row.stage} row={row}/>)}
+    {tasks.map(row=><TaskCard key={row.task_id+'+'+row.stage} row={row} busy={busy} onAction={runAction}/>)}
 
     <section className="panel">
       <div className="panel-head"><h2>Batas akses Sample PIC</h2><span>ditegakkan server-side</span></div>

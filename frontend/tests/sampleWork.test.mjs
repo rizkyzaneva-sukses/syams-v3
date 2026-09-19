@@ -27,8 +27,21 @@ function blockersFor(row){
   if(row.evidence&&!row.evidence.complete) out.push(`Bukti kurang: ${(row.evidence.missing||[]).join(', ')}`);
   const reqs=row.requirements||{};
   for(const [key,v] of Object.entries(reqs)) if(v&&!v.ok) out.push(v.label);
+  if(row.evidence_unclassified&&row.evidence_unclassified.length)
+    out.push(`Bukti belum berjenis (tidak dihitung): ${row.evidence_unclassified.join(', ')}`);
   if(row.blocker) out.push(`${row.blocker} (owner ${row.blocker_owner||'—'})`);
   return [...new Set(out)];
+}
+
+function dataSourceNote(data){
+  const src=(data&&data.data_source)||{};
+  return {sources:src.sources||{},active:src.heuristics_active||[],
+          persisted:(data&&data.task_persistence)||null};
+}
+
+function canRunActions(row,onAction){
+  if(!row||row.task_db_id==null||typeof onAction!=='function') return [];
+  return allowedActions(row);
 }
 
 function evidenceLabel(evidence){
@@ -95,6 +108,59 @@ test('SLA and evidence columns reflect per-article state (#35)', () => {
   assert.equal(slaClass('DUE_SOON'),'badge amber');
   assert.equal(slaClass('ON_TRACK'),'badge green');
   assert.equal(slaClass('NO_SLA'),'badge gray');
+});
+
+test('unclassified evidence is not counted as complete and is named (#34/#35)', () => {
+  /* `evidence_kind` kosong + nama file polos = tidak dihitung. UI harus
+     menyebutkannya, bukan menampilkan "lengkap". */
+  const row={eligible:true,evidence:{uploaded:1,required:3,complete:false,
+               missing:['evidence_inspection','evidence_result']},
+             evidence_unclassified:['IMG_2231.pdf'],
+             requirements:{},blocker:null};
+  const blockers=blockersFor(row);
+  assert.ok(blockers.some(b=>b.startsWith('Bukti belum berjenis')),
+    'bukti tanpa jenis harus disebut di daftar prasyarat');
+  assert.ok(blockers.some(b=>b.includes('IMG_2231.pdf')),'nama file harus terlihat');
+  // Kalau semuanya berjenis, tidak ada catatan tambahan.
+  assert.deepEqual(blockersFor({eligible:true,evidence:null,requirements:{},
+                                evidence_unclassified:[],blocker:null}),[]);
+});
+
+test('data source note surfaces active fallbacks instead of hiding them (#34)', () => {
+  const data={data_source:{heuristics_active:['evidence_kind'],
+                           sources:{sample_version:'sample_records.sample_version',
+                                    evidence_kind:'sample_evidence.evidence_kind',
+                                    exception_link:'exceptions.sample_fk',
+                                    task_store:'sample_tasks'}},
+              task_persistence:{persisted:3}};
+  const note=dataSourceNote(data);
+  assert.deepEqual(note.active,['evidence_kind']);
+  assert.equal(note.sources.sample_version,'sample_records.sample_version');
+  assert.equal(note.persisted.persisted,3);
+  assert.deepEqual(dataSourceNote({data_source:{heuristics_active:[]}}).active,[]);
+  assert.deepEqual(dataSourceNote(null).active,[]);
+});
+
+test('task actions are only runnable for a persisted task (#35)', () => {
+  const row={task_id:'SMP-1',task_db_id:7,allowed_actions:['START','SUBMIT_RESULT']};
+  assert.equal(canRunActions(row,()=>{}).length,2);
+  // Belum tersimpan → tidak ada tombol yang bisa dijalankan.
+  assert.deepEqual(canRunActions({task_id:'SMP-NEW-1-1',task_db_id:null,
+                                  allowed_actions:['START']},()=>{}),[]);
+  // Tanpa handler, tidak ada aksi yang ditawarkan.
+  assert.deepEqual(canRunActions(row,null),[]);
+});
+
+test('task page sends only work actions, never a buyer decision (#32/#37)', () => {
+  const src=read('SampleTaskPage.jsx');
+  assert.ok(src.includes("'/sample/tasks/'+row.task_db_id+'/actions'"),
+    'aksi harus dikirim ke endpoint task');
+  assert.ok(!/customer-decision/.test(src),'tidak boleh memanggil customer-decision');
+  const sendsBuyerDecision=/action\s*[:=]\s*['"](BUYER_APPROVE|BUYER_REJECT|APPROVE|REJECT)['"]/.test(src);
+  assert.ok(!sendsBuyerDecision,'tidak boleh mengirim aksi keputusan buyer');
+  assert.ok(/runAction/.test(src)&&/row\.task_db_id/.test(src));
+  assert.ok(/WORK_REVISION/.test(src),'alasan revisi ditangani di UI');
+  assert.ok(/prompt\(/.test(src),'WORK_REVISION meminta alasan lebih dulu');
 });
 
 test('sample pages keep the locked sidebar scope for Sample PIC (#31)', () => {
