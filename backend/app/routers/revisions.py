@@ -21,6 +21,12 @@ class StatusChange(BaseModel):
     operator: str | None = None
 
 
+class OperatorAssign(BaseModel):
+    """Set who worked on a proposal, after the work was actually done."""
+    operator: str | None = None
+    expected_operator: str | None = None
+
+
 def image_mime(data: bytes) -> str | None:
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
@@ -157,6 +163,40 @@ def change_revision_status(proposal_id: int, payload: StatusChange,
                                changed_by_id=user.id, operator=event_operator))
     log_audit(db, user, "STATUS_CHANGE", "RevisionProposal", proposal.id,
               f"{previous} -> {proposal.status}: {note} | operator={event_operator or '-'}")
+    db.commit()
+    db.refresh(proposal)
+    reporter = db.get(User, proposal.reported_by_id)
+    return proposal_out(proposal, reporter.name, user)
+
+
+@router.patch("/{proposal_id}/operator")
+def assign_revision_operator(proposal_id: int, payload: OperatorAssign,
+                             db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Record which operator (human or agent) actually did the work.
+
+    Deliberately separate from the status endpoint: an operator is set once the
+    fix exists, not when the revision is merely proposed. CEO-only, optimistic
+    locked on the previous value, and written to the audit log so a silently
+    rewritten attribution is detectable.
+    """
+    if user.role != Role.CEO:
+        raise HTTPException(403, "Hanya CEO yang berwenang menetapkan operator.")
+    proposal = (db.query(RevisionProposal).filter(RevisionProposal.id == proposal_id)
+                .with_for_update().one_or_none())
+    if proposal is None:
+        raise HTTPException(404, "Usulan revisi tidak ditemukan.")
+    current = proposal.operator or None
+    expected = (payload.expected_operator or "").strip()[:64] or None
+    if (expected or None) != current:
+        raise HTTPException(409, "Operator sudah berubah. Muat ulang usulan sebelum melanjutkan.")
+    previous, new_value = current, (payload.operator or "").strip()[:64] or None
+    proposal.operator = new_value
+    db.add(RevisionStatusEvent(
+        proposal_id=proposal.id, from_status=proposal.status, to_status=proposal.status,
+        note=f"Operator: {previous or 'belum dicatat'} → {new_value or 'dikosongkan'}",
+        changed_by_id=user.id, operator=new_value))
+    log_audit(db, user, "OPERATOR_ASSIGN", "RevisionProposal", proposal.id,
+              f"operator: {previous or '-'} -> {new_value or '-'}")
     db.commit()
     db.refresh(proposal)
     reporter = db.get(User, proposal.reported_by_id)
