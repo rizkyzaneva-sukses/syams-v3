@@ -47,6 +47,7 @@ evidence + decision, so it can never drift from the record.
 from datetime import timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user
@@ -135,6 +136,81 @@ def _user_names(db, ids):
         return {}
     rows = db.query(m.User).filter(m.User.id.in_(wanted)).all()
     return {row.id: row.name for row in rows}
+
+
+def _version_rows(db, sample_ids):
+    """`sample_versions` per (sample_fk, version) — keputusan buyer PER VERSI.
+
+    Ditulis `modules.py::sample_version_row`; modul ini read-only.
+    """
+    model = getattr(m, "SampleVersion", None)
+    ids = [i for i in sample_ids if i is not None]
+    if model is None or not ids or not _has_table(db, "sample_versions"):
+        return {}
+    rows = (db.query(model).filter(model.sample_fk.in_(ids)).all())
+    return {(row.sample_fk, row.version): row for row in rows}
+
+
+def _has_table(db, name):
+    """Tabel benar-benar ada di DB (bukan hanya di metadata model)."""
+    try:
+        return name in set(sa_inspect(db.get_bind()).get_table_names())
+    except Exception:  # pragma: no cover
+        return False
+
+
+def _has_column(db, table, column):
+    try:
+        cols = {c["name"] for c in sa_inspect(db.get_bind()).get_columns(table)}
+    except Exception:  # pragma: no cover
+        return False
+    return column in cols
+
+
+def _chain_samples(db, samples, anchor_key, article_by_id, article_by_key):
+    """Rantai versi satu artikel.
+
+    Revisi #34: `previous_version_id` adalah rantai yang TERSIMPAN. Dipakai
+    kalau rantainya benar-benar terbentuk; kalau tidak (data lama, atau writer
+    belum mengisi kolomnya), identitas (order, article) jadi fallback dan itu
+    dilaporkan lewat `chain_source` — termasuk saat kolomnya ada tapi KOSONG,
+    supaya UI tidak pernah mengklaim "versi 1" untuk baris kedua.
+    """
+    by_id = {row.id: row for row in samples}
+    column_present = _has_column(db, "sample_records", "previous_version_id")
+    explicit_filled = column_present and any(
+        getattr(row, "previous_version_id", None) is not None for row in samples)
+
+    def key_of(row):
+        article = _article_of(row, article_by_id, article_by_key)
+        return _article_key(row, article)
+
+    mine = [row for row in samples if key_of(row) == anchor_key]
+
+    if explicit_filled and mine:
+        latest = max(mine, key=lambda r: (getattr(r, "sample_version", None) or 1, r.id))
+        chain, seen, cursor = [], set(), latest
+        while cursor is not None and cursor.id not in seen:
+            seen.add(cursor.id)
+            chain.append(cursor)
+            cursor = by_id.get(getattr(cursor, "previous_version_id", None))
+        chain.reverse()
+        if chain and chain[-1].id == latest.id:
+            return chain, "previous_version_id"
+
+    # Fallback: urutkan menaik dengan nomor URUT rantai (1, 2, …), persis
+    # kontrak versi yang sudah dipegang UI. Baris yang kolom `sample_version`-nya
+    # belum diisi (mis. dibuat lewat ORM/data lama, bukan form CMO) tetap dapat
+    # nomor urut, dan fakta itu dilaporkan lewat `version_number_source` +
+    # `chain_source` — nomor tidak dikarang, sumbernya yang dibuka.
+    ordered = sorted(mine, key=lambda r: ((getattr(r, "sample_version", None) or 0), r.id))
+    if not column_present:
+        source = "article_identity_fallback"
+    elif not explicit_filled:
+        source = "article_identity_fallback_previous_version_id_empty"
+    else:
+        source = "article_identity_fallback_chain_broken"
+    return (ordered or [by_id.get(anchor_key)]), source
 
 
 def _evidence_rows(record, names):
@@ -300,20 +376,50 @@ def _next_action(status, decided, evidence_count, state):
     return "Siap lanjut ke gate Order Flow."
 
 
+def _effective_version_number(sample, chain_position):
+    """Nomor versi yang dilaporkan untuk satu baris rantai.
+
+    Kolom `sample_records.sample_version` menang bila benar-benar berisi
+    (>1, atau saat rantai hanya punya satu baris). Untuk rantai dengan beberapa
+    baris yang kolomnya masih default 1 (data lama / dibuat lewat ORM, bukan
+    form CMO), nomor URUT rantai dipakai — kontrak versi yang sudah dipegang UI.
+    `stored_sample_version` tetap dilaporkan apa adanya supaya bedanya kelihatan.
+    """
+    stored = getattr(sample, "sample_version", None)
+    if stored and (stored > 1 or int(chain_position) == 1):
+        return int(stored), True
+    return int(chain_position), False
+
+
 def _version_payload(sample, version_no, names, order=None, article=None,
-                     gate_consumed=False, latest=False, previous_id=None):
+                     gate_consumed=False, latest=False, previous_id=None,
+                     version_row=None, chain_source=None):
     evidence = _evidence_rows(sample, names)
     decided = _has_decision(sample)
     stage = _stage_of(sample.status, len(evidence), decided)
     verdict = _immutability(sample.status, gate_consumed, sample.customer_approved_by_id, decided)
     handler = sample.customer_approved_by_id
+    version_no, version_is_stored = _effective_version_number(sample, version_no)
+    # Revisi #32/#36: baris `sample_versions` adalah catatan keputusan PER VERSI.
+    # Bila ada dan sudah diputuskan, ia yang dilaporkan sebagai keputusan versi.
+    stored_decision = getattr(version_row, "decision", None) if version_row else None
+    stored_decided_at = getattr(version_row, "decided_at", None) if version_row else None
+    stored_decided_by = getattr(version_row, "decided_by_id", None) if version_row else None
     return {
         # ── identity (revisi #34: Sample ID, Order ID, Article ID) ──
         "sample_id": sample.id,
         "sample_version": version_no,
+        "version_number_source": ("sample_records.sample_version" if version_is_stored
+                                  else "chain_position_fallback"),
+        "stored_sample_version": getattr(sample, "sample_version", None),
+        "sample_version_id": getattr(version_row, "id", None) if version_row else None,
+        "chain_source": chain_source,
         "previous_version": version_no - 1 if version_no > 1 else None,
-        "previous_version_sample_id": previous_id,
+        "previous_version_sample_id": (getattr(sample, "previous_version_id", None)
+                                      or previous_id),
+        "stored_previous_version_id": getattr(sample, "previous_version_id", None),
         "is_latest_version": latest,
+        "revision_reason": getattr(sample, "revision_reason", None),
         "order_fk": sample.order_fk,
         "order_id": order.order_id if order is not None else None,
         "buyer": order.buyer if order is not None else None,
@@ -338,13 +444,30 @@ def _version_payload(sample, version_no, names, order=None, article=None,
         "evidence": evidence,
         "evidence_gap": _evidence_gap(sample.status, evidence, decided),
         # ── submission & buyer decision ──
-        "submitted_at": _iso(sample.completed_date) if sample.completed_date else None,
-        "buyer_decision": sample.status if decided else None,
-        "buyer_decision_status": sample.status if decided else None,
-        "decision_at": _iso(sample.customer_decision_at),
-        "decision_by_id": handler,
-        "decision_by": names.get(handler),
-        "decision_reason": sample.customer_decision_reason,
+        "submitted_at": _iso(getattr(sample, "submitted_at", None)),
+        "submitted_by_id": getattr(sample, "submitted_by_id", None),
+        "completed_date": _iso(sample.completed_date),
+        "buyer_decision": stored_decision or (sample.status if decided else None),
+        "buyer_decision_status": stored_decision or (sample.status if decided else None),
+        "decision_source": "sample_versions" if stored_decision else (
+            "sample_records" if decided else None),
+        "decision_at": _iso(stored_decided_at or sample.customer_decision_at),
+        "decision_by_id": stored_decided_by or handler,
+        "decision_by": names.get(stored_decided_by or handler),
+        "decision_reason": (getattr(version_row, "decision_reason", None) if version_row else None)
+                           or sample.customer_decision_reason,
+        "sample_version_row": {
+            "sample_version_id": getattr(version_row, "id", None) if version_row else None,
+            "version": getattr(version_row, "version", None) if version_row else None,
+            "ppm_version": getattr(version_row, "ppm_version", None) if version_row else None,
+            "ppm_reference": getattr(version_row, "ppm_reference", None) if version_row else None,
+            "submitted": bool(getattr(version_row, "submitted", False)) if version_row else False,
+            "submitted_at": _iso(getattr(version_row, "submitted_at", None)) if version_row else None,
+            "decision": stored_decision,
+            "decided_at": _iso(stored_decided_at),
+            "decision_reason": (getattr(version_row, "decision_reason", None)
+                                if version_row else None),
+        } if version_row is not None else None,
         "approval_reference": (sample.customer_decision_reason
                                if sample.status == "APPROVED" else None),
         # ── immutability (revisi #38) ──
@@ -380,18 +503,24 @@ def samples_version_summary(db: Session = Depends(get_db), user=Depends(get_curr
         grouped.setdefault(_article_key(sample, article), []).append((sample, article))
 
     rows = []
+    version_rows = _version_rows(db, [s.id for s in samples])
     for key, chain in grouped.items():
         order = orders.get(key[0])
         article = chain[-1][1]
         spk_open = _spk_consumed(order, spks)
+        # Urutkan & telusuri rantai lewat `previous_version_id` bila tersimpan.
+        chain_samples, chain_source = _chain_samples(
+            db, [row for row, _a in chain], key, article_by_id, article_by_key)
         versions = []
         previous_id = None
-        for number, (sample, _article) in enumerate(chain, start=1):
-            is_latest = sample is chain[-1][0]
+        for number, sample in enumerate(chain_samples, start=1):
+            is_latest = sample is chain_samples[-1]
             versions.append(_version_payload(
                 sample, number, names, order=order, article=article,
                 gate_consumed=spk_open and is_latest, latest=is_latest,
-                previous_id=previous_id))
+                previous_id=previous_id,
+                version_row=version_rows.get((sample.id, int(getattr(sample, "sample_version", None) or number))),
+                chain_source=chain_source))
             previous_id = sample.id
         latest = versions[-1]
         # Cross-module mismatch (revisi #36): Master/Article says the sample is
@@ -541,11 +670,11 @@ def sample_versions(sample_id: int, db: Session = Depends(get_db),
     anchor_key = _article_key(anchor, article)
     order = orders.get(anchor.order_fk)
 
-    chain = [row for row in samples
-             if _article_key(row, _article_of(row, article_by_id, article_by_key)) == anchor_key]
+    chain, chain_source = _chain_samples(db, samples, anchor_key, article_by_id, article_by_key)
     if not chain:
-        chain = [anchor]
+        chain, chain_source = [anchor], "anchor_only"
 
+    version_rows = _version_rows(db, [row.id for row in chain])
     spk_open = _spk_consumed(order, spks)
     versions = []
     previous_id = None
@@ -553,7 +682,10 @@ def sample_versions(sample_id: int, db: Session = Depends(get_db),
         is_latest = sample is chain[-1]
         versions.append(_version_payload(sample, number, names, order=order, article=article,
                                          gate_consumed=spk_open and is_latest, latest=is_latest,
-                                         previous_id=previous_id))
+                                         previous_id=previous_id,
+                                         version_row=version_rows.get(
+                                             (sample.id, int(getattr(sample, "sample_version", None) or number))),
+                                         chain_source=chain_source))
         previous_id = sample.id
 
     latest = versions[-1]

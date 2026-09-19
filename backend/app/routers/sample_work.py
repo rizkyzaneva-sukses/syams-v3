@@ -571,6 +571,10 @@ def _build_rows(db, user):
 
     exception_map = _sample_exceptions(db, [s.id for s in samples])
     heuristic_flags["exception_link_legacy"] = not _column_present(db, "exceptions", "sample_fk")
+    version_rows = _sample_version_rows(db, [s.id for s in samples])
+    heuristic_flags["sample_versions_table_absent"] = (
+        getattr(m, "SampleVersion", None) is None
+        or not _table_present(db, "sample_versions"))
 
     rows = []
     handled_samples = set()
@@ -598,7 +602,7 @@ def _build_rows(db, user):
                     else "Article ini tidak butuh sample (Perlu Sample = TIDAK)"
                 ),
                 required_action="CREATE_SAMPLE" if eligible else None,
-                db=db,
+                db=db, version_rows=version_rows,
             ))
             continue
 
@@ -618,7 +622,7 @@ def _build_rows(db, user):
                     else "Sample Request belum punya versi PPM/mockup eligible"
                 ),
                 required_action=None,
-                db=db,
+                db=db, version_rows=version_rows,
             ))
 
     # Sample Record yang artikelnya sudah tidak ada (mis. article_code yatim).
@@ -637,13 +641,13 @@ def _build_rows(db, user):
             reason=("Sample Request ada, versi PPM/mockup eligible" if ppm_version
                     else "Article ID pada Sample Request tidak ditemukan di order"),
             required_action=None,
-            db=db,
+            db=db, version_rows=version_rows,
         ))
     return rows
 
 
 def _row(*, article, order, sample, sample_version, eligible, ppm_version,
-         exceptions, reason, required_action, db=None):
+         exceptions, reason, required_action, db=None, version_rows=None):
     # Panggilan lama `_row(...)` tanpa `db` tetap jalan (helper internal);
     # seluruh pemanggil di modul ini meneruskan `db` supaya kolom eksplisit
     # benar-benar dibaca.
@@ -779,6 +783,32 @@ def _row(*, article, order, sample, sample_version, eligible, ppm_version,
         payload["completed_date"] = _iso(sample.completed_date)
         payload["submitted_at_source"] = "NOT_STORED_column_absent"
 
+    # Revisi #32/#36: keputusan buyer melekat pada VERSI (`sample_versions`),
+    # bukan pada artikel. Baris versi dibaca apa adanya; bila tabelnya belum
+    # ada, dilaporkan `None` + heuristic `sample_versions_table_absent`.
+    if sample is not None and db is not None and version_rows is not None:
+        version_row = version_rows.get((sample.id, int(sample_version or 1)))
+        payload["sample_version_row"] = _version_row_payload(db, version_row)
+        payload["sample_version_row_source"] = ("sample_versions" if version_row is not None
+                                                 else "ABSENT_FOR_THIS_VERSION")
+        if version_row is not None and version_row.decision:
+            # Keputusan tersimpan pada versi ini adalah sumber kebenaran, dan
+            # ia tidak boleh bertentangan dengan status sample_records.
+            payload["buyer_decision"] = {
+                **payload["buyer_decision"],
+                "decided": True,
+                "status": version_row.decision,
+                "decided_by_id": version_row.decided_by_id,
+                "decided_at": _iso(version_row.decided_at),
+                "reason": version_row.decision_reason,
+                "source": "sample_versions",
+            }
+            payload["decision_source_matches_record"] = (
+                version_row.decision == sample.status)
+    elif sample is not None:  # pragma: no cover
+        payload["sample_version_row"] = None
+        payload["sample_version_row_source"] = "sample_versions_table_absent"
+
     # Batch 2: task CREATE_SAMPLE dipersist ke `sample_tasks` + prasyaratnya.
     if db is not None and required_action == "CREATE_SAMPLE" and eligible:
         task = _persist_create_sample_task(db, payload)
@@ -811,6 +841,47 @@ def _previous_version_sample_id(db, sample):
     if not _column_present(db, "sample_records", "previous_version_id"):
         return None
     return getattr(sample, "previous_version_id", None)
+
+
+def _sample_version_rows(db, sample_ids):
+    """`sample_versions` per (sample_id, version) — keputusan buyer PER VERSI.
+
+    Ditulis oleh `modules.py::sample_version_row` (dibuat saat sample disimpan,
+    dan keputusan diisi saat `customer-decision`). Modul ini hanya membaca.
+    """
+    model = getattr(m, "SampleVersion", None)
+    ids = [i for i in sample_ids if i is not None]
+    if model is None or not ids or not _table_present(db, "sample_versions"):
+        return {}
+    rows = (db.query(model).filter(model.sample_fk.in_(ids))
+            .order_by(model.sample_fk.asc(), model.version.asc()).all())
+    result = {}
+    for row in rows:
+        result[(row.sample_fk, row.version)] = row
+    return result
+
+
+def _version_row_payload(db, row, names=None):
+    """Satu baris `sample_versions` sebagai payload read-only."""
+    if row is None:
+        return None
+    names = names or {}
+    return {
+        "sample_version_id": row.id,
+        "version": row.version,
+        "ppm_version": row.ppm_version,
+        "ppm_reference": row.ppm_reference,
+        "submitted": bool(row.submitted),
+        "submitted_at": _iso(row.submitted_at),
+        "submitted_by_id": row.submitted_by_id,
+        "required_evidence_json": row.required_evidence_json,
+        "decision": row.decision,
+        "decided_by_id": row.decided_by_id,
+        "decided_by": names.get(row.decided_by_id),
+        "decided_at": _iso(row.decided_at),
+        "decision_reason": row.decision_reason,
+        "created_at": _iso(row.created_at),
+    }
 
 
 def _sample_version_no(sample, sample_version_by_id):
@@ -984,6 +1055,8 @@ def _data_source(db, rows=None):
             heuristics.append("evidence_kind")
         if not _column_present(db, "exceptions", "sample_fk"):
             heuristics.append("exception_link")
+        if getattr(m, "SampleVersion", None) is None or not _table_present(db, "sample_versions"):
+            heuristics.append("sample_versions_table_absent")
     return {
         "sources": sources,
         "heuristics_active": sorted(set(heuristics)),

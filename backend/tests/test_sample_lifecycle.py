@@ -280,6 +280,98 @@ def test_versions_endpoint_404s_for_unknown_sample(db, client, headers):
                       headers=headers("HR_SUPPORT")).status_code == 403
 
 
+def test_versions_endpoint_reports_stored_version_chain_and_decision_source(db, client, headers, users):
+    """Revisi #32/#34: keputusan dibaca dari `sample_versions`, rantai eksplisit.
+
+    Baris di sini meniru kondisi NYATA sesudah `POST /api/cmo/samples` +
+    `customer-decision`: kolom `sample_version` dan `previous_version_id` terisi,
+    dan keputusan tersimpan pada baris versinya.
+    """
+    order = make_order(db, "SO-LC-STORED")
+    article = make_article(db, order, "ART-LC-STORED")
+    first = make_sample(db, order, article, status="REJECTED",
+                        customer_decision_at=datetime.utcnow(),
+                        customer_decision_reason="Ukuran kurang 2 cm",
+                        sample_version=1)
+    first.previous_version_id = None
+    second = make_sample(db, order, article, status="APPROVED",
+                         customer_approved_by_id=users[m.Role.CMO_MANAGER].id,
+                         customer_decision_at=datetime.utcnow(),
+                         customer_decision_reason="Warna sudah benar",
+                         sample_version=2,
+                         revision_reason="Perbaiki warna sesuai PPM v2")
+    second.previous_version_id = first.id
+    db.add_all([
+        m.SampleVersion(sample_fk=first.id, version=1, decision="REJECTED",
+                        decided_by_id=users[m.Role.CMO_MANAGER].id,
+                        decided_at=first.customer_decision_at,
+                        decision_reason="Ukuran kurang 2 cm"),
+        m.SampleVersion(sample_fk=second.id, version=2, decision="APPROVED",
+                        submitted=True, submitted_at=datetime.utcnow(),
+                        decided_by_id=users[m.Role.CMO_MANAGER].id,
+                        decided_at=second.customer_decision_at,
+                        decision_reason="Warna sudah benar"),
+    ])
+    db.commit()
+
+    body = client.get(f"/api/cmo/samples/{first.id}/versions",
+                      headers=headers("CMO_MANAGER")).json()
+    assert body["version_count"] == 2
+    assert body["latest_version"] == 2
+    v1, v2 = body["versions"]
+    # Rantai eksplisit dari previous_version_id, bukan tebakan identitas.
+    assert v1["chain_source"] == "previous_version_id" == v2["chain_source"]
+    assert v1["sample_version"] == 1 and v1["stored_sample_version"] == 1
+    assert v2["sample_version"] == 2 and v2["stored_sample_version"] == 2
+    assert v2["previous_version_sample_id"] == first.id
+    assert v2["stored_previous_version_id"] == first.id
+    assert v1["version_number_source"] == "sample_records.sample_version"
+    # Keputusan per versi: sumber kebenarannya `sample_versions`.
+    assert v1["buyer_decision"] == "REJECTED" and v1["decision_source"] == "sample_versions"
+    assert v2["buyer_decision"] == "APPROVED" and v2["decision_source"] == "sample_versions"
+    assert v1["decision_reason"] == "Ukuran kurang 2 cm"
+    assert v2["decision_reason"] == "Warna sudah benar"
+    assert v2["revision_reason"] == "Perbaiki warna sesuai PPM v2"
+    assert v1["sample_version_id"] is not None and v2["sample_version_id"] is not None
+    assert v1["sample_version_row"]["decision"] == "REJECTED"
+    assert v2["sample_version_row"]["submitted"] is True
+    # Versi yang ditolak buyer tetap terkunci (revisi #38).
+    assert v1["immutable"] is True and v1["immutability_state"] == "IMMUTABLE_DECIDED"
+
+    # Ringkasan ikut memakai keputusan versi terakhir, dan rantai eksplisit.
+    summary = client.get("/api/cmo/samples-version-summary", headers=headers("CEO")).json()
+    row = next(r for r in summary["rows"] if r["article_code"] == "ART-LC-STORED")
+    assert row["version_count"] == 2 and row["latest_version"] == 2
+    assert row["previous_version_sample_id"] == first.id
+    assert row["status"] == "APPROVED"
+    assert row["decision_by"] == "CMO_MANAGER"
+
+
+def test_versions_chain_falls_back_and_says_which_path_was_used(db, client, headers):
+    """Kolom versi ada tapi kosong → nomor urut rantai, dan sumbernya dibuka."""
+    order = make_order(db, "SO-LC-FALLBACK")
+    article = make_article(db, order, "ART-LC-FALLBACK")
+    # Dibuat lewat ORM tanpa mengisi kolom versi (kondisi data lama).
+    first = make_sample(db, order, article, status="REVISION",
+                        customer_decision_at=datetime.utcnow(),
+                        customer_decision_reason="Mockup salah")
+    second = make_sample(db, order, article, status="PROCESS")
+    assert first.sample_version == 1 and second.sample_version == 1
+    assert first.previous_version_id is None and second.previous_version_id is None
+
+    body = client.get(f"/api/cmo/samples/{second.id}/versions",
+                      headers=headers("SAMPLE_PIC")).json()
+    assert body["version_count"] == 2
+    # Nomor urut tetap 1,2 (kontrak UI) tapi dilaporkan bukan dari kolom.
+    assert [v["sample_version"] for v in body["versions"]] == [1, 2]
+    assert [v["version_number_source"] for v in body["versions"]] == \
+        ["sample_records.sample_version", "chain_position_fallback"]
+    assert body["versions"][1]["stored_sample_version"] == 1
+    assert body["versions"][1]["chain_source"] == \
+        "article_identity_fallback_previous_version_id_empty"
+    assert body["latest_version"] == 2
+
+
 def test_versions_falls_back_to_article_code_when_article_id_missing(db, client, headers, users):
     """Sample lama tanpa article_id tetap tergabung ke satu rantai versi."""
     order = make_order(db, "SO-LC-LEGACY")
