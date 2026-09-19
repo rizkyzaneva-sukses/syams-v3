@@ -194,6 +194,15 @@ class AuditLog(Base):
     entity = Column(String(80), nullable=False)
     entity_id = Column(Integer, nullable=True)
     detail = Column(Text, nullable=True)
+    # INT-ORDER-001 poin 10: setiap perubahan status menyimpan modul sumber,
+    # status lama, status baru, dan alasan bila dikoreksi. Sebelumnya informasi
+    # ini hanya dititipkan sebagai teks bebas di `detail`, jadi tidak bisa
+    # ditelusuri atau difilter.
+    source_module = Column(String(80), nullable=True)
+    order_id = Column(String(64), nullable=True)
+    previous_status = Column(String(64), nullable=True)
+    new_status = Column(String(64), nullable=True)
+    reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class Customer(Base):

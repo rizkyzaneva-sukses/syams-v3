@@ -1037,6 +1037,9 @@ def list_audit_log(limit:int=Query(100,ge=1,le=500), offset:int=Query(0,ge=0), d
         result.append({
             "id": l.id, "user": u.name if u else "-", "action": l.action,
             "entity": l.entity, "entity_id": l.entity_id, "detail": l.detail,
+            "source_module": l.source_module, "order_id": l.order_id,
+            "previous_status": l.previous_status, "new_status": l.new_status,
+            "reason": l.reason,
             "created_at": l.created_at,
         })
     return result

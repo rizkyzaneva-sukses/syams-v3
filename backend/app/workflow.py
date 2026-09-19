@@ -838,13 +838,26 @@ def commit_changes(db, user):
         for obj in pending:
             deleting = obj in db.deleted
             action = "DELETE" if deleting else "CREATE" if obj in db.new else "UPDATE"
+            # Status lama harus dibaca SEBELUM flush; sesudahnya SQLAlchemy sudah
+            # kehilangan history-nya dan transisi tidak bisa direkonstruksi.
+            if action == "UPDATE":
+                from .audit import status_snapshot
+                history = inspect(obj).attrs.get("status")
+                if history is not None and history.history.deleted:
+                    obj._audit_previous_status = history.history.deleted[0]
+                else:
+                    obj._audit_previous_status = None
             validate(db, obj, user, deleting)
             logs.append((obj, action, ", ".join(sorted(changes(obj)))))
         db.flush()
         for oid in order_ids:
             sync_order(db, oid)
         for obj, action, detail in logs:
-            log_audit(db, user, action, type(obj).__name__, obj.id, detail)
+            # INT-ORDER-001 poin 10: rekam status sebelum/sesudah, modul sumber,
+            # dan Order ID terkait supaya transisi bisa direkonstruksi.
+            before = getattr(obj, "_audit_previous_status", None)
+            log_audit(db, user, action, type(obj).__name__, obj.id, detail,
+                      obj=obj, previous_status=before)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
