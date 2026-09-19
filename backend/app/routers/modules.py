@@ -35,19 +35,74 @@ def read_business_policy(db:Session=Depends(get_db), user=Depends(require_roles(
     return get_policy(db)
 
 
+# Revisi #76: perubahan policy harus berversi. Nilai lama, tanggal berlaku, dan
+# alasan perubahan disimpan; versi lama tidak ditimpa. Perubahan berlaku
+# prospektif — kecuali CEO memilih berlaku mundur secara eksplisit.
+class BusinessPolicyChange(BaseModel):
+    minimum_margin_percent: Decimal = Field(ge=0, le=100)
+    minimum_dp_percent: Decimal = Field(ge=0, le=100)
+    cfo_quotation_limit: Decimal = Field(gt=0)
+    allow_credit_terms: bool = False
+    change_reason: str = Field(min_length=5, max_length=2000)
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+
 @router.put("/config/business-policy")
-def update_business_policy(data:BusinessPolicy, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CEO))):
+def update_business_policy(data:BusinessPolicyChange, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CEO))):
     record = db.query(models.SystemConfig).filter_by(key="business_policy").with_for_update().first()
     if record is None:
         record = models.SystemConfig(key="business_policy", updated_at=datetime.utcnow())
         db.add(record)
-    record.value = data.model_dump_json()
+    previous_value = record.value
+    effective_from = data.effective_from or date.today()
+    if data.effective_to and data.effective_to < effective_from:
+        raise HTTPException(400, "effective_to cannot be before effective_from")
+    policy = BusinessPolicy(
+        minimum_margin_percent=data.minimum_margin_percent,
+        minimum_dp_percent=data.minimum_dp_percent,
+        cfo_quotation_limit=data.cfo_quotation_limit,
+        allow_credit_terms=data.allow_credit_terms,
+    )
+    # Nilai yang berlaku di SystemConfig tetap diperbarui supaya seluruh modul
+    # yang sudah membaca get_policy() tidak perlu diubah.
+    record.value = policy.model_dump_json()
     record.updated_at = datetime.utcnow()
+    last = db.query(models.BusinessPolicyVersion).order_by(desc(models.BusinessPolicyVersion.version)).first()
+    version = (last.version + 1) if last else 1
+    db.add(models.BusinessPolicyVersion(
+        version=version, policy_json=record.value, effective_from=effective_from,
+        effective_to=data.effective_to, change_reason=data.change_reason.strip(),
+        previous_json=previous_value, changed_by_id=user.id, is_active=True,
+    ))
     from ..audit import log_audit
     db.flush()
-    log_audit(db, user, "UPDATE", "BusinessPolicy", record.id, record.value)
+    log_audit(db, user, "POLICY_CHANGE", "BusinessPolicy", record.id, record.value,
+              source_module="BusinessPolicy", reason=data.change_reason.strip())
     db.commit()
-    return data
+    return {**policy.model_dump(mode="json"), "version": version,
+            "effective_from": effective_from.isoformat(),
+            "effective_to": data.effective_to.isoformat() if data.effective_to else None,
+            "change_reason": data.change_reason.strip(),
+            "previous_value": json.loads(previous_value) if previous_value else None}
+
+@router.get("/config/business-policy/versions")
+def list_business_policy_versions(db:Session=Depends(get_db),
+                                  user=Depends(require_roles(models.Role.CEO, models.Role.CFO_MANAGER, models.Role.CMO_MANAGER))):
+    """Riwayat versi policy: siapa mengubah, kapan berlaku, dan alasannya."""
+    rows = db.query(models.BusinessPolicyVersion).order_by(desc(models.BusinessPolicyVersion.version)).all()
+    out = []
+    for row in rows:
+        changer = db.get(models.User, row.changed_by_id)
+        out.append({
+            "id": row.id, "version": row.version,
+            "policy": json.loads(row.policy_json),
+            "previous": json.loads(row.previous_json) if row.previous_json else None,
+            "effective_from": row.effective_from, "effective_to": row.effective_to,
+            "change_reason": row.change_reason, "is_active": row.is_active,
+            "changed_by": changer.name if changer else None,
+            "created_at": row.created_at,
+        })
+    return out
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ HELPERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def get_or_404(db, model, id, label="Not found"):

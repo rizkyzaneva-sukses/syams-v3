@@ -51,7 +51,7 @@ def order(client, headers):
 
 def ready_order(client, headers, order, paid=0):
     oid = order["id"]
-    call(client, headers, "PUT", "/config/business-policy", "CEO", {"minimum_margin_percent": 10, "minimum_dp_percent": 10, "cfo_quotation_limit": 1000, "allow_credit_terms": True})
+    call(client, headers, "PUT", "/config/business-policy", "CEO", {"minimum_margin_percent": 10, "minimum_dp_percent": 10, "cfo_quotation_limit": 1000, "allow_credit_terms": True, "change_reason": "Test baseline policy"})
     quotation = call(client, headers, "POST", "/cmo/quotations", "CMO_MANAGER", {"order_fk": oid, "quotation_no": "Q1", "status": "DRAFT", "payment_plan": "Approved credit terms", "pricing_lines": [
         {"article_id": order["articles"][0]["id"], "unit_price": 5, "unit_hpp": 2},
         {"article_id": order["articles"][1]["id"], "unit_price": 10, "unit_hpp": 4},
@@ -268,6 +268,7 @@ def test_pricing_limit_and_dp_policy_require_real_evidence(client, headers, orde
     call(client, headers, "PUT", "/config/business-policy", "CEO", {
         "minimum_margin_percent": 30, "minimum_dp_percent": 40,
         "cfo_quotation_limit": 50, "allow_credit_terms": False,
+        "change_reason": "Test raises margin for limit check",
     })
     call(client, headers, "PATCH", f"/cmo/quotations/{quote['id']}", "CFO_MANAGER",
          {"status": "APPROVED", "approval_reason": "Reviewed"}, expected=400)
@@ -393,3 +394,36 @@ def test_dashboard_kpis_have_traceable_denominators_and_lists_paginate(client, h
     page = call(client, headers, "GET", "/orders?limit=1&offset=1", "COO_MANAGER")
     assert len(page) == 1 and page[0]["id"] == second["id"]
     call(client, headers, "GET", "/orders?limit=501", "COO_MANAGER", expected=422)
+
+def test_policy_change_requires_reason_and_creates_version(client, headers):
+    """Revisi #76: perubahan policy wajib beralasan dan tersimpan sebagai versi."""
+    policy = {"minimum_margin_percent": 15, "minimum_dp_percent": 30,
+              "cfo_quotation_limit": 500, "allow_credit_terms": False}
+    # Tanpa alasan perubahan harus ditolak.
+    call(client, headers, "PUT", "/config/business-policy", "CEO", dict(policy), expected=422)
+    # Alasan terlalu pendek juga ditolak.
+    call(client, headers, "PUT", "/config/business-policy", "CEO",
+         {**policy, "change_reason": "x"}, expected=422)
+    # Non-CEO tidak boleh mengubah kebijakan.
+    call(client, headers, "PUT", "/config/business-policy", "CFO_MANAGER",
+         {**policy, "change_reason": "CFO mencoba mengubah"}, expected=403)
+
+    first = call(client, headers, "PUT", "/config/business-policy", "CEO",
+                 {**policy, "change_reason": "Versi awal kebijakan"})
+    assert first["version"] == 1
+    assert first["previous_value"] is None
+    assert first["change_reason"] == "Versi awal kebijakan"
+
+    second = call(client, headers, "PUT", "/config/business-policy", "CEO",
+                  {**policy, "minimum_margin_percent": 25,
+                   "change_reason": "Menaikkan margin setelah harga bahan naik"})
+    assert second["version"] == 2
+    # Nilai sebelumnya harus ikut tersimpan, bukan hilang tertimpa.
+    assert float(second["previous_value"]["minimum_margin_percent"]) == 15
+
+    history = call(client, headers, "GET", "/config/business-policy/versions", "CEO")
+    assert len(history) == 2
+    assert history[0]["version"] == 2
+    assert history[0]["change_reason"] == "Menaikkan margin setelah harga bahan naik"
+    assert history[0]["changed_by"] == "CEO"
+    assert float(history[1]["policy"]["minimum_margin_percent"]) == 15

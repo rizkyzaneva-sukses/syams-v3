@@ -508,6 +508,28 @@ class SystemConfig(Base):
     value = Column(Text, nullable=True)
     updated_at = Column(DateTime, onupdate=datetime.utcnow, nullable=False)
 
+
+class BusinessPolicyVersion(Base):
+    """Riwayat kebijakan bisnis (revisi #76).
+
+    Policy sebelumnya hanya satu baris JSON yang ditimpa, sehingga versi lama,
+    tanggal berlaku, alasan perubahan, dan nilai sebelumnya hilang. Tabel ini
+    menyimpan tiap versi sebagai baris tersendiri; policy yang berlaku adalah
+    versi dengan effective_from <= hari ini dan nonaktif_at masih NULL.
+    """
+    __tablename__ = "business_policy_versions"
+    id = Column(Integer, primary_key=True)
+    version = Column(Integer, nullable=False)
+    policy_json = Column(Text, nullable=False)
+    effective_from = Column(Date, nullable=False)
+    effective_to = Column(Date, nullable=True)
+    change_reason = Column(Text, nullable=False)
+    previous_json = Column(Text, nullable=True)
+    proposed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    changed_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
 class ProductionPlan(Base):
     __tablename__ = "production_plans"
     id = Column(Integer, primary_key=True)
