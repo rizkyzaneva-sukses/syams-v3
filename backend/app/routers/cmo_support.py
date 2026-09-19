@@ -34,16 +34,37 @@ def _iso(value):
     return value.isoformat() if value is not None else None
 
 
-def _row(*, task_id, kind, order=None, buyer=None, article=None, status=None,
-         missing=None, action=None, owner="CMO_SUPPORT", due=None, source=None,
-         handoff=None, updated=None):
+def _row(*, task_id, kind, order=None, buyer=None, article=None, article_id=None,
+         status=None, stage=None, buyer_id=None, missing=None, action=None,
+         owner="CMO_SUPPORT", due=None, source=None, handoff=None, updated=None):
+    """Satu baris antrean kerja Deby.
+
+    Kontrak antrean wajib (revisi #9 poin 3, dipakai juga oleh #1): setiap baris
+    harus membawa **Task ID, Buyer ID, Order ID, Article ID, tahap proses,
+    status, data/bukti kurang, next action, owner, due/SLA, sumber, updated_at,
+    dan status handoff** — supaya baris bisa dibuka ke order/buyer terkait dan
+    pemiliknya bisa ditelusuri, bukan hanya menampilkan nama buyer sebagai teks.
+
+    `buyer_id`/`article_id`/`stage` dulu tidak ada di payload sehingga UI tidak
+    bisa menautkan ke buyer/article maupun menunjukkan tahap prosesnya.
+    """
+    resolved_buyer_id = buyer_id
+    if resolved_buyer_id is None and order is not None:
+        resolved_buyer_id = getattr(order, "customer_id", None)
+    resolved_article_id = article_id
+    if resolved_article_id is None and article is not None:
+        resolved_article_id = getattr(article, "id", None) if not isinstance(article, str) else None
     return {
         "task_id": task_id,
         "decision_type": kind,
         "buyer": buyer or (order.buyer if order is not None else None),
+        # ID eksplisit supaya baris bisa ditautkan ke record, bukan hanya label.
+        "buyer_id": resolved_buyer_id,
         "order_id": order.order_id if order is not None else None,
         "order_fk": order.id if order is not None else None,
-        "article_code": article,
+        "article_id": resolved_article_id,
+        "article_code": article if isinstance(article, str) else getattr(article, "article_code", None),
+        "stage": stage or kind,
         "status": status,
         "missing": missing,
         "next_action": action,
@@ -80,6 +101,7 @@ def deby_today(db: Session = Depends(get_db), user=Depends(get_current_user)):
             missing = []
         po_rows.append(_row(
             task_id=f"PO-{po.id}", kind="PO_INTAKE", buyer=po.buyer,
+            stage="PO_INTAKE",
             status=po.status,
             missing=", ".join(missing) if missing else "Lengkap",
             action=("Periksa kelengkapan lalu kirim ke Cecep" if po.status == "READY"
@@ -97,6 +119,7 @@ def deby_today(db: Session = Depends(get_db), user=Depends(get_current_user)):
                .order_by(m.POIntake.id.asc()).all()):
         waiting.append(_row(
             task_id=f"PO-{po.id}", kind="PO_WAITING_REVIEW", buyer=po.buyer,
+            stage="REVIEW_PO",
             status=po.status, missing="—",
             action="Menunggu review Cecep — tidak ada aksi Deby",
             owner="CMO_MANAGER", due=po.buyer_deadline, source="Draft PO terkirim",
@@ -116,7 +139,8 @@ def deby_today(db: Session = Depends(get_db), user=Depends(get_current_user)):
         order = db.get(m.Order, sample.order_fk)
         sample_rows.append(_row(
             task_id=f"SMP-{sample.id}", kind="SAMPLE_EVIDENCE", order=order,
-            article=sample.article_code, status=sample.status,
+            article_id=sample.article_id, article=sample.article_code,
+            status=sample.status, stage="BUKTI_SAMPLE",
             missing="Bukti belum diunggah" if not evidence else "Keputusan Cecep belum dicatat",
             action=("Unggah foto/PDF bukti Sample/PPM" if not evidence
                     else "Menunggu keputusan Cecep"),
@@ -136,6 +160,7 @@ def deby_today(db: Session = Depends(get_db), user=Depends(get_current_user)):
         order = db.get(m.Order, spk.order_fk)
         spk_rows.append(_row(
             task_id=f"SPK-{spk.id}", kind="SPK_PREPARE", order=order,
+            stage="SPK_PREPARE",
             status=spk.status,
             missing=("Perlu di-Generate" if spk.status == "DRAFT" else "Perlu di-Print"),
             action=("Generate lalu Preview PDF" if spk.status == "DRAFT" else "Print SPK"),
@@ -158,6 +183,7 @@ def deby_today(db: Session = Depends(get_db), user=Depends(get_current_user)):
             continue
         delivery_rows.append(_row(
             task_id=f"AS-{order.id}", kind="AFTER_SALES", order=order,
+            stage="AFTER_SALES",
             status=order.shipment_status,
             missing="Konfirmasi penerimaan buyer",
             action="Hubungi buyer & catat konfirmasi penerimaan",
@@ -178,6 +204,7 @@ def deby_today(db: Session = Depends(get_db), user=Depends(get_current_user)):
             continue
         follow_rows.append(_row(
             task_id=f"FU-{order.id}", kind="FOLLOW_UP", order=order,
+            stage="FOLLOW_UP",
             status=order.overall_status,
             missing="Follow-up buyer jatuh tempo",
             action="Hubungi buyer & catat hasil",
