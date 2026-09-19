@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_roles
 from ..database import get_db
+from .. import coo_actions
 from ..models import (
     Article,
     BOMItem,
@@ -188,12 +189,97 @@ def _article_reconciliation(article, buckets_for_article) -> list:
     return issues
 
 
-def _daily_execution_row(article, order, route, buckets_for_article, today) -> dict:
+def _step_actions(process, bucket, route, sequence, actor_role, target_date, today) -> dict:
+    """Aksi yang boleh dijalankan aktor ini pada satu langkah, plus alasannya.
+
+    Revisi #53: papan tidak boleh hanya menampilkan status. Ia harus menyatakan
+    aksi mana yang sah, siapa yang berwenang, dan apa yang menghalangi — supaya
+    COO bisa melihat proses mana yang macet bukan karena kerja, tapi karena
+    wewenang yang tidak ada di lantai.
+
+    Aksi HANDOFF dinilai dengan parameter yang WAJAR untuk langkah ini
+    (tujuan = proses berikutnya di rute, qty = qty_done langkah ini), bukan
+    dengan payload kosong. Kalau tidak, HANDOFF akan selalu tampak dilarang
+    hanya karena papan tidak menerima input — dan itu membuat papan berbohong.
+    Blocker yang tersisa (mis. tidak ada qty untuk dikirim) tetap dilaporkan
+    apa adanya.
+    """
+    qty_in = _num(bucket["qty_in"]) if bucket else 0
+    qty_done = _num(bucket["qty_done"]) if bucket else 0
+    qty_reject = _num(bucket["qty_reject"]) if bucket else 0
+    view = {
+        "process": process,
+        "sequence": sequence,
+        "qty_in": qty_in,
+        "qty_done": qty_done,
+        "qty_reject": qty_reject,
+        "statuses": sorted(bucket["statuses"]) if bucket else [],
+        "process_upper": process,
+    }
+    # Tujuan handoff yang wajar: proses berikutnya yang benar-benar ada di rute.
+    route_upper = [str(p).strip().upper() for p in route]
+    here = next((i for i, p in enumerate(route_upper)
+                 if p == str(process).strip().upper()), None)
+    default_to_process = (
+        route_upper[here + 1] if here is not None and here + 1 < len(route_upper) else None
+    )
+    # Qty yang wajar dikirim: output proses ini (jika belum ada, biarkan 0
+    # supaya blocker QTY_SENT_REQUIRED yang jujur yang muncul).
+    default_qty_sent = qty_done if qty_done > 0 else 0
+
+    steps = []
+    for action in coo_actions.ALLOWED_ACTIONS:
+        verdict = coo_actions.evaluate(
+            action,
+            actor_role,
+            bucket=view,
+            target_date=target_date,
+            today=today,
+            route=route,
+            qty_sent=default_qty_sent if action == coo_actions.HANDOFF else 0,
+            to_process=default_to_process if action == coo_actions.HANDOFF else None,
+        )
+        steps.append(
+            {
+                "action": action,
+                "allowed": verdict["allowed"],
+                # Kalau aktor bukan pemegang kewenangan, papan tetap menunjukkan
+                # siapa yang harus memicunya — bukan sekadar tombol mati.
+                "authorised": verdict["allowed"] or all(
+                    b["code"] != "ROLE_NOT_AUTHORISED" for b in verdict["blockers"]
+                ),
+                "roles": verdict["roles"],
+                "required_fields": verdict["required_fields"],
+                "reason_required": verdict["reason_required"],
+                "to_status": verdict["to_status"],
+                "blockers": verdict["blockers"],
+            }
+        )
+    for entry, action in zip(steps, coo_actions.ALLOWED_ACTIONS):
+        if action == coo_actions.HANDOFF:
+            # Supaya UI tidak perlu menebak: papan menyebut tujuan & qty yang
+            # dinilainya, dan ui bisa membandingkan dengan input operator.
+            entry["evaluated_with"] = {
+                "to_process": default_to_process,
+                "qty_sent": default_qty_sent,
+            }
+    allowed_here = [s["action"] for s in steps if s["allowed"]]
+    return {
+        "actions": steps,
+        "allowed_actions": allowed_here,
+        "authorised_roles": sorted(
+            {r for action in coo_actions.ALLOWED_ACTIONS for r in coo_actions.roles_for(action)}
+        ),
+    }
+
+
+def _daily_execution_row(article, order, route, buckets_for_article, today,
+                         actor_role="COO_MANAGER") -> dict:
     steps = []
     target_today = 0
     realised_today = 0
     total_in = total_done = total_reject = total_wip = 0
-    for process in route:
+    for sequence, process in enumerate(route, start=1):
         bucket = buckets_for_article.get(process)
         qty_in = _num(bucket["qty_in"]) if bucket else 0
         done = _num(bucket["qty_done"]) if bucket else 0
@@ -212,10 +298,11 @@ def _daily_execution_row(article, order, route, buckets_for_article, today) -> d
         total_done += done
         total_reject += reject
         total_wip += max(wip, 0)
+        movement_ids = sorted(bucket["movement_ids"]) if bucket else []
         steps.append(
             {
                 "process": process,
-                "sequence": route.index(process) + 1,
+                "sequence": sequence,
                 "status": _status_from_bucket(bucket) if bucket else "NOT_STARTED",
                 "qty_in": qty_in,
                 "qty_done": done,
@@ -226,9 +313,25 @@ def _daily_execution_row(article, order, route, buckets_for_article, today) -> d
                 "due_today": due_today,
                 "target_dates": sorted({d.isoformat() for d in (bucket["target_dates"] if bucket else [])}),
                 "pic_names": sorted(bucket["pics"]) if bucket else [],
-                "movement_ids": sorted(bucket["movement_ids"]) if bucket else [],
+                "movement_ids": movement_ids,
                 "reject_reasons": bucket["reject_reasons"] if bucket else [],
                 "balanced": wip >= 0,
+                # Revisi #54: WIP bukan angka tebakan. Setiap langkah menyebut
+                # transaksi sumbernya, jadi angka di papan bisa ditelusuri
+                # sampai movement id dan qty mentahnya.
+                "wip_source": {
+                    "movement_ids": movement_ids,
+                    "formula": "qty_in - qty_done - qty_reject",
+                    "qty_in": qty_in,
+                    "qty_done": done,
+                    "qty_reject": reject,
+                    "derived": True,
+                    "derived_from": f"production_movements{tuple(movement_ids)}" if movement_ids else None,
+                },
+                # Revisi #53: aksi yang sah di langkah ini + siapa yang berwenang.
+                "actions": _step_actions(process, bucket, route, sequence, actor_role,
+                                         bucket["target_dates"][0] if bucket and bucket["target_dates"] else None,
+                                         today),
             }
         )
     return {
@@ -285,6 +388,7 @@ def daily_execution(
             .all()
         )
     rollup = _movement_rollup(db, movements)
+    actor_role = role_of(user)
 
     rows = []
     for article, order in article_pairs:
@@ -299,7 +403,8 @@ def daily_execution(
         for (aid, process), bucket in rollup.items():
             if aid == article.id and process not in buckets_for_article:
                 buckets_for_article[process] = bucket
-        row = _daily_execution_row(article, order, route, buckets_for_article, today)
+        row = _daily_execution_row(article, order, route, buckets_for_article, today,
+                                   actor_role=actor_role)
         row["reconciliation"] = _article_reconciliation(article, buckets_for_article)
         rows.append(row)
 
@@ -325,7 +430,8 @@ def daily_execution(
         "actor_role": role_of(user),
         "invariant": "qty_in = qty_done + qty_reject + wip",
         # Hanya tindakan server-side yang diizinkan; tidak ada pilihan bebas.
-        "allowed_actions": ["START", "UPDATE_PROGRESS", "REPORT_OUTPUT", "COMPLETE", "HOLD", "HANDOFF"],
+        "allowed_actions": list(coo_actions.ALLOWED_ACTIONS),
+        "action_contract": coo_actions.contract_payload(role_of(user)),
         "totals": totals,
         "rows": rows,
     }
@@ -382,6 +488,21 @@ def _handoff_edges(db: Session, article_pairs):
                     "receiver_pics": sorted(target_bucket["pics"]) if target_bucket else [],
                     "movement_ids_sent": sorted(source_bucket["movement_ids"]) if source_bucket else [],
                     "movement_ids_received": sorted(target_bucket["movement_ids"]) if target_bucket else [],
+                    # Revisi #54: setiap edge menyebut transaksi sumbernya, jadi
+                    # qty sent/received bisa ditelusuri ke movement id — bukan
+                    # angka rekonstruksi tanpa asal-usul.
+                    "qty_source": {
+                        "sent_from": "production_movements.qty_done",
+                        "received_from": "production_movements.qty_in",
+                        "sent_movement_ids": sorted(source_bucket["movement_ids"]) if source_bucket else [],
+                        "received_movement_ids": sorted(target_bucket["movement_ids"]) if target_bucket else [],
+                        "persisted": False,
+                        "persistence_note": (
+                            "Edge direkonstruksi dari urutan ProductionMovement; "
+                            "tabel production_handoffs belum ada sehingga "
+                            "batch_no/evidence_ref/shift/location belum tersimpan"
+                        ),
+                    },
                 }
             )
     return edges

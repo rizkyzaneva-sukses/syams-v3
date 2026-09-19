@@ -236,10 +236,9 @@ def evaluate(action, role, bucket=None, target_date=None, today=None,
                 "code": "QTY_IN_EXCEEDS_UPSTREAM",
                 "detail": f"qty_in {qty_in} melebihi sumber sah {upstream_available}",
             })
-        if not to_process:
-            blockers.append({"code": "TO_PROCESS_REQUIRED",
-                             "detail": "to_process wajib diisi"})
-        elif route:
+        # Urutan penting: kalau proses ini tidak punya langkah berikutnya, itu
+        # alasan sebenarnya — bukan "to_process wajib diisi", yang menyesatkan.
+        if route:
             route_upper = [str(p).strip().upper() for p in route]
             here_process = str((bucket or {}).get("process") or "").strip().upper()
             here = next((i for i, p in enumerate(route_upper) if p == here_process), None)
@@ -254,11 +253,14 @@ def evaluate(action, role, bucket=None, target_date=None, today=None,
                     "code": "NO_DOWNSTREAM_PROCESS",
                     "detail": "Proses ini langkah terakhir; handoff tidak berlaku",
                 })
-            elif str(to_process).strip().upper() != todo:
+            elif str(to_process or "").strip().upper() != todo:
                 blockers.append({
                     "code": "WRONG_DOWNSTREAM_PROCESS",
-                    "detail": f"Handoff harus ke {todo}, bukan {str(to_process).strip().upper()}",
+                    "detail": f"Handoff harus ke {todo}, bukan {str(to_process or '').strip().upper() or '(kosong)'}",
                 })
+        elif not to_process:
+            blockers.append({"code": "TO_PROCESS_REQUIRED",
+                             "detail": "to_process wajib diisi"})
 
     # Keterlambatan dilaporkan sebagai konteks, bukan penghalang.
     late = bool(target_date and today and _as_date(target_date) < today)

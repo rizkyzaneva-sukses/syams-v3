@@ -286,3 +286,136 @@ def test_bom_physical_zero_plan_does_not_divide_by_zero(db, client, headers):
 def test_role_scope_blocks_unrelated_roles(client, headers):
     assert client.get("/api/coo/daily-execution", headers=headers("HR_SUPPORT")).status_code == 403
     assert client.get("/api/coo/handoff-capacity", headers=headers("SHIPMENT_ADMIN")).status_code == 403
+
+
+# ── Revisi #53: kontrak aksi melekat pada peran ──────────────────────────────
+def test_daily_execution_exposes_action_contract_per_actor_role(db, client, headers):
+    order, article = make_order(db, "SO-ACT-1", route="Cutting>Sewing", qty=100)
+    db.add(m.ProductionMovement(article_id=article.id, process="Cutting", qty_in=100,
+                                qty_done=100, status="IN_PROCESS"))
+    db.commit()
+
+    coo = client.get(f"/api/coo/daily-execution?order_fk={order.id}",
+                     headers=headers("COO_MANAGER")).json()
+    assert coo["allowed_actions"] == [
+        "START", "UPDATE_PROGRESS", "REPORT_OUTPUT", "COMPLETE", "HOLD", "HANDOFF"
+    ]
+    assert coo["action_contract"]["actions_for_actor"] == list(coo["allowed_actions"])
+
+    pic = client.get(f"/api/coo/daily-execution?order_fk={order.id}",
+                     headers=headers("PRODUCTION_PIC")).json()
+    # PIC lantai tidak memegang COMPLETE/HANDOFF — inti revisi #53.
+    assert pic["action_contract"]["actions_for_actor"] == [
+        "START", "UPDATE_PROGRESS", "REPORT_OUTPUT", "HOLD"
+    ]
+    assert pic["allowed_actions"] == list(coo["allowed_actions"])
+
+
+def test_step_actions_block_role_without_authority_but_still_show_owner(db, client, headers):
+    order, article = make_order(db, "SO-ACT-2", route="Cutting>Sewing", qty=100)
+    db.add(m.ProductionMovement(article_id=article.id, process="Cutting", qty_in=100,
+                                qty_done=100, status="IN_PROCESS"))
+    db.commit()
+
+    step = client.get(f"/api/coo/daily-execution?order_fk={order.id}",
+                      headers=headers("PRODUCTION_PIC")).json()["rows"][0]["steps"][0]
+    by_action = {a["action"]: a for a in step["actions"]["actions"]}
+
+    # COMPLETE sah secara WIP (100 = 100 + 0) tapi tetap dilarang untuk PIC.
+    complete = by_action["COMPLETE"]
+    assert complete["allowed"] is False
+    assert complete["authorised"] is False
+    assert complete["roles"] == ["COO_MANAGER"]
+    assert {b["code"] for b in complete["blockers"]} == {"ROLE_NOT_AUTHORISED"}
+
+    # START sah dan diizinkan untuk PIC.
+    assert by_action["START"]["allowed"] is True
+    assert by_action["START"]["authorised"] is True
+
+    assert "COMPLETE" not in step["actions"]["allowed_actions"]
+    assert "START" in step["actions"]["allowed_actions"]
+
+
+def test_step_complete_becomes_allowed_for_coo_when_wip_reconciled(db, client, headers):
+    order, article = make_order(db, "SO-ACT-3", route="Cutting>Sewing", qty=100)
+    db.add(m.ProductionMovement(article_id=article.id, process="Cutting", qty_in=100,
+                                qty_done=90, qty_reject=10, status="IN_PROCESS"))
+    db.commit()
+    step = client.get(f"/api/coo/daily-execution?order_fk={order.id}",
+                      headers=headers("COO_MANAGER")).json()["rows"][0]["steps"][0]
+    by_action = {a["action"]: a for a in step["actions"]["actions"]}
+    assert by_action["COMPLETE"]["allowed"] is True
+    assert by_action["COMPLETE"]["to_status"] == "DONE"
+    assert "COMPLETE" in step["actions"]["allowed_actions"]
+
+
+def test_step_complete_blocked_while_wip_remains(db, client, headers):
+    order, article = make_order(db, "SO-ACT-4", route="Cutting>Sewing", qty=100)
+    db.add(m.ProductionMovement(article_id=article.id, process="Cutting", qty_in=100,
+                                qty_done=40, status="IN_PROCESS"))
+    db.commit()
+    step = client.get(f"/api/coo/daily-execution?order_fk={order.id}",
+                      headers=headers("COO_MANAGER")).json()["rows"][0]["steps"][0]
+    complete = {a["action"]: a for a in step["actions"]["actions"]}["COMPLETE"]
+    assert complete["allowed"] is False
+    assert "WIP_NOT_RECONCILED" in {b["code"] for b in complete["blockers"]}
+
+
+def test_handoff_action_targets_next_process_in_route(db, client, headers):
+    order, article = make_order(db, "SO-ACT-5", route="Cutting>Sewing>QC", qty=80)
+    db.add(m.ProductionMovement(article_id=article.id, process="Cutting", qty_in=80,
+                                qty_done=80, status="IN_PROCESS"))
+    db.commit()
+    steps = client.get(f"/api/coo/daily-execution?order_fk={order.id}",
+                       headers=headers("COO_MANAGER")).json()["rows"][0]["steps"]
+    cutting = {a["action"]: a for a in steps[0]["actions"]["actions"]}
+    # Cutting punya langkah berikutnya (Sewing) -> HANDOFF sah.
+    assert cutting["HANDOFF"]["allowed"] is True
+    qc = {a["action"]: a for a in steps[2]["actions"]["actions"]}
+    # QC langkah terakhir -> tidak ada downstream, HANDOFF ditolak.
+    assert qc["HANDOFF"]["allowed"] is False
+    assert "NO_DOWNSTREAM_PROCESS" in {b["code"] for b in qc["HANDOFF"]["blockers"]}
+
+
+# ── Revisi #54: WIP & handoff bisa ditelusuri ke transaksi sumbernya ─────────
+def test_wip_carries_its_source_movement_ids(db, client, headers):
+    order, article = make_order(db, "SO-TRACE-1", route="Cutting>Sewing", qty=100)
+    mv1 = m.ProductionMovement(article_id=article.id, process="Cutting", qty_in=100,
+                               qty_done=100, status="DONE")
+    mv2 = m.ProductionMovement(article_id=article.id, process="Sewing", qty_in=100,
+                               qty_done=60, status="IN_PROCESS")
+    mv3 = m.ProductionMovement(article_id=article.id, process="Sewing", qty_in=0,
+                               qty_done=0, status="IN_PROCESS")
+    db.add_all([mv1, mv2, mv3])
+    db.commit()
+
+    steps = client.get(f"/api/coo/daily-execution?order_fk={order.id}",
+                       headers=headers("COO_MANAGER")).json()["rows"][0]["steps"]
+    sewing = steps[1]
+    assert sewing["qty_wip"] == 40
+    source = sewing["wip_source"]
+    # Angka WIP harus bisa ditelusuri ke movement id nyata, bukan tebakan.
+    assert source["movement_ids"] == sorted([mv2.id, mv3.id])
+    assert source["qty_in"] == 100 and source["qty_done"] == 60 and source["qty_reject"] == 0
+    assert source["qty_in"] - source["qty_done"] - source["qty_reject"] == sewing["qty_wip"]
+    assert source["derived_from"] == f"production_movements{(mv2.id, mv3.id)}"
+
+
+def test_handoff_qty_sources_name_their_movements_and_persistence_gap(db, client, headers):
+    order, article = make_order(db, "SO-TRACE-2", route="Cutting>Sewing", qty=100)
+    mv_in = m.ProductionMovement(article_id=article.id, process="Cutting", qty_in=100,
+                                 qty_done=100, status="DONE")
+    mv_out = m.ProductionMovement(article_id=article.id, process="Sewing", qty_in=95,
+                                  qty_done=40, status="IN_PROCESS")
+    db.add_all([mv_in, mv_out])
+    db.commit()
+
+    edge = client.get(f"/api/coo/handoff-capacity?order_fk={order.id}",
+                      headers=headers("COO_MANAGER")).json()["handoffs"][0]
+    assert edge["qty_sent"] == 100 and edge["qty_received"] == 95
+    source = edge["qty_source"]
+    assert source["sent_movement_ids"] == [mv_in.id]
+    assert source["received_movement_ids"] == [mv_out.id]
+    # Jujur soal keterbatasan: belum ada tabel handoff, jadi belum tersimpan.
+    assert source["persisted"] is False
+    assert "production_handoffs" in source["persistence_note"]

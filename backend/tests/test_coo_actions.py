@@ -139,7 +139,19 @@ def test_handoff_from_last_process_is_refused():
     verdict = ca.evaluate("HANDOFF", "COO_MANAGER", bucket=bucket, qty_sent=30,
                           to_process="Packing", route=["Cutting", "Sewing", "QC"])
     assert verdict["allowed"] is False
-    assert "NO_DOWNSTREAM_PROCESS" in {b["code"] for b in verdict["blockers"]}
+    codes = {b["code"] for b in verdict["blockers"]}
+    # Alasan sebenarnya adalah tidak ada langkah berikutnya — bukan to_process kosong.
+    assert "NO_DOWNSTREAM_PROCESS" in codes
+    assert "TO_PROCESS_REQUIRED" not in codes
+
+
+def test_handoff_without_route_still_requires_to_process():
+    bucket = {"process": "Cutting", "qty_in": 30, "qty_done": 30, "qty_reject": 0,
+              "statuses": {"IN_PROCESS"}}
+    verdict = ca.evaluate("HANDOFF", "COO_MANAGER", bucket=bucket, qty_sent=30,
+                          to_process=None, route=None)
+    assert verdict["allowed"] is False
+    assert "TO_PROCESS_REQUIRED" in {b["code"] for b in verdict["blockers"]}
 
 
 def test_handoff_cannot_send_more_than_was_produced():
