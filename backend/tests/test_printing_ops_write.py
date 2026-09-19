@@ -48,104 +48,112 @@ FIXTURE_TABLES = ("printing_daily_targets", "printing_handoffs", "printing_defec
 
 # ── Tabel tiruan (hanya dipakai kalau agent SCHEMA belum mendarat) ───────────
 # Model-name dan kolom persis mengikuti REQUESTS/printing_schema.md.
-def _fake(name):
-    attributes = {
-        "__tablename__": name,
-        "__table_args__": {"extend_existing": True},
-        "id": Column(Integer, primary_key=True),
-        name: None,
-    }
-    return type(name, (Base,), attributes)
+#
+# PENTING: tabel tiruan TIDAK dideklarasikan di level modul. Kalau dideklarasikan
+# di sini, SQLAlchemy mendaftarkannya ke `Base.metadata` saat import — dan begitu
+# agent SCHEMA menambahkan model ASLI dengan nama tabel yang sama, dua definisi
+# bertabrakan ("index ... already exists" / tabel dobel) sehingga `create_all`
+# milik SEMUA tes gagal, bukan hanya tes ini. Jadi tabel tiruan dibuat lazily
+# hanya saat memang dibutuhkan.
+_FAKE_TABLE_NAMES = ("printing_daily_targets", "printing_handoffs",
+                     "printing_defect_dispositions")
 
 
-class PrintingDailyTarget(Base):
-    __tablename__ = "printing_daily_targets"
-    __table_args__ = {"extend_existing": True}
-    id = Column(Integer, primary_key=True)
-    process = Column(String(80), nullable=False)
-    target_date = Column(Date, nullable=False, index=True)
-    target_qty = Column(Integer, nullable=False, default=0)
-    unit = Column(String(20), nullable=True, default="PCS")
-    order_fk = Column(Integer, ForeignKey("orders.id"), nullable=True)
-    article_id = Column(Integer, ForeignKey("articles.id"), nullable=True)
-    set_by_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
-    set_at = Column(DateTime, nullable=True)
-    reason = Column(Text, nullable=True)
-    version = Column(Integer, nullable=False, default=1)
-    previous_qty = Column(Integer, nullable=True)
-    created_at = Column(DateTime, nullable=False)
-    updated_at = Column(DateTime, nullable=False)
+def _fake_models():
+    """Definisi tabel tiruan, dibuat saat dipanggil (bukan saat import)."""
+    class PrintingDailyTarget(Base):
+        __tablename__ = "printing_daily_targets"
+        __table_args__ = {"extend_existing": True}
+        id = Column(Integer, primary_key=True)
+        process = Column(String(80), nullable=False)
+        target_date = Column(Date, nullable=False, index=True)
+        target_qty = Column(Integer, nullable=False, default=0)
+        unit = Column(String(20), nullable=True, default="PCS")
+        order_fk = Column(Integer, ForeignKey("orders.id"), nullable=True)
+        article_id = Column(Integer, ForeignKey("articles.id"), nullable=True)
+        set_by_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+        set_at = Column(DateTime, nullable=True)
+        reason = Column(Text, nullable=True)
+        version = Column(Integer, nullable=False, default=1)
+        previous_qty = Column(Integer, nullable=True)
+        created_at = Column(DateTime, nullable=False)
+        updated_at = Column(DateTime, nullable=False)
 
+    class PrintingHandoff(Base):
+        __tablename__ = "printing_handoffs"
+        __table_args__ = {"extend_existing": True}
+        id = Column(Integer, primary_key=True)
+        handoff_no = Column(String(80), nullable=False, unique=True)
+        job_id = Column(String(120), nullable=False)
+        movement_id = Column(Integer, ForeignKey("production_movements.id"), nullable=True)
+        article_id = Column(Integer, ForeignKey("articles.id"), nullable=True)
+        order_fk = Column(Integer, ForeignKey("orders.id"), nullable=True)
+        process = Column(String(80), nullable=False)
+        stage = Column(String(80), nullable=True)
+        next_stage = Column(String(80), nullable=False)
+        lot_no = Column(String(80), nullable=True)
+        batch_no = Column(String(120), nullable=True)
+        qty_sent = Column(Integer, nullable=False, default=0)
+        qty_received = Column(Integer, nullable=True)
+        remaining = Column(Integer, nullable=True)
+        exception = Column(String(255), nullable=True)
+        shift = Column(String(64), nullable=True)
+        location = Column(String(120), nullable=True)
+        evidence_ref = Column(Text, nullable=True)
+        sender = Column(String(120), nullable=True)
+        receiver = Column(String(120), nullable=True)
+        sent_at = Column(DateTime, nullable=True)
+        received_at = Column(DateTime, nullable=True)
+        status = Column(String(32), nullable=False, default="SENT")
+        exception_id = Column(Integer, ForeignKey("exceptions.id"), nullable=True)
+        notes = Column(Text, nullable=True)
+        created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+        created_at = Column(DateTime, nullable=False)
+        updated_at = Column(DateTime, nullable=False)
 
-class PrintingHandoff(Base):
-    __tablename__ = "printing_handoffs"
-    __table_args__ = {"extend_existing": True}
-    id = Column(Integer, primary_key=True)
-    handoff_no = Column(String(80), nullable=False, unique=True)
-    job_id = Column(String(120), nullable=False)
-    movement_id = Column(Integer, ForeignKey("production_movements.id"), nullable=True)
-    article_id = Column(Integer, ForeignKey("articles.id"), nullable=True)
-    order_fk = Column(Integer, ForeignKey("orders.id"), nullable=True)
-    process = Column(String(80), nullable=False)
-    stage = Column(String(80), nullable=True)
-    next_stage = Column(String(80), nullable=False)
-    lot_no = Column(String(80), nullable=True)
-    batch_no = Column(String(120), nullable=True)
-    qty_sent = Column(Integer, nullable=False, default=0)
-    qty_received = Column(Integer, nullable=True)
-    remaining = Column(Integer, nullable=True)
-    exception = Column(String(255), nullable=True)
-    shift = Column(String(64), nullable=True)
-    location = Column(String(120), nullable=True)
-    evidence_ref = Column(Text, nullable=True)
-    sender = Column(String(120), nullable=True)
-    receiver = Column(String(120), nullable=True)
-    sent_at = Column(DateTime, nullable=True)
-    received_at = Column(DateTime, nullable=True)
-    status = Column(String(32), nullable=False, default="SENT")
-    exception_id = Column(Integer, ForeignKey("exceptions.id"), nullable=True)
-    notes = Column(Text, nullable=True)
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, nullable=False)
-    updated_at = Column(DateTime, nullable=False)
+    class PrintingDefectDisposition(Base):
+        __tablename__ = "printing_defect_dispositions"
+        __table_args__ = {"extend_existing": True}
+        id = Column(Integer, primary_key=True)
+        qc_id = Column(Integer, ForeignKey("qc_records.id"), nullable=True)
+        job_id = Column(String(120), nullable=True)
+        article_id = Column(Integer, ForeignKey("articles.id"), nullable=True)
+        process = Column(String(80), nullable=True)
+        defect_category = Column(String(80), nullable=False)
+        defect_detail = Column(Text, nullable=True)
+        qty = Column(Integer, nullable=False, default=0)
+        origin = Column(String(32), nullable=True)
+        severity = Column(String(20), nullable=False, default="MINOR")
+        disposition = Column(String(40), nullable=False)
+        rework_owner = Column(String(120), nullable=True)
+        rework_due = Column(Date, nullable=True)
+        rework_qc_id = Column(Integer, ForeignKey("qc_records.id"), nullable=True)
+        retest = Column(String(32), nullable=True)
+        evidence_ref = Column(Text, nullable=True)
+        resolution_evidence_ref = Column(Text, nullable=True)
+        reason = Column(Text, nullable=False)
+        closed_at = Column(DateTime, nullable=True)
+        created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+        created_at = Column(DateTime, nullable=False)
 
-
-class PrintingDefectDisposition(Base):
-    __tablename__ = "printing_defect_dispositions"
-    __table_args__ = {"extend_existing": True}
-    id = Column(Integer, primary_key=True)
-    qc_id = Column(Integer, ForeignKey("qc_records.id"), nullable=True)
-    job_id = Column(String(120), nullable=True)
-    article_id = Column(Integer, ForeignKey("articles.id"), nullable=True)
-    process = Column(String(80), nullable=True)
-    defect_category = Column(String(80), nullable=False)
-    defect_detail = Column(Text, nullable=True)
-    qty = Column(Integer, nullable=False, default=0)
-    origin = Column(String(32), nullable=True)
-    severity = Column(String(20), nullable=False, default="MINOR")
-    disposition = Column(String(40), nullable=False)
-    rework_owner = Column(String(120), nullable=True)
-    rework_due = Column(Date, nullable=True)
-    rework_qc_id = Column(Integer, ForeignKey("qc_records.id"), nullable=True)
-    retest = Column(String(32), nullable=True)
-    evidence_ref = Column(Text, nullable=True)
-    resolution_evidence_ref = Column(Text, nullable=True)
-    reason = Column(Text, nullable=False)
-    closed_at = Column(DateTime, nullable=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, nullable=False)
+    return PrintingDailyTarget, PrintingHandoff, PrintingDefectDisposition
 
 
 def _install_fake_tables():
     """Pasang model tiruan ke ``app.models`` (seperti punya agent SCHEMA)."""
-    for model in (PrintingDailyTarget, PrintingHandoff, PrintingDefectDisposition):
+    models = _fake_models()
+    for model in models:
         setattr(m, model.__name__, model)
+    return models
 
 
-def _drop_fake_tables():
-    for model in (PrintingDailyTarget, PrintingHandoff, PrintingDefectDisposition):
+def _drop_fake_tables(models):
+    for model in models:
         if getattr(m, model.__name__, None) is model:
             delattr(m, model.__name__)
+        table = Base.metadata.tables.get(model.__tablename__)
+        if table is not None:
+            Base.metadata.remove(table)
 
 
 @pytest.fixture
@@ -163,12 +171,12 @@ def printing_schema(db):
     if real:
         yield "schema-agent"
         return
-    _install_fake_tables()
+    models = _install_fake_tables()
     Base.metadata.create_all(db.get_bind())
     try:
         yield "fixture"
     finally:
-        _drop_fake_tables()
+        _drop_fake_tables(models)
         printing_ops._model.cache_clear() if hasattr(printing_ops._model, "cache_clear") else None
 
 

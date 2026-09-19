@@ -334,15 +334,126 @@ class PrintingEvidence(Base):
 
     Pola sama dengan SampleEvidence (byte disimpan di DB) tetapi terikat ke
     `production_movements`, bukan ke sample.
+
+    Kolom `handoff_id`/`disposition_id`/`kind` ditambahkan sesuai spesifikasi
+    `REQUESTS/printing_schema.md` supaya bukti bisa diikat ke handoff atau
+    disposition tertentu, bukan hanya ke movement.
     """
     __tablename__ = "printing_evidence"
     id = Column(Integer, primary_key=True)
     movement_id = Column(Integer, ForeignKey("production_movements.id", ondelete="CASCADE"), nullable=False, index=True)
+    handoff_id = Column(Integer, ForeignKey("printing_handoffs.id", ondelete="SET NULL"), nullable=True)
+    disposition_id = Column(Integer, ForeignKey("printing_defect_dispositions.id", ondelete="SET NULL"), nullable=True)
+    # RESULT / INSPECTION / HANDOFF / REWORK — null berarti belum diklasifikasi.
+    kind = Column(String(32), nullable=True)
     file_name = Column(String(255), nullable=False)
     file_mime = Column(String(120), nullable=False)
     file_data = Column(LargeBinary, nullable=False)
+    # Alternatif kalau bukti disimpan di luar DB.
+    file_path = Column(Text, nullable=True)
     note = Column(Text, nullable=True)
     uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PrintingDailyTarget(Base):
+    """Target harian Printing/Bordir yang TERSIMPAN (revisi #47).
+
+    Sebelumnya target hanya diturunkan dari `production_movements.target_date`,
+    sehingga "menetapkan target" tidak bisa dibedakan dari "mengubah movement"
+    dan riwayat perubahannya hilang. Baris terbaru per (process, target_date)
+    dengan `version` terbesar adalah target resmi hari itu; `previous_qty`
+    menyimpan nilai sebelumnya untuk jejak revisi.
+    """
+    __tablename__ = "printing_daily_targets"
+    id = Column(Integer, primary_key=True)
+    process = Column(String(80), nullable=False)            # PRINTING / BORDIR
+    target_date = Column(Date, nullable=False, index=True)
+    target_qty = Column(Integer, default=0, nullable=False)
+    unit = Column(String(20), nullable=True, default="PCS")
+    order_fk = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
+    article_id = Column(Integer, ForeignKey("articles.id", ondelete="SET NULL"), nullable=True)
+    set_by_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    set_at = Column(DateTime, nullable=True, default=datetime.utcnow)
+    reason = Column(Text, nullable=True)
+    version = Column(Integer, default=1, nullable=False)
+    previous_qty = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class PrintingHandoff(Base):
+    """Partial handoff antar proses dengan qty kirim vs terima (revisi #44).
+
+    `production_movements` hanya menyimpan agregat per proses, sehingga selisih
+    kirim/terima tidak punya tempat. Baris di sini mencatat selisih itu apa
+    adanya; tabel ini **tidak** mengubah `production_movements.qty_done` —
+    angka WIP tetap milik COO.
+    """
+    __tablename__ = "printing_handoffs"
+    id = Column(Integer, primary_key=True)
+    handoff_no = Column(String(80), unique=True, nullable=False, index=True)
+    job_id = Column(String(120), nullable=False, index=True)
+    movement_id = Column(Integer, ForeignKey("production_movements.id", ondelete="SET NULL"), nullable=True, index=True)
+    article_id = Column(Integer, ForeignKey("articles.id", ondelete="SET NULL"), nullable=True, index=True)
+    order_fk = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    process = Column(String(80), nullable=False)            # PRINTING / BORDIR
+    stage = Column(String(80), nullable=True)               # = process (dipakai UI job card)
+    next_stage = Column(String(80), nullable=False)
+    lot_no = Column(String(80), nullable=True)
+    batch_no = Column(String(120), nullable=True)           # Batch ID (revisi #41)
+    # `qty_sent` tidak boleh di-overwrite setelah baris dibuat.
+    qty_sent = Column(Integer, default=0, nullable=False)
+    qty_received = Column(Integer, nullable=True)
+    remaining = Column(Integer, nullable=True)              # qty_sent - qty_received
+    exception = Column(String(255), nullable=True)          # catatan selisih
+    shift = Column(String(64), nullable=True)
+    location = Column(String(120), nullable=True)
+    evidence_ref = Column(Text, nullable=True)
+    sender = Column(String(120), nullable=True)
+    receiver = Column(String(120), nullable=True)
+    sent_at = Column(DateTime, nullable=True, default=datetime.utcnow)
+    received_at = Column(DateTime, nullable=True)
+    # SENT / RECEIVED / DISCREPANCY / EXCEPTION
+    status = Column(String(32), default="SENT", nullable=False, index=True)
+    exception_id = Column(Integer, ForeignKey("exceptions.id", ondelete="SET NULL"), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class PrintingDefectDisposition(Base):
+    """Keputusan defect Printing/Bordir: kategori, severity, disposition (revisi #45).
+
+    Sebelumnya kategori/severity hanya diturunkan dari teks
+    `qc_records.reject_reason`, sehingga "defect sudah diputuskan" tidak bisa
+    dibedakan dari "ada catatan teks". `REWORK`/`REMAKE` menuntut retest sebelum
+    handoff berikutnya boleh jalan (ditegakkan router, bukan UI).
+    """
+    __tablename__ = "printing_defect_dispositions"
+    id = Column(Integer, primary_key=True)
+    qc_id = Column(Integer, ForeignKey("qc_records.id", ondelete="SET NULL"), nullable=True, index=True)
+    job_id = Column(String(120), nullable=True, index=True)
+    article_id = Column(Integer, ForeignKey("articles.id", ondelete="SET NULL"), nullable=True, index=True)
+    process = Column(String(80), nullable=True)
+    defect_category = Column(String(80), nullable=False)
+    defect_detail = Column(Text, nullable=True)
+    qty = Column(Integer, default=0, nullable=False)
+    origin = Column(String(32), nullable=True)              # PRINTING/BORDIR/SUPPLIER
+    severity = Column(String(20), default="MINOR", nullable=False)  # MINOR/MAJOR/CRITICAL
+    # REWORK / REMAKE / REJECT / ACCEPT_DEVIATION
+    disposition = Column(String(40), nullable=False, index=True)
+    rework_owner = Column(String(120), nullable=True)
+    rework_due = Column(Date, nullable=True)
+    rework_qc_id = Column(Integer, ForeignKey("qc_records.id", ondelete="SET NULL"), nullable=True)
+    # REQUIRED / PENDING / PASSED / FAILED
+    retest = Column(String(32), nullable=True)
+    evidence_ref = Column(Text, nullable=True)
+    resolution_evidence_ref = Column(Text, nullable=True)
+    reason = Column(Text, nullable=False)                   # wajib diisi
+    closed_at = Column(DateTime, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class SPK(Base):
