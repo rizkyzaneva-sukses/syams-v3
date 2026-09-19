@@ -1,7 +1,7 @@
 export const groups={cmo:['CMO_MANAGER','CMO_SUPPORT'],cfo:['CFO_MANAGER','FINANCE_SUPPORT'],coo:['COO_MANAGER','PRODUCTION_PIC','PRINTING_PIC','SHIPMENT_ADMIN'],hr:['CHRO_MANAGER','HR_SUPPORT']};
 const routeRoles={
   '/master':['CEO',...groups.cmo,...groups.cfo,...groups.coo,'SAMPLE_PIC'],
-  '/cmo':groups.cmo,'/cmo/orders':groups.cmo,'/cmo/orders/new':groups.cmo,'/cmo/po-inbox':['CMO_MANAGER','CMO_SUPPORT','CEO'],'/cmo/customers':groups.cmo,
+  '/cmo':groups.cmo,'/cmo/priority':[...groups.cmo,'CEO'],'/cmo/orders':groups.cmo,'/cmo/orders/new':groups.cmo,'/cmo/po-inbox':['CMO_MANAGER','CMO_SUPPORT','CEO'],'/cmo/customers':groups.cmo,
   '/cmo/quotations':[...groups.cmo,'CFO_MANAGER','CEO'],'/cmo/samples':[...groups.cmo,'SAMPLE_PIC'],'/cmo/spk':groups.cmo,
   '/cfo':[...groups.cfo,'CEO'],'/cfo/invoices':[...groups.cfo,'CEO'],'/cfo/purchase-orders':[...groups.cfo,'CEO'],'/cfo/shipments':[...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN','CMO_MANAGER','CEO'],
   '/coo':groups.coo,'/coo/material-requests':['COO_MANAGER','PRODUCTION_PIC'],'/coo/bom-cost':['CEO','COO_MANAGER','PRODUCTION_PIC','CFO_MANAGER'],'/coo/production':groups.coo,'/coo/wip':groups.coo,
