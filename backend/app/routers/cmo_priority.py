@@ -9,6 +9,7 @@ Read-only: these endpoints derive state from recorded transactions and never
 mutate data. All permission is enforced server-side here, not only in the UI.
 """
 from datetime import datetime, timezone
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -55,6 +56,15 @@ def _queue_row(*, task_id, decision_type, order=None, buyer=None, article=None,
     }
 
 
+def _missing_items(po):
+    """Parse the stored completeness list. Never trust the raw JSON string shape."""
+    try:
+        items = json.loads(po.missing_items_json or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(item) for item in items] if isinstance(items, list) else []
+
+
 @router.get("/morning-priority")
 def morning_priority(db: Session = Depends(get_db), user=Depends(get_current_user)):
     """Action-first decision queue for CMO Manager (revisi #14 poin 2).
@@ -78,7 +88,7 @@ def morning_priority(db: Session = Depends(get_db), user=Depends(get_current_use
         "rows": [_queue_row(
             task_id=f"PO-{po.id}", decision_type="PO_REVIEW",
             buyer=po.buyer, status=po.status,
-            gate="Lengkap" if not (po.missing_items_json or "[]") .strip("[]") else "Belum lengkap",
+            gate="Belum lengkap: " + ", ".join(missing) if (missing := _missing_items(po)) else "Lengkap",
             next_action="Review kelengkapan lalu terima atau tolak",
             due=po.buyer_deadline, handoff="Activate Order → CFO pricing",
             updated=po.updated_at, severity="YELLOW") for po in pending_po],
