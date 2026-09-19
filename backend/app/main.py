@@ -12,7 +12,8 @@ from . import auth_models
 from .routers import (auth, orders, master, dashboard, modules, revisions, po_intake, cmo_priority,
                       cmo_pipeline, cmo_support, cmo_manager, hr_employees, hr_recruitment,
                       sample_lifecycle, sample_work, printing_jobs, printing_ops,
-                      cfo_receivables, cfo_costing, coo_execution)
+                      cfo_receivables, cfo_costing, coo_execution,
+                      ceo_override, ceo_performance, cfo_payments, coo_handoffs)
 from .services.seed import seed
 
 
@@ -71,8 +72,12 @@ for router in (auth.router, orders.router, master.router, dashboard.router, modu
                # internalnya sendiri; loop ini hanya memasang prefix /api.
                cmo_manager.router, hr_employees.router, hr_recruitment.router,
                sample_lifecycle.router, sample_work.router, printing_jobs.router,
-               printing_ops.router, cfo_receivables.router, cfo_costing.router,
-               coo_execution.router):
+               printing_ops.router, cfo_receivables.router, cfo_costing.router, coo_execution.router,
+               # Router yang sempat orphan: kodenya ada + tesnya lulus, tapi
+               # belum pernah dipasang sehingga semua endpoint-nya 404
+               # (revisi #70-#78 CEO, #17/#20 CFO, #54 COO).
+               ceo_override.router, ceo_performance.router, cfo_payments.router,
+               coo_handoffs.router):
     app.include_router(router, prefix="/api")
 
 
