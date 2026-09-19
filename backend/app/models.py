@@ -430,6 +430,49 @@ class Shipment(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     lines = relationship("ShipmentLine", back_populates="shipment", cascade="all, delete-orphan")
 
+class ShipmentException(Base):
+    """CEO shipment outstanding exception (revisi #75).
+
+    Terikat pada satu Shipment ID, bukan pada order secara umum: persetujuan
+    melepas SATU pengiriman tertentu, lalu kedaluwarsa. Persetujuan tidak
+    mengubah invoice/paid/outstanding — uangnya tetap tercatat sebagai piutang.
+    """
+    __tablename__ = "shipment_exceptions"
+    id = Column(Integer, primary_key=True)
+    exception_no = Column(String(40), nullable=True)
+    shipment_fk = Column(Integer, ForeignKey("shipments.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_fk = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    buyer = Column(String(160), nullable=True)
+    goods_ready = Column(Boolean, default=False, nullable=False)
+    lines_json = Column(Text, default="[]", nullable=False)
+    shipment_value = Column(Numeric(18, 2), nullable=True)
+    invoice_total = Column(Numeric(18, 2), nullable=True)
+    invoice_paid = Column(Numeric(18, 2), nullable=True)
+    outstanding = Column(Numeric(18, 2), nullable=True)
+    payment_terms = Column(String(255), nullable=True)
+    payment_due = Column(Date, nullable=True)
+    cfo_assessment = Column(Text, nullable=True)
+    cfo_status = Column(String(32), nullable=True)
+    cfo_assessed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    cfo_assessed_at = Column(DateTime, nullable=True)
+    cmo_customer_confirmation = Column(Text, nullable=True)
+    cmo_confirmed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    cmo_confirmed_at = Column(DateTime, nullable=True)
+    reason = Column(Text, nullable=False)
+    risk = Column(Text, nullable=True)
+    evidence_ref = Column(Text, nullable=True)
+    requested_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    ceo_decision = Column(String(32), nullable=True)
+    ceo_decision_reason = Column(Text, nullable=True)
+    ceo_decided_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    ceo_decided_at = Column(DateTime, nullable=True)
+    valid_until = Column(Date, nullable=True)
+    single_release = Column(Boolean, default=True, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class ShipmentLine(Base):
     __tablename__ = "shipment_lines"
     __table_args__ = (UniqueConstraint("shipment_fk", "article_id", name="uq_shipment_line_article"),)

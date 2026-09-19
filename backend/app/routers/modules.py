@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, or_
 from pydantic import BaseModel as PydanticBaseModel, ConfigDict, model_validator
 from typing import Literal, Optional
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 import json
 from datetime import datetime
@@ -1350,6 +1350,172 @@ def list_audit_log(limit:int=Query(100,ge=1,le=500), offset:int=Query(0,ge=0), d
             "created_at": l.created_at,
         })
     return result
+
+
+# ──────────── CEO: SHIPMENT OUTSTANDING EXCEPTION (revisi #75) ────────────
+# Terikat satu Shipment ID. Hanya boleh diajukan ketika finance gate HOLD,
+# harus lolos CFO assessment lalu konfirmasi customer CMO, baru diputus CEO.
+# Persetujuan melepas SATU release dan tidak mengubah invoice/paid/outstanding.
+class ShipmentExceptionIn(BaseModel):
+    reason: str = Field(min_length=5, max_length=2000)
+    risk: Optional[str] = None
+    evidence_ref: Optional[str] = None
+    valid_until: Optional[date] = None
+    single_release: bool = True
+
+class ShipmentExceptionDecision(BaseModel):
+    action: str
+    reason: str = Field(min_length=5, max_length=2000)
+    valid_until: Optional[date] = None
+
+def shipment_exception_out(db, x):
+    shipment = db.get(models.Shipment, x.shipment_fk)
+    order = db.get(models.Order, x.order_fk)
+    return {
+        "id": x.id, "exception_no": x.exception_no,
+        "shipment_id": x.shipment_fk,
+        "shipment_no": shipment.shipment_no if shipment else None,
+        "order_id": order.order_id if order else None, "buyer": x.buyer,
+        "goods_ready": x.goods_ready, "lines": json.loads(x.lines_json or "[]"),
+        "shipment_value": x.shipment_value, "invoice_total": x.invoice_total,
+        "invoice_paid": x.invoice_paid, "outstanding": x.outstanding,
+        "payment_terms": x.payment_terms, "payment_due": x.payment_due,
+        "cfo_assessment": x.cfo_assessment, "cfo_status": x.cfo_status,
+        "cmo_customer_confirmation": x.cmo_customer_confirmation,
+        "reason": x.reason, "risk": x.risk, "evidence_ref": x.evidence_ref,
+        "requested_at": x.requested_at,
+        "ceo_decision": x.ceo_decision, "ceo_decision_reason": x.ceo_decision_reason,
+        "ceo_decided_at": x.ceo_decided_at,
+        "valid_until": x.valid_until, "single_release": x.single_release,
+        "used_at": x.used_at, "created_at": x.created_at,
+        "is_active": bool(x.ceo_decision == "APPROVED" and not x.used_at
+                          and (not x.valid_until or x.valid_until >= date.today())),
+    }
+
+@router.get("/ceo/shipment-exceptions")
+def list_shipment_exceptions(db:Session=Depends(get_db),
+                             user=Depends(require_roles(models.Role.CEO, models.Role.CFO_MANAGER, models.Role.COO_MANAGER))):
+    rows = db.query(models.ShipmentException).order_by(desc(models.ShipmentException.id)).all()
+    return [shipment_exception_out(db, x) for x in rows]
+
+@router.post("/ceo/shipments/{shipment_id}/exception", status_code=201)
+def request_shipment_exception(shipment_id:int, data:ShipmentExceptionIn, db:Session=Depends(get_db),
+                               user=Depends(require_roles(models.Role.CFO_MANAGER))):
+    """CFO mengajukan exception outstanding untuk satu shipment."""
+    shipment = db.query(models.Shipment).filter_by(id=shipment_id).with_for_update().first()
+    if not shipment:
+        raise HTTPException(404, "Shipment not found")
+    if shipment.status in ("SHIPPED", "DELIVERED"):
+        raise HTTPException(400, "Shipment already dispatched")
+    if shipment.finance_gate != "HOLD":
+        raise HTTPException(400, "Exception is only for shipments held by the finance gate")
+    if not shipment.finance_assessed_by_id:
+        raise HTTPException(400, "CFO assessment is required before requesting an exception")
+    total, paid = invoices_total(db, shipment.order_fk)
+    order = db.get(models.Order, shipment.order_fk)
+    lines = [{"article_code": l.article_code, "qty": l.qty}
+             for l in db.query(models.ShipmentLine).filter_by(shipment_fk=shipment.id).all()]
+    x = models.ShipmentException(
+        shipment_fk=shipment.id, order_fk=shipment.order_fk,
+        buyer=order.buyer if order else None,
+        goods_ready=(shipment.packing_status == "PACKED"),
+        lines_json=json.dumps(lines, ensure_ascii=False),
+        shipment_value=shipment.approved_outstanding, invoice_total=total, invoice_paid=paid,
+        outstanding=max(total - paid, 0), payment_terms=shipment.notes,
+        payment_due=order.credit_due_date if order else None,
+        cfo_assessment=data.evidence_ref or "Requested by CFO",
+        cfo_status="REQUESTED", cfo_assessed_by_id=user.id, cfo_assessed_at=datetime.utcnow(),
+        reason=data.reason.strip(), risk=data.risk.strip() if data.risk else None,
+        evidence_ref=data.evidence_ref, requested_by_id=user.id,
+        valid_until=data.valid_until, single_release=data.single_release,
+    )
+    db.add(x); db.flush()
+    x.exception_no = f"SEX-{x.id:05d}"
+    log_audit(db, user, "SHIPMENT_EXCEPTION_REQUEST", "ShipmentException", x.id, x.exception_no,
+              obj=x, source_module="Shipment", new_status="REQUESTED", reason=x.reason)
+    commit_changes(db, user); db.refresh(x)
+    return shipment_exception_out(db, x)
+
+@router.patch("/ceo/shipment-exceptions/{exception_id}/cmo-confirm")
+def cmo_confirm_shipment_exception(exception_id:int, data:ShipmentExceptionDecision, db:Session=Depends(get_db),
+                                   user=Depends(require_roles(models.Role.CMO_MANAGER))):
+    """CMO mencatat konfirmasi customer sebelum CEO memutuskan."""
+    x = get_or_404(db, models.ShipmentException, exception_id, "Shipment exception not found")
+    if x.ceo_decision:
+        raise HTTPException(409, "Exception already decided by CEO")
+    x.cmo_customer_confirmation = data.reason.strip()
+    x.cmo_confirmed_by_id = user.id
+    x.cmo_confirmed_at = datetime.utcnow()
+    log_audit(db, user, "SHIPMENT_EXCEPTION_CMO_CONFIRM", "ShipmentException", x.id, x.exception_no or "",
+              obj=x, new_status="CMO_CONFIRMED", reason=data.reason.strip())
+    commit_changes(db, user); db.refresh(x)
+    return shipment_exception_out(db, x)
+
+@router.post("/ceo/shipment-exceptions/{exception_id}/decide")
+def decide_shipment_exception(exception_id:int, data:ShipmentExceptionDecision, db:Session=Depends(get_db),
+                              user=Depends(require_roles(models.Role.CEO))):
+    if data.action not in ("APPROVE", "REJECT"):
+        raise HTTPException(400, "action must be APPROVE or REJECT")
+    x = db.query(models.ShipmentException).filter_by(id=exception_id).with_for_update().first()
+    if not x:
+        raise HTTPException(404, "Shipment exception not found")
+    if x.ceo_decision:
+        raise HTTPException(409, "Exception already decided")
+    if x.used_at:
+        raise HTTPException(409, "Exception already consumed")
+    if not x.cmo_confirmed_at:
+        raise HTTPException(400, "CMO customer confirmation is required before the CEO decision")
+    shipment = db.get(models.Shipment, x.shipment_fk)
+    if not shipment:
+        raise HTTPException(404, "Shipment not found")
+    # Simpan 'APPROVED'/'REJECTED' supaya konsisten dengan Shipment.ceo_approval
+    # dan dengan pengecekan is_active/consume di bawah.
+    x.ceo_decision = "APPROVED" if data.action == "APPROVE" else "REJECTED"
+    x.ceo_decision_reason = data.reason.strip()
+    x.ceo_decided_by_id = user.id
+    x.ceo_decided_at = datetime.utcnow()
+    if data.valid_until:
+        x.valid_until = data.valid_until
+    elif data.action == "APPROVE" and not x.valid_until:
+        # Persetujuan outstanding tanpa batas waktu terlalu berbahaya: beri
+        # jendela 7 hari kalau CEO tidak menyebutkan sendiri.
+        x.valid_until = date.today() + timedelta(days=7)
+    # validate() hanya mengizinkan perubahan gate dari endpoint approval resmi;
+    # exception ini memang endpoint tersebut, jadi tandai dengan flag yang sama.
+    db.info["shipment_approval"] = True
+    if data.action == "APPROVE":
+        # Melepas satu pengiriman. Invoice, paid, dan outstanding TIDAK diubah.
+        shipment.finance_gate = "CLEAR"
+        shipment.ceo_approval = "APPROVED"
+        shipment.approved_outstanding = x.outstanding
+    else:
+        # Reject tetap menahan pengiriman.
+        shipment.finance_gate = "HOLD"
+        shipment.ceo_approval = "REJECTED"
+        shipment.approved_outstanding = None
+    log_audit(db, user, "SHIPMENT_EXCEPTION_" + data.action, "ShipmentException", x.id,
+              x.exception_no or "", obj=x, new_status=data.action, reason=data.reason.strip())
+    commit_changes(db, user); db.refresh(x)
+    return shipment_exception_out(db, x)
+
+@router.post("/coo/shipment-exceptions/{exception_id}/consume")
+def consume_shipment_exception(exception_id:int, db:Session=Depends(get_db),
+                               user=Depends(require_roles(models.Role.COO_MANAGER, models.Role.SHIPMENT_ADMIN))):
+    """COO menandai exception terpakai setelah benar-benar melepas pengiriman."""
+    x = db.query(models.ShipmentException).filter_by(id=exception_id).with_for_update().first()
+    if not x:
+        raise HTTPException(404, "Shipment exception not found")
+    if x.ceo_decision != "APPROVED":
+        raise HTTPException(400, "Only an approved exception can be consumed")
+    if x.used_at:
+        raise HTTPException(409, "Exception already consumed")
+    if x.valid_until and x.valid_until < date.today():
+        raise HTTPException(400, "Exception has expired and must be re-requested")
+    x.used_at = datetime.utcnow()
+    log_audit(db, user, "SHIPMENT_EXCEPTION_CONSUMED", "ShipmentException", x.id, x.exception_no or "",
+              obj=x, previous_status="APPROVED", new_status="USED")
+    commit_changes(db, user); db.refresh(x)
+    return shipment_exception_out(db, x)
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CEO: SHIPMENT APPROVAL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
