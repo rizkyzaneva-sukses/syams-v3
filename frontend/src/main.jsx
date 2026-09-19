@@ -9,6 +9,17 @@ import CustomerList from './pages/CustomerList';
 import OrderList from './pages/OrderList';
 import POInboxPage from './pages/POInboxPage';
 import POIntakeFormPage from './pages/POIntakeFormPage';
+import CMOPriorityV2Page from './pages/CMOPriorityV2Page';
+import HREmployeeMasterPage from './pages/HREmployeeMasterPage';
+import HRRecruitmentPage from './pages/HRRecruitmentPage';
+import SampleLifecyclePage from './pages/SampleLifecyclePage';
+import SampleTodayPage from './pages/SampleTodayPage';
+import SampleTaskPage from './pages/SampleTaskPage';
+import PrintingJobCardPage from './pages/PrintingJobCardPage';
+import PrintingDailyTargetPage from './pages/PrintingDailyTargetPage';
+import CFOReceivablesPage from './pages/CFOReceivablesPage';
+import CFOCostingPage from './pages/CFOCostingPage';
+import COOExecutionPage from './pages/COOExecutionPage';
 import QuotationPage from './pages/QuotationPage';
 import SamplePPMPage from './pages/SamplePPMPage';
 import SPKPage from './pages/SPKPage';
@@ -76,6 +87,17 @@ function App(){return <BrowserRouter><Routes>
     <Route path="cmo/release-to-coo" element={<Access><ReleaseToCOOPage/></Access>}/>
     <Route path="cmo/exception-center" element={<Access><ExceptionCenterPage/></Access>}/>
     <Route path="cmo/today" element={<Access><DebyTodayPage/></Access>}/>
+      <Route path="cmo/priority-v2" element={<Access><CMOPriorityV2Page/></Access>}/>
+      <Route path="chro/employees" element={<Access><HREmployeeMasterPage/></Access>}/>
+      <Route path="chro/recruitment" element={<Access><HRRecruitmentPage/></Access>}/>
+      <Route path="sample/lifecycle" element={<Access><SampleLifecyclePage/></Access>}/>
+      <Route path="sample/today" element={<Access><SampleTodayPage/></Access>}/>
+      <Route path="sample/tasks" element={<Access><SampleTaskPage/></Access>}/>
+      <Route path="printing/job-cards" element={<Access><PrintingJobCardPage/></Access>}/>
+      <Route path="printing/daily-target" element={<Access><PrintingDailyTargetPage/></Access>}/>
+      <Route path="cfo/receivables" element={<Access><CFOReceivablesPage/></Access>}/>
+      <Route path="cfo/costing" element={<Access><CFOCostingPage/></Access>}/>
+      <Route path="coo/execution" element={<Access><COOExecutionPage/></Access>}/>
     <Route path="cmo/customers" element={<Access><CustomerList/></Access>}/>
     <Route path="cmo/orders" element={<Access><OrderList/></Access>}/>
     <Route path="cmo/orders/new" element={<Navigate to="/cmo/po-inbox/new" replace/>}/>

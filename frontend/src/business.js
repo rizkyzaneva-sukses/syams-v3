@@ -6,7 +6,7 @@ const routeRoles={
   // CEO tidak punya halaman kerja operasional: pembuatan/ubah PO, invoice, dan
   // delivery adalah wewenang CFO/COO (revisi #74 poin RBAC & #77 poin sidebar).
   // CEO melihat angkanya lewat drill-down read-only di Company Performance.
-  '/cfo':[...groups.cfo,'CEO'],'/cfo/invoices':[...groups.cfo],'/cfo/purchase-orders':[...groups.cfo],'/cfo/shipments':[...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN','CMO_MANAGER','CEO'],
+  '/cfo':[...groups.cfo,'CEO'],'/cfo/invoices':[...groups.cfo],'/cfo/purchase-orders':[...groups.cfo],'/cfo/shipments':[...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN','CMO_MANAGER','CEO'],'/cmo/priority-v2':['CMO_MANAGER','CEO'],'/chro/employees':groups.hr,'/chro/recruitment':groups.hr,'/sample/lifecycle':['SAMPLE_PIC','CMO_MANAGER','CMO_SUPPORT'],'/sample/today':['SAMPLE_PIC'],'/sample/tasks':['SAMPLE_PIC'],'/printing/job-cards':['PRINTING_PIC','COO_MANAGER'],'/printing/daily-target':['PRINTING_PIC','COO_MANAGER'],'/cfo/receivables':['CFO_MANAGER','FINANCE_SUPPORT'],'/cfo/costing':['CFO_MANAGER','FINANCE_SUPPORT'],'/coo/execution':['COO_MANAGER','PRODUCTION_PIC'],
   '/coo':groups.coo,'/coo/material-requests':['COO_MANAGER','PRODUCTION_PIC'],'/coo/bom-cost':['COO_MANAGER','PRODUCTION_PIC','CFO_MANAGER'],'/coo/production':groups.coo,'/coo/wip':groups.coo,
   '/coo/qc':['COO_MANAGER','PRODUCTION_PIC'],'/coo/planning':['COO_MANAGER'],'/coo/deliveries':['CMO_MANAGER',...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN'],
   '/coo/closing':['CMO_MANAGER','CFO_MANAGER','COO_MANAGER'], '/chro':groups.hr,'/chro/employees':groups.hr,'/chro/training':groups.hr,

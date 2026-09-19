@@ -163,7 +163,7 @@ export default function SampleTaskPage(){
     </section>
 
     {tasks.length===0&&<div className="notice success">Tidak ada tugas sample yang cocok dengan filter.</div>}
-    {tasks.map(row=><TaskCard key={row.task_id+r'+'+row.stage} row={row}/>)}
+    {tasks.map(row=><TaskCard key={row.task_id+'+'+row.stage} row={row}/>)}
 
     <section className="panel">
       <div className="panel-head"><h2>Batas akses Sample PIC</h2><span>ditegakkan server-side</span></div>
