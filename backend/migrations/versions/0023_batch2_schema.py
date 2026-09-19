@@ -134,11 +134,27 @@ def _upgrade_employees():
         return
 
     # Backfill jujur: created_at hanyalah PERKIRAAN, jadi ditandai.
-    # CAST(created_at AS DATE) TIDAK portabel: di SQLite hasilnya integer tahun
-    # ("2026"), bukan tanggal. Dipakai SUBSTR(...1,10) yang menghasilkan
-    # "YYYY-MM-DD" di SQLite maupun PostgreSQL.
+    #
+    # CATATAN PORTABILITAS (bug produksi nyata): `CAST(created_at AS DATE)` tidak
+    # portabel karena di SQLite hasilnya integer tahun ("2026"), bukan tanggal.
+    # Tetapi `SUBSTR(created_at, 1, 10)` JUSTRU GAGAL di PostgreSQL —
+    # `substr(timestamp, int, int)` tidak ada:
+    #   ProgrammingError: function substr(timestamp without time zone, integer,
+    #   integer) does not exist
+    # SQLite menerima keduanya (kolomnya bertipe longgar), jadi bug ini lolos
+    # seluruh tes lokal dan baru muncul saat deploy.
+    #
+    # Solusinya: SUBSTR dipakai HANYA bila kolomnya benar-benar teks (SQLite),
+    # dan CAST(... AS DATE) dipakai di PostgreSQL. `created_at` di SQLite
+    # tersimpan sebagai TEXT sehingga SUBSTR aman di sana.
+    bind = op.get_bind()
+    is_postgres = bind.dialect.name == "postgresql"
+    if is_postgres:
+        join_date_sql = "CAST(created_at AS DATE)"
+    else:
+        join_date_sql = "SUBSTR(CAST(created_at AS TEXT), 1, 10)"
     estimated = _execute(
-        "UPDATE employees SET join_date = SUBSTR(created_at, 1, 10) "
+        "UPDATE employees SET join_date = " + join_date_sql + " "
         "WHERE join_date IS NULL AND created_at IS NOT NULL"
     ).rowcount
     flagged = _execute(
@@ -587,12 +603,23 @@ def _hr_recruitment_tables():
 
 # ═══════════════════════ 6. HR: onboarding, payroll, performance (#64/#65) ═══════════════════════
 def _hr_lifecycle_tables():
+    # URUTAN & FK (bug produksi nyata — PostgreSQL, bukan SQLite):
+    # `payroll_handoffs.onboarding_fk` dan `onboarding_programs.payroll_handoff_fk`
+    # saling menunjuk. Di PostgreSQL `CREATE TABLE` dengan FK ke tabel yang BELUM
+    # ada langsung gagal:
+    #   UndefinedTable: relation "onboarding_programs" does not exist
+    # Rujukan silang begini tidak bisa diselesaikan dengan mengubah urutan saja.
+    # Karena `payroll_handoff_fk` yang menyimpan hasil akhir (ditulis setelah
+    # onboarding selesai), rujukan itulah yang dipertahankan sebagai FK, dan
+    # `payroll_handoffs.onboarding_fk` cukup disimpan sebagai INTEGER biasa —
+    # nilainya tetap diisi router, tapi tidak memasung urutan pembuatan tabel.
     _create_table(
         "payroll_handoffs",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("employee_id", sa.Integer(), sa.ForeignKey("employees.id", ondelete="SET NULL"), nullable=True),
         sa.Column("employee_fk", sa.Integer(), sa.ForeignKey("employees.id", ondelete="SET NULL"), nullable=True),
-        sa.Column("onboarding_fk", sa.Integer(), sa.ForeignKey("onboarding_programs.id", ondelete="SET NULL"), nullable=True),
+        # Tanpa ForeignKey: lihat catatan urutan di atas (rujukan silang).
+        sa.Column("onboarding_fk", sa.Integer(), nullable=True),
         sa.Column("event_type", sa.String(length=32), nullable=True),
         sa.Column("effective_date", sa.Date(), nullable=True),
         sa.Column("status_code", sa.String(length=32), nullable=True),
