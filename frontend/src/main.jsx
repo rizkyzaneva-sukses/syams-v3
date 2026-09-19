@@ -46,6 +46,8 @@ import PerformancePage from './pages/PerformancePage';
 import EmployeeIssuePage from './pages/EmployeeIssuePage';
 import AuditLogPage from './pages/AuditLogPage';
 import BusinessPolicyPage from './pages/BusinessPolicyPage';
+import CEOCompanyPerformance from './pages/CEOCompanyPerformance';
+import CEOOverride from './pages/CEOOverride';
 import BOMCostPage from './pages/BOMCostPage';
 import RevisionPage from './pages/RevisionPage';
 import CMOPriorityPage from './pages/CMOPriorityPage';
@@ -127,6 +129,10 @@ function App(){return <BrowserRouter><Routes>
     <Route path="ceo" element={<Access><CEOHome/></Access>}/>
     <Route path="ceo/decisions" element={<Access><DecisionPage/></Access>}/>
     <Route path="ceo/business-policy" element={<Access><BusinessPolicyPage/></Access>}/>
+    {/* Halaman yang kodenya sudah ada tapi belum pernah dipasang — dipasang
+        bersamaan dengan router backend-nya (revisi #70-#78). */}
+    <Route path="ceo/company-performance" element={<Access><CEOCompanyPerformance/></Access>}/>
+    <Route path="ceo/overrides" element={<Access><CEOOverride/></Access>}/>
     {/* CHRO */}
     <Route path="chro" element={<Access><CHROHome/></Access>}/>
     <Route path="chro/employees" element={<Access><EmployeePage/></Access>}/>
