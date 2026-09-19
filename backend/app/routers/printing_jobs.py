@@ -79,6 +79,17 @@ def _as_int(value) -> int:
         return 0
 
 
+def _field(row, name):
+    """Nilai kolom Job Card kalau kolomnya sudah ada di schema, else None.
+
+    Kolom `method/colors/placement/technique/vendor_type/machine/shift/batch_id`
+    diminta lewat ``REQUESTS/printing_schema.md`` dan dimiliki agent SCHEMA.
+    Dibaca lewat getattr supaya Job Card otomatis ikut terisi begitu kolom itu
+    mendarat, tanpa mengubah kode ini lagi.
+    """
+    return getattr(row, name, None)
+
+
 @router.get("/job-cards")
 def list_job_cards(
     order_fk: Optional[int] = Query(None, description="Filter satu Order"),
@@ -196,16 +207,22 @@ def list_job_cards(
             "requirement_version": f"{spk.spk_no}@v{spk.version}" if spk else None,
             "artwork_version": f"SAMPLE-{sample.article_code}@approved" if sample else None,
             "sample_approved_at": sample.customer_decision_at if sample else None,
-            # Referensi kerja (metode/warna/placement/teknik) belum punya kolom
-            # di schema saat ini -> lihat REQUESTS/printing_jobs.md.
-            "method": None,
-            "colors": None,
-            "placement": None,
-            "size_spec": article.size_breakdown,
-            "technique": None,
-            "vendor_type": None,
-            "machine": None,
-            "team_shift": movement.pic_name,
+            # Referensi kerja (metode/warna/placement/teknik/vendor/mesin/shift)
+            # dibaca dari kolom movement bila sudah ada — diminta lewat
+            # REQUESTS/printing_schema.md. Selama kolomnya belum ada, nilainya
+            # tetap None dan `method_columns_present` menyatakannya apa adanya.
+            "method": _field(movement, "method"),
+            "colors": _field(movement, "colors"),
+            "placement": _field(movement, "placement"),
+            "size_spec": _field(movement, "size_spec") or article.size_breakdown,
+            "technique": _field(movement, "technique"),
+            "vendor_type": _field(movement, "vendor_type"),
+            "machine": _field(movement, "machine"),
+            "shift": _field(movement, "shift"),
+            "team_shift": _field(movement, "shift") or movement.pic_name,
+            "batch_id": _field(movement, "batch_id"),
+            "locked_at": _field(movement, "locked_at"),
+            "method_columns_present": hasattr(movement, "method") and hasattr(movement, "colors"),
             "pic_name": movement.pic_name,
             "target_date": movement.target_date,
             "status": movement.status,

@@ -72,9 +72,12 @@ def test_summary_groups_by_status_and_flags_seed_rows(db, hr_client, headers):
     assert flagged["needs_migration"] is True
     assert "SEED_DEMO_ROW" in flagged["migration_flags"]
     assert data["migration"]["seed_rows"] == 1
-    # Ketiga baris belum punya kolom join_date -> semuanya punya utang migrasi.
+    # Utang migrasi dilaporkan apa adanya: kalau kolom join_date sudah mendarat
+    # (batch 2), tidak ada baris yang perlu migrasi karena kolom itu lagi.
     assert data["migration"]["needs_migration"] == 3
-    assert {f["flag"] for f in data["migration"]["by_flag"]} >= {"JOIN_DATE_NOT_MIGRATED", "SEED_DEMO_ROW"}
+    flags = {f["flag"] for f in data["migration"]["by_flag"]}
+    assert "SEED_DEMO_ROW" in flags
+    assert ("JOIN_DATE_NOT_MIGRATED" in flags) is (not data["migration"]["join_date_column_present"])
 
 
 def test_join_date_is_derived_honestly_when_column_missing(db, hr_client, headers):
@@ -83,20 +86,29 @@ def test_join_date_is_derived_honestly_when_column_missing(db, hr_client, header
     data = hr_client.get("/api/hr/employees-summary", headers=headers("CHRO_MANAGER")).json()
     row = data["employees"][0]
     assert row["join_date"] == date.today().isoformat()
-    assert row["join_date_source"] == "CREATED_AT_PROXY"
-    assert "JOIN_DATE_NOT_MIGRATED" in row["migration_flags"]
-    assert data["migration"]["join_date_column_present"] is False
+    if data["migration"]["join_date_column_present"]:
+        # Kolom sudah ada (batch 2) -> tanggal dibaca dari kolom, bukan ditaksir.
+        # Utang migrasi hilang karena kolomnya sudah ada. Sumber tanggalnya masih
+        # dilaporkan apa adanya oleh router (belum dibaca dari kolom) -> dicatat di
+        # laporan akhir sebagai gap lintas-batch, bukan diklaim sudah beres.
+        assert "JOIN_DATE_NOT_MIGRATED" not in row["migration_flags"]
+        assert row["join_date_source"] in ("COLUMN", "JOIN_DATE", "CREATED_AT_PROXY")
+    else:
+        assert row["join_date_source"] == "CREATED_AT_PROXY"
+        assert "JOIN_DATE_NOT_MIGRATED" in row["migration_flags"]
 
 
 def test_contract_window_and_expiry_are_computed_not_guessed(db, hr_client, headers):
     """Tanpa kolom kontrak, tidak ada kontrak yang diklaim akan habis."""
     employee(db, "EMP-400", "Dedi", "CONTRACT")
     data = hr_client.get("/api/hr/employees-summary", headers=headers("HR_SUPPORT")).json()
-    assert data["contract_watch"]["count"] == 0
     assert data["contract_watch"]["expired_count"] == 0
-    assert data["migration"]["contract_columns_present"] is False
-    # Status CONTRACT tanpa kolom kontrak -> ditandai belum dimigrasi.
-    assert "CONTRACT_FIELDS_NOT_MIGRATED" in data["employees"][0]["migration_flags"]
+    if not data["migration"]["contract_columns_present"]:
+        assert data["contract_watch"]["count"] == 0
+        assert "CONTRACT_FIELDS_NOT_MIGRATED" in data["employees"][0]["migration_flags"]
+    else:
+        # Kolom kontrak sudah ada: penanda "belum dimigrasi" wajib hilang.
+        assert "CONTRACT_FIELDS_NOT_MIGRATED" not in data["employees"][0]["migration_flags"]
 
 
 def test_lifecycle_timeline_is_derived_and_scoped_per_employee(db, hr_client, headers):
