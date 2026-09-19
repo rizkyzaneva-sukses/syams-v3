@@ -445,6 +445,77 @@ def test_lifecycle_stage_projection_follows_revisi_34_order():
     assert sl.STAGES.index("WORK_VERSION") < sl.STAGES.index("SUBMISSION_HANDOFF")
 
 
+def test_second_version_gets_explicit_version_and_chain(db, client, headers):
+    """Regresi: versi ke-2 harus dapat nomor versi baru + `previous_version_id`.
+
+    `SampleIn.model_dump()` mengirim `sample_version=None`, jadi `setdefault`
+    dulu tidak pernah jalan dan versi 2 tetap tersimpan sebagai versi 1 tanpa
+    rantai. Tes ini mengunci perilaku yang benar lewat endpoint asli.
+    """
+    order = make_order(db, "SO-LC-CHAIN-BUG")
+    make_article(db, order, "ART-LC-CHAIN-BUG")   # kode artikel harus milik order ini
+    first = client.post("/api/cmo/samples", headers=headers("CMO_MANAGER"),
+                        json={"order_fk": order.id, "article_code": "ART-LC-CHAIN-BUG",
+                              "status": "PROCESS"}).json()
+    assert first["sample_version"] == 1
+    assert first["previous_version_id"] is None
+
+    second = client.post("/api/cmo/samples", headers=headers("CMO_MANAGER"),
+                         json={"order_fk": order.id, "article_code": "ART-LC-CHAIN-BUG",
+                               "status": "PROCESS",
+                               "revision_reason": "Ganti warna kerah"}).json()
+    assert second["sample_version"] == 2, "versi kedua harus 2, bukan 1"
+    assert second["previous_version_id"] == first["id"], "rantai revisi harus tersimpan"
+    assert second["revision_reason"] == "Ganti warna kerah"
+    # `sample_versions` mendapat baris untuk versi 2 juga.
+    rows = db.query(m.SampleVersion).filter(
+        m.SampleVersion.sample_fk == second["id"]).all()
+    assert len(rows) == 1 and rows[0].version == 2
+
+    # Versi ketiga melanjutkan rantai, bukan menabrak unique constraint.
+    third = client.post("/api/cmo/samples", headers=headers("CMO_MANAGER"),
+                        json={"order_fk": order.id, "article_code": "ART-LC-CHAIN-BUG",
+                              "status": "PROCESS",
+                              "revision_reason": "Perbaiki jahitan"}).json()
+    assert third["sample_version"] == 3
+    assert third["previous_version_id"] == second["id"]
+
+    # Sisi baca memakai rantai eksplisit, bukan tebakan identitas.
+    chain = client.get(f"/api/cmo/samples/{first['id']}/versions",
+                       headers=headers("SAMPLE_PIC")).json()
+    assert chain["version_count"] == 3
+    assert [v["sample_version"] for v in chain["versions"]] == [1, 2, 3]
+    assert chain["versions"][0]["chain_source"] == "previous_version_id"
+    assert chain["versions"][2]["previous_version_sample_id"] == second["id"]
+    assert chain["latest_version"] == 3
+
+
+def test_create_survives_legacy_rows_sharing_the_default_version(db, client, headers):
+    """Data lama yang semuanya bernomor versi 1 tidak boleh bikin tabrakan versi."""
+    order = make_order(db, "SO-LC-LEGACY-DUP")
+    article = make_article(db, order, "ART-LC-LEGACY-DUP")
+    # Tiga baris lama, semuanya pada default kolom = 1.
+    for _ in range(3):
+        row = m.SampleRecord(order_fk=order.id, article_id=article.id,
+                             article_code=article.article_code, status="PROCESS")
+        db.add(row)
+    db.commit()
+    assert db.query(m.SampleRecord).filter(
+        m.SampleRecord.article_id == article.id).count() == 3
+
+    created = client.post("/api/cmo/samples", headers=headers("CMO_MANAGER"),
+                          json={"order_fk": order.id,
+                                "article_code": "ART-LC-LEGACY-DUP",
+                                "status": "PROCESS",
+                                "revision_reason": "Revisi setelah data lama"})
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["sample_version"] >= 2, "harus melompati nomor versi yang sudah ada"
+    # Tanpa tabrakan unique: setiap sample punya baris versinya sendiri.
+    assert db.query(m.SampleVersion).filter(
+        m.SampleVersion.sample_fk == body["id"]).count() == 1
+
+
 # ───────────────────────── audit trail ─────────────────────────
 
 def test_version_audit_records_actor_action_status_and_reason(db, client, headers, users):

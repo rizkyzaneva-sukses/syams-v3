@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, or_
+from sqlalchemy import desc, func, or_
 from pydantic import BaseModel as PydanticBaseModel, ConfigDict, model_validator
 from typing import Literal, Optional
 from datetime import date, timedelta
@@ -299,13 +299,29 @@ def create_sample(data:SampleIn, db:Session=Depends(get_db), user=Depends(requir
     values = data.model_dump()
     # Versi berikutnya untuk artikel yang sama, dan rantai revisi yang eksplisit.
     # Pertanyaan "versi ke berapa" harus punya satu jawaban, bukan tebakan urutan id.
+    #
+    # CATATAN: `values.setdefault(...)` TIDAK cukup di sini — `SampleIn.model_dump()`
+    # sudah menyertakan `sample_version=None` / `previous_version_id=None`, dan
+    # `setdefault` tidak menimpa key yang sudah ada. Akibatnya versi ke-2 tetap
+    # tersimpan sebagai versi 1 tanpa rantai. Jadi nilainya diisi eksplisit.
     previous = (db.query(models.SampleRecord)
                 .filter(models.SampleRecord.order_fk == data.order_fk,
                         models.SampleRecord.article_code == data.article_code)
                 .order_by(desc(models.SampleRecord.id)).first())
     if previous is not None:
-        values.setdefault("sample_version", (previous.sample_version or 1) + 1)
-        values.setdefault("previous_version_id", previous.id)
+        # Nomor versi = TERTINGGI yang pernah ada untuk artikel ini, bukan
+        # `previous + 1`: baris lama bisa berbagi nomor default 1, dan menambah
+        # satu dari baris terakhir akan menabrak `uq_sample_version_per_sample`.
+        highest = (db.query(func.max(models.SampleRecord.sample_version))
+                   .filter(models.SampleRecord.order_fk == data.order_fk,
+                           models.SampleRecord.article_code == data.article_code)
+                   .scalar()) or 1
+        # Rivayat tidak boleh putus: kalau baris terakhir sudah punya versi N,
+        # versi baru minimal N + 1 walau ada baris lama bernomor lebih rendah.
+        if values.get("sample_version") is None:
+            values["sample_version"] = max(highest, previous.sample_version or 1) + 1
+        if values.get("previous_version_id") is None:
+            values["previous_version_id"] = previous.id
     values["created_by_id"] = user.id
     x=models.SampleRecord(**values); db.add(x); commit_changes(db, user); db.refresh(x)
     sample_version_row(db, x)
