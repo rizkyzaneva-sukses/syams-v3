@@ -11,3 +11,4 @@ backups/
 htmlcov/
 playwright-report/
 test-results/
+REQUESTS/
