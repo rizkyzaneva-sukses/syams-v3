@@ -10,9 +10,20 @@ export default function CEOHome(){
   if(err) return <div className="page"><div className="notice danger">{err}</div></div>;
   if(!data) return <div className="page">Memuat...</div>;
   const icons=[ClipboardList,AlertTriangle,Crown,Users];
+  /* Revisi #71: kartu KPI datang dengan `unit` dari backend (count/currency/percent).
+     Sebelumnya semuanya dirender apa adanya sehingga AR tampil '5000000' tanpa
+     format mata uang. Format sekarang mengikuti unit, bukan ditebak di UI. */
+  const formatCard=(card)=>{
+    const value=card?.value;
+    if(value==null||value==='') return '—';
+    const unit=(card?.unit||'').toLowerCase();
+    if(unit==='currency') return 'Rp '+Number(value).toLocaleString('id-ID');
+    if(unit==='percent') return `${Number(value).toLocaleString('id-ID')}%`;
+    return Number(value).toLocaleString('id-ID');
+  };
   return <div className="page">
     <div className="page-title"><div><h1>CEO Control</h1><p>Strategic oversight & decision making</p></div></div>
-    <div className="cards">{data.cards.map((c,i)=>{const I=icons[i]||Crown;return <div className="stat blue" key={i}><div className="stat-icon"><I size={22}/></div><strong>{c.value}</strong><span>{c.label}</span></div>})}</div>
+    <div className="cards">{data.cards.map((c,i)=>{const I=icons[i]||Crown;return <div className="stat blue" key={i}><div className="stat-icon"><I size={22}/></div><strong>{formatCard(c)}</strong><span>{c.label}</span></div>})}</div>
     <KPIOverview kpis={data.kpis}/>
     <div className="grid2">
       <section className="panel">
