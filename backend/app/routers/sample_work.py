@@ -3,6 +3,23 @@
 Blueprint: SMP-F-001 (#31), SMP-F-002 (#32), SMP-F-003 (#33), SMP-F-005 (#35),
 SMP-F-007 (#37).
 
+Sumber kebenaran (revisi #31-#39, batch 2)
+------------------------------------------
+Versi sample, jenis bukti, relasi exception, dan task CREATE_SAMPLE kini
+dibaca/ditulis ke kolom & tabel eksplisit bila ada:
+
+* ``sample_versions`` / ``sample_records.sample_version`` → versi eksplisit.
+* ``sample_evidence.evidence_kind`` → klasifikasi bukti tersimpan, bukan tebakan.
+* ``exceptions.sample_fk`` / ``exceptions.sample_version`` → ikatan langsung ke
+  sample (dan versinya bila kolomnya ada).
+* ``sample_tasks`` + ``sample_task_prerequisites`` → task CREATE_SAMPLE
+  dipersist sebagai baris DB.
+
+Bila kolom/tabel itu BELUM ada (schema agent belum mendarat), modul ini
+memakai fallback heuristik dan **menandainya dengan jujur**: setiap baris
+membawa ``data_source`` + ``write_support`` dan setiap fallback yang terpakai
+muncul di ``heuristics_active``. Tidak ada fallback yang diam-diam.
+
 Batas mutlak yang ditegakkan di sini:
 
 * **Pekerjaan sample != keputusan buyer.** Endpoint di modul ini hanya
@@ -28,6 +45,7 @@ from datetime import date, datetime, timezone
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session, selectinload
 
 from ..auth import get_current_user
@@ -81,8 +99,32 @@ STEP_REQUIREMENTS = {
 }
 
 # Kata kunci yang menandai bukti inspeksi / hasil akhir pada catatan evidence.
+# LEGACY FALLBACK saja — dipakai HANYA untuk evidence lama yang belum punya
+# `evidence_kind`, dan hasilnya ditandai `fallback` + nama file yang tidak
+# terklasifikasi (mis. IMG_2231.pdf) supaya tidak menyamar sebagai data pasti.
 INSPECTION_HINTS = ("inspeksi", "inspection", "qc", "periksa")
 RESULT_HINTS = ("hasil", "result", "final", "kirim", "submit")
+
+# Jenis bukti yang sah — sejajar dengan `sample_evidence.evidence_kind`.
+EVIDENCE_KINDS = ("PROGRESS", "INSPECTION", "RESULT")
+
+# Tahap lifecycle task eksplisit pada `sample_tasks.stage`, beserta aksi
+# sahnya (revisi #35). Bila tabel `sample_tasks` sudah ada, tahap dibaca dari
+# sana — bukan disimpulkan ulang dari kelengkapan bukti.
+TASK_STAGES = ("OPEN", "IN_PROGRESS", "UPDATE", "INSPECTION", "SUBMIT_RESULT", "DONE",
+               "WORK_REVISION", "CREATE_SAMPLE")
+
+# Status task pada `sample_tasks.status`.
+TASK_STATUSES = ("OPEN", "IN_PROGRESS", "DONE", "BLOCKED", "CANCELLED")
+
+# Kolom-kolom kunci yang harus ada sebelum modul ini "berbicara eksplisit".
+# Diperiksa sekali per proses lewat `schema_capabilities()`.
+REQUIRED_COLUMNS = {
+    "sample_records": ("sample_version", "previous_version_id", "revision_reason",
+                       "submitted_by_id", "submitted_at"),
+    "sample_evidence": ("evidence_kind", "sample_version"),
+}
+REQUIRED_TABLES = ("sample_versions", "sample_tasks", "sample_task_prerequisites")
 
 # Kategori exception yang menjadi milik pekerjaan sample (SMP-F-007).
 SAMPLE_EXCEPTION_HINTS = ("sample", "ppm", "mockup", "bahan sample", "artwork")
@@ -94,11 +136,6 @@ SLA_SOON_DAYS = 2
 # ────────────────────────────── helpers ──────────────────────────────
 def _role(user):
     return user.role.value if hasattr(user.role, "value") else str(user.role)
-
-
-def _require_view(user):
-    if _role(user) not in VIEW_ROLES:
-        raise HTTPException(403, "Antrean kerja Sample PIC tidak tersedia untuk peran ini.")
 
 
 def _iso(value):
@@ -115,6 +152,111 @@ def _perlu_sample(article):
     """SMP-F-003: sample wajib bila Perlu Sample = YA (flag ATAU status)."""
     return bool(article.sample_required) or (article.sample_status or "").upper() in {
         "REQUIRED", "YES", "YA", "REQUESTED", "PROCESS", "IN_PROGRESS",
+    }
+
+
+def _require_view(user):
+    if _role(user) not in VIEW_ROLES:
+        raise HTTPException(403, "Antrean kerja Sample PIC tidak tersedia untuk peran ini.")
+
+
+# ─────────────────────── schema capabilities (batch 2) ───────────────────────
+_CAPS_CACHE = {}
+
+
+def schema_capabilities(db):
+    """Kolom/tabel eksplisit mana yang BENAR-BENAR ada di schema saat ini.
+
+    Dipakai supaya modul ini membaca kolom eksplisit begitu schema agent
+    mendarat, tanpa perlu diubah lagi — dan supaya fallback heuristik bisa
+    dilaporkan terbuka, bukan disembunyikan.
+    """
+    key = db.get_bind()
+    key = (id(key), str(getattr(key, "url", key)))
+    if key in _CAPS_CACHE:
+        return _CAPS_CACHE[key]
+
+    caps = {"columns": {}, "tables": {}}
+    try:
+        inspector = sa_inspect(db.get_bind())
+        table_names = set(inspector.get_table_names())
+        for table, columns in REQUIRED_COLUMNS.items():
+            if table not in table_names:
+                caps["columns"][table] = {column: False for column in columns}
+                continue
+            present = {col["name"] for col in inspector.get_columns(table)}
+            caps["columns"][table] = {column: column in present for column in columns}
+        for table in REQUIRED_TABLES:
+            caps["tables"][table] = table in table_names
+    except Exception:  # pragma: no cover — DB tak terjangkau: pakai fallback
+        for table, columns in REQUIRED_COLUMNS.items():
+            caps["columns"][table] = {column: False for column in columns}
+        caps["tables"].update({table: False for table in REQUIRED_TABLES})
+
+    _CAPS_CACHE[key] = caps
+    return caps
+
+
+def _column_present(db, table, column):
+    return bool(schema_capabilities(db)["columns"].get(table, {}).get(column))
+
+
+def _table_present(db, table):
+    return bool(schema_capabilities(db)["tables"].get(table))
+
+
+def _explicit_version(db, sample):
+    """Versi eksplisit dari `sample_records.sample_version` (batch 2).
+
+    Mengembalikan None bila kolomnya belum ada ATAU belum diisi (data lama),
+    supaya pemanggil bisa memakai fallback turunan-id dan menandainya.
+    """
+    if not _column_present(db, "sample_records", "sample_version"):
+        return None
+    value = getattr(sample, "sample_version", None)
+    return int(value) if value else None
+
+
+def _explicit_revision_reason(db, sample):
+    if not _column_present(db, "sample_records", "revision_reason"):
+        return None
+    return getattr(sample, "revision_reason", None)
+
+
+def _explicit_submission(db, sample):
+    """Submission/handoff eksplisit (#34), bukan tebakan dari completed_date."""
+    if not _column_present(db, "sample_records", "submitted_at"):
+        return None, None
+    return getattr(sample, "submitted_at", None), getattr(sample, "submitted_by_id", None)
+
+
+def _version_sources(db):
+    """Dari mana versi/task/bukti/exception dibaca — untuk dilaporkan ke UI."""
+    return {
+        "sample_version": ("sample_records.sample_version"
+                           if _column_present(db, "sample_records", "sample_version")
+                           else "DERIVED_FROM_ID_ORDER"),
+        "sample_versions_table": _table_present(db, "sample_versions"),
+        "evidence_kind": ("sample_evidence.evidence_kind"
+                          if _column_present(db, "sample_evidence", "evidence_kind")
+                          else "LEGACY_SUBSTRING_HEURISTIC"),
+        "evidence_version": ("sample_evidence.sample_version"
+                             if _column_present(db, "sample_evidence", "sample_version")
+                             else "NOT_STORED"),
+        "exception_link": ("exceptions.sample_fk"
+                           if _column_present(db, "exceptions", "sample_fk")
+                           else "LEGACY_SOURCE_ENTITY_STRING"),
+        "task_store": ("sample_tasks" if _table_present(db, "sample_tasks")
+                       else "EPHEMERAL_NOT_PERSISTED"),
+        "prerequisite_store": ("sample_task_prerequisites"
+                               if _table_present(db, "sample_task_prerequisites")
+                               else "EPHEMERAL_NOT_PERSISTED"),
+        "revision_reason": ("sample_records.revision_reason"
+                            if _column_present(db, "sample_records", "revision_reason")
+                            else "NOT_STORED"),
+        "submission": ("sample_records.submitted_at/submitted_by_id"
+                       if _column_present(db, "sample_records", "submitted_at")
+                       else "DERIVED_FROM_completed_date"),
     }
 
 
@@ -138,17 +280,94 @@ def _ppm_versions(notes):
     return version if isinstance(version, dict) else None
 
 
-def _evidence_flags(evidence, ppm_version):
-    """Kategori bukti yang sudah diunggah — dasar evidence completeness."""
-    names = " ".join(
-        f"{(row.file_name or '')} {(row.note or '')}".lower() for row in evidence
-    )
+def _legacy_kind_of(row):
+    """Tebakan jenis bukti untuk data LAMA (fallback, bukan sumber kebenaran).
+
+    Hanya menyentuh `file_name`/`note` karena kolom `evidence_kind` belum ada
+    atau belum diisi. Nama file seperti ``IMG_2231.pdf`` tidak bisa
+    diklasifikasikan — itu dilaporkan sebagai ``unclassified``, bukan dipaksa
+    masuk salah satu keranjang.
+    """
+    names = f"{row.file_name or ''} {row.note or ''}".lower()
+    if any(hint in names for hint in INSPECTION_HINTS):
+        return "INSPECTION", True
+    if any(hint in names for hint in RESULT_HINTS):
+        return "RESULT", True
+    return None, False
+
+
+def _evidence_kinds(db, evidence):
+    """Jenis tiap bukti + sumbernya: kolom eksplisit dulu, fallback ditandai.
+
+    Mengembalikan ``(kinds, fallback_used, fallback_rows, unclassified)``:
+    * ``kinds``          → {evidence_id: "PROGRESS"|"INSPECTION"|"RESULT"|None}
+    * ``fallback_used``  → True bila minimal satu baris dibaca lewat tebakan nama
+    * ``fallback_rows``  → daftar {evidence_id, file_name, guessed_kind} hasil tebakan
+    * ``unclassified``   → nama file yang bahkan tebakan pun tidak yakin
+    """
+    explicit = _column_present(db, "sample_evidence", "evidence_kind")
+    kinds, fallback_rows, unclassified = {}, [], []
+    fallback_used = False
+    for row in evidence:
+        kind = getattr(row, "evidence_kind", None) if explicit else None
+        source = "COLUMN"
+        if kind:
+            kind = str(kind).upper()
+            if kind not in EVIDENCE_KINDS:
+                kind, source = None, "INVALID_COLUMN_VALUE"
+        if not kind:
+            guessed, sure = _legacy_kind_of(row)
+            source = "HEURISTIC_SUBSTRING" if sure else "UNCLASSIFIED"
+            fallback_used = True
+            if sure:
+                kind = guessed
+                fallback_rows.append({"evidence_id": row.id, "file_name": row.file_name,
+                                      "guessed_kind": guessed, "source": source})
+            else:
+                unclassified.append(row.file_name)
+        kinds[row.id] = kind
+    return kinds, fallback_used, fallback_rows, unclassified
+
+
+def _evidence_version_of(db, row):
+    """Versi sample yang diikat sebuah bukti (kolom `sample_version`, #34)."""
+    if not _column_present(db, "sample_evidence", "sample_version"):
+        return None
+    value = getattr(row, "sample_version", None)
+    return int(value) if value else None
+
+
+def _evidence_flags(db, evidence, ppm_version, version=None):
+    """Kategori bukti yang sudah diunggah — dasar evidence completeness.
+
+    Bukti dibaca dari kolom eksplisit `evidence_kind`; tebakan lama hanya
+    dipakai bila kolomnya tidak ada/kosong DAN hasilnya selalu ikut dilaporkan
+    lewat `_evidence_kinds()`. Bila `version` diberikan, bukti milik versi lain
+    tidak dihitung (revisi #34: bukti terikat ke versi sample).
+    """
+    rows = list(evidence or [])
+    if version is not None:
+        versioned = [row for row in rows if _evidence_version_of(db, row) is not None]
+        if versioned:
+            rows = [row for row in rows
+                    if _evidence_version_of(db, row) in (None, int(version))]
+        versioned = None
+    kinds, fallback_used, fallback_rows, unclassified = _evidence_kinds(db, rows)
+    kind_values = set(kinds.values())
     return {
-        "evidence_progress": len(evidence) > 0,
-        "evidence_inspection": any(hint in names for hint in INSPECTION_HINTS),
-        "evidence_result": any(hint in names for hint in RESULT_HINTS),
+        "evidence_progress": len(rows) > 0,
+        "evidence_inspection": "INSPECTION" in kind_values,
+        "evidence_result": "RESULT" in kind_values,
         "version_submitted": bool(ppm_version and ppm_version.get("submitted")),
+        "_kinds": kinds,
+        "_fallback_used": fallback_used,
+        "_fallback_rows": fallback_rows,
+        "_unclassified": unclassified,
     }
+
+
+def _prune_flags(flags):
+    return {key: value for key, value in flags.items() if not key.startswith("_")}
 
 
 def _requirements(state):
@@ -221,7 +440,7 @@ def _sla(due):
     return {"due": _iso(due), "remaining_days": remaining, "state": state, "label": label}
 
 
-def _sample_blocker(sample, order, ppm_version):
+def _sample_blocker(db, sample, order, ppm_version):
     """Blocker + owner-nya. Blocker bukan pekerjaan sample milik Fahrul tetap
     tugas PIC-nya, tetapi tidak boleh di-upload-ulang oleh Fahrul."""
     if sample.status in BUYER_DECISION_STATUSES:
@@ -229,7 +448,7 @@ def _sample_blocker(sample, order, ppm_version):
     if not ppm_version:
         return {"blocker": "Sample Request / versi PPM-mockup belum eligible",
                 "blocker_owner": "CMO_MANAGER"}
-    if not _evidence_flags(sample.evidence or [], ppm_version)["evidence_progress"]:
+    if not _evidence_flags(db, sample.evidence or [], ppm_version)["evidence_progress"]:
         return {"blocker": "Bukti sample belum diunggah", "blocker_owner": "SAMPLE_PIC"}
     if order is not None and order.finance_status not in {"PAID", "CLEAR", "READY"}:
         return {"blocker": "Gate pembayaran order belum lolos", "blocker_owner": "CFO_MANAGER"}
@@ -237,25 +456,42 @@ def _sample_blocker(sample, order, ppm_version):
 
 
 def _sample_exceptions(db, sample_ids):
-    """Exception sample milik satu kumpulan sample (source_entity='SampleRecord')."""
+    """Exception sample milik satu kumpulan sample.
+
+    Batch 2: bila kolom eksplisit `exceptions.sample_fk` sudah ada, ikatan
+    dibaca dari sana (dan versinya dari `exceptions.sample_version`). Kalau
+    belum, fallback lama `source_entity='SampleRecord' + source_entity_id`
+    dipakai — dan pemakaian fallback itu ditandai di `_version_sources()`.
+    """
     ids = [i for i in sample_ids if i is not None]
     if not ids:
         return {}
-    rows = (db.query(m.ExceptionItem)
-            .filter(m.ExceptionItem.source_entity == "SampleRecord",
-                    m.ExceptionItem.source_entity_id.in_(ids),
-                    m.ExceptionItem.confidential.is_(False),
+    query = db.query(m.ExceptionItem)
+    if _column_present(db, "exceptions", "sample_fk"):
+        query = query.filter(m.ExceptionItem.sample_fk.in_(ids))
+    else:
+        query = query.filter(m.ExceptionItem.source_entity == "SampleRecord",
+                             m.ExceptionItem.source_entity_id.in_(ids))
+    rows = (query
+            .filter(m.ExceptionItem.confidential.is_(False),
                     m.ExceptionItem.status.in_(["OPEN", "IN_PROGRESS"]))
             .order_by(m.ExceptionItem.id.asc()).all())
+    explicit = _column_present(db, "exceptions", "sample_fk")
     result = {}
     for row in rows:
-        result.setdefault(row.source_entity_id, []).append(row)
+        link = getattr(row, "sample_fk", None) if explicit else None
+        key = link if link is not None else row.source_entity_id
+        result.setdefault(key, []).append(row)
     return result
 
 
-def _exception_block(row):
+def _exception_block(row, db=None):
     category = (row.category or "").lower()
     owner = row.owner_role or "SAMPLE_PIC"
+    scope = "SAMPLE"
+    if db is not None and _column_present(db, "exceptions", "scope"):
+        scope = getattr(row, "scope", None) or "SAMPLE"
+    exception_version = getattr(row, "sample_version", None) if db is not None else None
     return {
         "exception_id": row.id,
         "category": row.category,
@@ -271,7 +507,10 @@ def _exception_block(row):
         "can_escalate": owner not in {"SAMPLE_PIC", "SAMPLE"},
         # SMP-F-007: resolve/override bukan milik Sample PIC.
         "can_resolve": False,
-        "scope": "SAMPLE",
+        "scope": scope,
+        # Revisi #37: exception bisa diikat ke VERSI sample tertentu.
+        "sample_fk": getattr(row, "sample_fk", None) if db is not None else None,
+        "sample_version": exception_version,
     }
 
 
@@ -296,13 +535,31 @@ def _build_rows(db, user):
         by_pair.setdefault((sample.order_fk, sample.article_code), []).append(sample)
 
     # Urutan versi sample per artikel/artikel-code: v1, v2, dst.
-    versions = {}
+    #
+    # Batch 2: kolom eksplisit `sample_records.sample_version` menang. Urutan
+    # `id` hanya dipakai sebagai fallback untuk data lama, dan pemakaian
+    # fallback itu dicatat di `heuristic_flags` supaya bisa dilaporkan.
+    explicit_version = _column_present(db, "sample_records", "sample_version")
+    heuristic_flags = {"version_from_id_order": False, "evidence_kind_guessed": False}
+    version_chain = {}      # urutan fallback per (order, article)
+    sample_version_by_id = {}
+
     for sample in samples:
+        # Kolom eksplisit menang; urutan `id` hanya fallback data lama dan
+        # pemakaiannya dicatat supaya bisa dilaporkan terbuka.
+        explicit = getattr(sample, "sample_version", None) if explicit_version else None
+        if explicit:
+            sample_version_by_id[sample.id] = int(explicit)
+            sample._sample_version_source = "COLUMN"
+            continue
+        heuristic_flags["version_from_id_order"] = True
         key = (sample.order_fk, sample.article_id, sample.article_code)
-        versions[key] = versions.get(key, 0) + 1
-        sample._sample_version = versions[key]
+        version_chain[key] = version_chain.get(key, 0) + 1
+        sample_version_by_id[sample.id] = version_chain[key]
+        sample._sample_version_source = "DERIVED_FROM_ID_ORDER"
 
     exception_map = _sample_exceptions(db, [s.id for s in samples])
+    heuristic_flags["exception_link_legacy"] = not _column_present(db, "exceptions", "sample_fk")
 
     rows = []
     handled_samples = set()
@@ -330,6 +587,7 @@ def _build_rows(db, user):
                     else "Article ini tidak butuh sample (Perlu Sample = TIDAK)"
                 ),
                 required_action="CREATE_SAMPLE" if eligible else None,
+                db=db,
             ))
             continue
 
@@ -338,7 +596,7 @@ def _build_rows(db, user):
             ppm_version = _ppm_versions(sample.notes)
             rows.append(_row(
                 article=article, order=order, sample=sample,
-                sample_version=getattr(sample, "_sample_version", 1),
+                sample_version=_sample_version_no(sample, sample_version_by_id),
                 eligible=bool(needed and ppm_version),
                 ppm_version=ppm_version,
                 exceptions=exception_map.get(sample.id, []),
@@ -349,6 +607,7 @@ def _build_rows(db, user):
                     else "Sample Request belum punya versi PPM/mockup eligible"
                 ),
                 required_action=None,
+                db=db,
             ))
 
     # Sample Record yang artikelnya sudah tidak ada (mis. article_code yatim).
@@ -361,18 +620,22 @@ def _build_rows(db, user):
         ppm_version = _ppm_versions(sample.notes)
         rows.append(_row(
             article=article, order=order, sample=sample,
-            sample_version=getattr(sample, "_sample_version", 1),
+            sample_version=_sample_version_no(sample, sample_version_by_id),
             eligible=bool(ppm_version), ppm_version=ppm_version,
             exceptions=exception_map.get(sample.id, []),
             reason=("Sample Request ada, versi PPM/mockup eligible" if ppm_version
                     else "Article ID pada Sample Request tidak ditemukan di order"),
             required_action=None,
+            db=db,
         ))
     return rows
 
 
 def _row(*, article, order, sample, sample_version, eligible, ppm_version,
-         exceptions, reason, required_action):
+         exceptions, reason, required_action, db=None):
+    # Panggilan lama `_row(...)` tanpa `db` tetap jalan (helper internal);
+    # seluruh pemanggil di modul ini meneruskan `db` supaya kolom eksplisit
+    # benar-benar dibaca.
     state = {
         "sample_request": sample is not None,
         "ppm_version": bool(ppm_version),
@@ -381,8 +644,13 @@ def _row(*, article, order, sample, sample_version, eligible, ppm_version,
         "evidence_result": False,
         "version_submitted": bool(ppm_version and ppm_version.get("submitted")),
     }
-    if sample is not None:
-        state.update(_evidence_flags(sample.evidence or [], ppm_version))
+    if sample is not None and db is not None:
+        state.update(_evidence_flags(db, sample.evidence or [], ppm_version,
+                                     version=sample_version))
+    elif sample is not None:
+        state.update({key: value for key, value in
+                      _evidence_flags_offline(sample.evidence or [], ppm_version).items()
+                      if not key.startswith("_")})
 
     status = sample.status if sample is not None else ("NOT_STARTED" if required_action else "NOT_REQUIRED")
     buyer_decided = bool(sample is not None and sample.status in BUYER_DECISION_STATUSES)
@@ -391,7 +659,7 @@ def _row(*, article, order, sample, sample_version, eligible, ppm_version,
     due = order.buyer_deadline if order is not None else None
     if sample is not None and sample.completed_date is not None:
         due = sample.completed_date
-    blocker = _sample_blocker(sample, order, ppm_version) if sample is not None else (
+    blocker = _sample_blocker(db, sample, order, ppm_version) if sample is not None else (
         {"blocker": "Sample Request belum dibuat", "blocker_owner": "CMO_MANAGER"}
         if eligible else None
     )
@@ -409,12 +677,22 @@ def _row(*, article, order, sample, sample_version, eligible, ppm_version,
     task_id = (f"SMP-{sample.id}" if sample is not None
                else f"SMP-NEW-{article.order_fk}-{article.id}")
     requirement_state = _requirements(state)
-    return {
+    version_source = (getattr(sample, "_sample_version_source", None) if sample is not None
+                      else None)
+
+    if db is not None:
+        kinds, kind_fallback, kind_guess, kind_unclassified = _evidence_kinds(
+            db, sample.evidence or []) if sample is not None else ({}, False, [], [])
+    else:
+        kinds, kind_fallback, kind_guess, kind_unclassified = {}, True, [], []
+
+    payload = {
         "task_id": task_id,
         "kind": "SAMPLE_WORK",
         "sample_id": sample.id if sample is not None else None,
         "sample_fk": sample.id if sample is not None else None,
         "sample_version": sample_version,
+        "sample_version_source": version_source or ("NOT_STORED" if sample is not None else None),
         "order_id": order.order_id if order is not None else None,
         "order_fk": order.id if order is not None else article.order_fk,
         "buyer": order.buyer if order is not None else None,
@@ -432,6 +710,11 @@ def _row(*, article, order, sample, sample_version, eligible, ppm_version,
         "evidence": _evidence_completeness(state) if sample is not None else
                     {"uploaded": 0, "required": 3, "complete": False,
                      "missing": ["evidence_progress", "evidence_inspection", "evidence_result"]},
+        "evidence_kinds": ({str(key): value for key, value in kinds.items()}
+                           if sample is not None else {}),
+        "evidence_kind_source": ("sample_evidence.evidence_kind" if not kind_fallback
+                                 else "LEGACY_SUBSTRING_HEURISTIC"),
+        "evidence_unclassified": kind_unclassified,
         "requirements": requirement_state,
         "blocker": blocker["blocker"] if blocker else None,
         "blocker_owner": blocker["blocker_owner"] if blocker else None,
@@ -447,13 +730,172 @@ def _row(*, article, order, sample, sample_version, eligible, ppm_version,
             "readonly": True,
             "owner": "CMO_MANAGER",
         },
-        "exceptions": [_exception_block(row) for row in exceptions],
+        "exceptions": [_exception_block(row, db) for row in exceptions],
         "updated_at": _iso(sample.created_at) if sample is not None
                       else _iso(order.updated_at if order is not None else None),
+        # Revisi #34/#38: alasan revisi & submission tersimpan, bukan tebakan.
+        "revision_reason": (_explicit_revision_reason(db, sample)
+                            if (db is not None and sample is not None) else None),
+        "submitted_at": None,
+        "submitted_by_id": None,
         # Pagar eksplisit: aksi yang boleh/tidak boleh dipanggil Fahrul.
         "allowed_actions": list(SAMPLE_WORK_ACTIONS),
         "denied_actions": list(BUYER_DECISION_ACTIONS),
     }
+
+    if sample is not None and db is not None:
+        submitted_at, submitted_by = _explicit_submission(db, sample)
+        payload["submitted_at"] = _iso(submitted_at or sample.completed_date)
+        payload["submitted_by_id"] = submitted_by
+        payload["submitted_at_source"] = ("COLUMN" if submitted_at is not None
+                                          else "DERIVED_FROM_completed_date")
+    elif sample is not None:
+        payload["submitted_at"] = _iso(sample.completed_date)
+        payload["submitted_at_source"] = "DERIVED_FROM_completed_date"
+
+    # Batch 2: task CREATE_SAMPLE dipersist ke `sample_tasks` + prasyaratnya.
+    if db is not None and required_action == "CREATE_SAMPLE" and eligible:
+        task = _persist_create_sample_task(db, payload)
+        payload.update(task)
+    return payload
+
+
+def _evidence_flags_offline(evidence, ppm_version):
+    """`_evidence_flags` untuk pemanggil tanpa sesi DB (fallback, ditandai)."""
+    names = " ".join(f"{(row.file_name or '')} {(row.note or '')}".lower()
+                     for row in evidence)
+    return {
+        "evidence_progress": len(evidence) > 0,
+        "evidence_inspection": any(hint in names for hint in INSPECTION_HINTS),
+        "evidence_result": any(hint in names for hint in RESULT_HINTS),
+        "version_submitted": bool(ppm_version and ppm_version.get("submitted")),
+    }
+
+
+def _has_attr(model_or_class, name):
+    return hasattr(model_or_class, name)
+
+
+def _sample_version_no(sample, sample_version_by_id):
+    """Nomor versi satu baris: kolom eksplisit dulu, fallback urutan `id`."""
+    explicit = getattr(sample, "sample_version", None)
+    if explicit:
+        return int(explicit)
+    return sample_version_by_id.get(sample.id) or getattr(sample, "_sample_version", 1)
+
+
+# ─────────────────── task CREATE_SAMPLE → tabel `sample_tasks` ───────────────────
+CREATE_SAMPLE_REQUIREMENTS = (
+    ("sample_request", "Sample Request dibuat CMO untuk order/article ini"),
+    ("ppm_version", "Versi PPM/mockup eligible tersedia"),
+    ("article_routed", "Order & Article valid dan butuh sample"),
+)
+
+
+def _persist_create_sample_task(db, payload):
+    """Tulis task CREATE_SAMPLE + prasyaratnya ke DB, idempoten.
+
+    Dipanggil saat endpoint dibaca (routing order/article yang butuh sample
+    tetapi belum punya Sample Request). Bila tabelnya belum ada, tidak ada yang
+    ditulis dan fungsi mengembalikan ``persistence = NOT_PERSISTED`` apa adanya
+    — bukan mengarang baris.
+    """
+    model = getattr(m, "SampleTask", None)
+    if model is None or not _table_present(db, "sample_tasks"):
+        return {
+            "task_db_id": None,
+            "task_no": None,
+            "persistence": "BLOCKED_TABLE_ABSENT",
+            "persisted_task": None,
+        }
+
+    article_id = payload.get("article_id")
+    order_fk = payload.get("order_fk")
+    existing = (db.query(model)
+                .filter(model.order_fk == order_fk,
+                        model.article_id == article_id,
+                        model.required_action == "CREATE_SAMPLE")
+                .order_by(model.id.asc()).first()
+                if _has_attr(model, "required_action") else None)
+
+    created = False
+    if existing is None:
+        values = {
+            "stage": "OPEN",
+            "status": "OPEN",
+            "priority": payload.get("priority") or "NORMAL",
+            "required_action": "CREATE_SAMPLE",
+            "next_action": payload.get("next_action"),
+            "handoff": payload.get("handoff"),
+            "due_date": (db.get(m.Order, order_fk).buyer_deadline
+                         if order_fk is not None and db.get(m.Order, order_fk) else None),
+            "sla_source": "Master (buyer_deadline order)",
+        }
+        if _has_attr(model, "order_fk"):
+            values["order_fk"] = order_fk
+        if _has_attr(model, "article_id"):
+            values["article_id"] = article_id
+        if _has_attr(model, "article_code"):
+            values["article_code"] = payload.get("article_code")
+        if _has_attr(model, "sample_fk"):
+            values["sample_fk"] = None
+        if _has_attr(model, "sample_version"):
+            values["sample_version"] = 1
+        if _has_attr(model, "blocker_owner"):
+            values["blocker_owner"] = "CMO_MANAGER"
+        if _has_attr(model, "bottleneck_reason"):
+            values["bottleneck_reason"] = "Sample Request belum dibuat CMO"
+        task = model(**values)
+        if _has_attr(model, "task_no"):
+            task.task_no = f"SMP-NEW-{order_fk or 0}-{article_id or 0}"
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        existing = task
+        created = True
+
+    prerequisites = _persist_prerequisites(db, existing)
+    return {
+        "task_db_id": existing.id,
+        "task_no": getattr(existing, "task_no", None),
+        "persistence": "PERSISTED_CREATED" if created else "PERSISTED_EXISTING",
+        "persisted_task": {
+            "stage": getattr(existing, "stage", None),
+            "status": getattr(existing, "status", None),
+            "priority": getattr(existing, "priority", None),
+            "blocker_owner": getattr(existing, "blocker_owner", None),
+            "bottleneck_reason": getattr(existing, "bottleneck_reason", None),
+        },
+        "prerequisites": prerequisites,
+    }
+
+
+def _persist_prerequisites(db, task):
+    """Prasyarat task CREATE_SAMPLE — jejak kapan & bukti apa yang memenuhi."""
+    model = getattr(m, "SampleTaskPrerequisite", None)
+    if model is None or not _table_present(db, "sample_task_prerequisites"):
+        return {"store": "BLOCKED_TABLE_ABSENT", "rows": [], "satisfied": 0, "pending": 0}
+    rows = []
+    for key, label in CREATE_SAMPLE_REQUIREMENTS:
+        row = (db.query(model)
+               .filter(model.task_id == task.id, model.requirement_key == key)
+               .first())
+        if row is None:
+            row = model(task_id=task.id, requirement_key=key, label=label,
+                        satisfied=(key == "article_routed"))
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+        rows.append(row)
+    return {
+        "store": "sample_task_prerequisites",
+        "rows": [{"requirement_key": row.requirement_key, "label": row.label,
+                  "satisfied": bool(row.satisfied),
+                  "satisfied_at": _iso(row.satisfied_at)} for row in rows],
+        "satisfied": sum(1 for row in rows if row.satisfied),
+        "pending": sum(1 for row in rows if not row.satisfied),
+    }
+
 
 
 def _summary(rows):
@@ -479,6 +921,79 @@ def _summary(rows):
         "my_sample_tasks": len([r for r in rows if r["sample_id"] is not None]),
         "create_sample_tasks": len([r for r in rows if r["required_action"] == "CREATE_SAMPLE"]),
     }
+
+
+def _data_source(db):
+    """Laporan terbuka: mana yang tersimpan eksplisit, mana yang fallback."""
+    sources = _version_sources(db)
+    heuristics = [key for key, value in sources.items()
+                  if isinstance(value, str) and value in {
+                      "DERIVED_FROM_ID_ORDER", "LEGACY_SUBSTRING_HEURISTIC",
+                      "LEGACY_SOURCE_ENTITY_STRING", "EPHEMERAL_NOT_PERSISTED",
+                      "NOT_STORED", "DERIVED_FROM_completed_date"}]
+    return {
+        "sources": sources,
+        "heuristics_active": heuristics,
+        "write_support": {
+            "create_sample_task": ("sample_tasks"
+                                   if _table_present(db, "sample_tasks")
+                                   else "BLOCKED_TABLE_ABSENT"),
+            "task_prerequisites": ("sample_task_prerequisites"
+                                   if _table_present(db, "sample_task_prerequisites")
+                                   else "BLOCKED_TABLE_ABSENT"),
+            "endpoint": "GET /api/sample/today & /api/sample/my-tasks (persist saat dibaca)",
+        },
+    }
+
+
+def _persisted_tasks(db, rows):
+    """Baca kembali task yang sudah tersimpan di `sample_tasks` (batch 2).
+
+    Inilah bukti persistensi: baris yang punya `task_db_id` memang ada di DB,
+    dan bila tabelnya sudah ada tetapi task belum tersimpan, itu dilaporkan
+    sebagai `MISSING_IN_DB` — bukan didiamkan.
+    """
+    model = getattr(m, "SampleTask", None)
+    if model is None or not _table_present(db, "sample_tasks"):
+        return {"store": "BLOCKED_TABLE_ABSENT", "persisted": 0, "missing": [],
+                "rows": []}
+    persisted, missing, dump = 0, [], []
+    for row in rows:
+        if row.get("required_action") != "CREATE_SAMPLE" or not row.get("eligible"):
+            continue
+        task = (db.query(model)
+                .filter(model.order_fk == row.get("order_fk"),
+                        model.article_id == row.get("article_id"),
+                        model.required_action == "CREATE_SAMPLE")
+                .first())
+        if task is None:
+            missing.append(row.get("task_id"))
+            continue
+        persisted += 1
+        row["task_db_id"] = task.id
+        row["persistence"] = "PERSISTED"
+        row["persisted_task"] = {
+            "stage": getattr(task, "stage", None),
+            "status": getattr(task, "status", None),
+            "priority": getattr(task, "priority", None),
+            "blocker_owner": getattr(task, "blocker_owner", None),
+            "bottleneck_reason": getattr(task, "bottleneck_reason", None),
+            "created_at": _iso(getattr(task, "created_at", None)),
+        }
+        prerequisites = (db.query(getattr(m, "SampleTaskPrerequisite"))
+                         .filter(getattr(m, "SampleTaskPrerequisite").task_id == task.id)
+                         .all()
+                         if getattr(m, "SampleTaskPrerequisite", None) is not None
+                         and _table_present(db, "sample_task_prerequisites") else [])
+        row["prerequisites"] = {
+            "store": "sample_task_prerequisites" if prerequisites else "BLOCKED_TABLE_ABSENT",
+            "rows": [{"requirement_key": p.requirement_key, "label": p.label,
+                      "satisfied": bool(p.satisfied), "satisfied_at": _iso(p.satisfied_at)}
+                     for p in prerequisites],
+        }
+        dump.append({"task_db_id": task.id, "task_id": row.get("task_id"),
+                     "order_id": row.get("order_id"), "article_code": row.get("article_code")})
+    return {"store": "sample_tasks", "persisted": persisted, "missing": missing, "rows": dump}
 
 
 # ────────────────────────────── endpoints ──────────────────────────────
@@ -512,6 +1027,9 @@ def sample_today(db: Session = Depends(get_db), user=Depends(get_current_user)):
         **_summary(rows),
         "sections": [{"key": key, "label": label, "rows": value} for key, label, value in buckets],
         "not_eligible": [r for r in rows if not r["eligible"]],
+        # Batch 2: laporan terbuka tentang sumber data & persistensi task.
+        "data_source": _data_source(db),
+        "task_persistence": _persisted_tasks(db, rows),
         # Pagar akses yang ditampilkan ke UI (ditegakkan juga di server).
         "access": _access_contract(),
     }
@@ -524,9 +1042,13 @@ def my_sample_tasks(status: str = None, order_id: str = None,
 
     Berasal otomatis dari routing order/article yang eligible. SLA dari Master.
     Task tidak DONE tanpa sample version submitted + seluruh required evidence.
+
+    Batch 2: task CREATE_SAMPLE dipersist ke `sample_tasks` (dengan prasyaratnya)
+    saat endpoint ini dibaca; kolom `task_db_id`/`persistence` membuktikannya.
     """
     _require_view(user)
     rows = _build_rows(db, user)
+    persisted = _persisted_tasks(db, rows)
     if status:
         wanted = status.upper()
         rows = [r for r in rows if r["stage"] == wanted or r["sample_work_status"] == wanted]
@@ -542,6 +1064,8 @@ def my_sample_tasks(status: str = None, order_id: str = None,
         "tasks": rows,
         "lifecycle": list(LIFECYCLE),
         "sla_source": "Master (buyer_deadline order / completed_date sample) — bukan input Sample PIC",
+        "data_source": _data_source(db),
+        "task_persistence": persisted,
         "access": _access_contract(),
     }
 

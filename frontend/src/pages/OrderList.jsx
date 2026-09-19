@@ -2,7 +2,7 @@ import React,{useEffect,useState} from 'react';
 import {Link} from 'react-router-dom';
 import {api} from '../api';
 import {Plus,Search,ExternalLink} from 'lucide-react';
-import {FLOW_LABELS as STEP_NAMES,stepAction,missingEvidence,queueSource,isOverdue} from '../queue';
+import {FLOW_LABELS as STEP_NAMES,stepAction,missingEvidence,queueSource,isOverdue,slaBadge,handoffStatus,taskId} from '../queue';
 
 const statusCls=v=>(v||'').includes('PAID')||v==='READY'||v==='ACTIVE'||v==='NEW'?'green':(v||'').includes('PARTIAL')?'amber':v==='DELAYED'||v==='HOLD'?'red':'gray';
 
@@ -152,10 +152,10 @@ export default function OrderList(){
         <table>
           <thead>
             <tr>
-              <th>Draft Order ID</th><th>Buyer ID</th><th>PO source</th><th>Tipe</th><th>Repeat</th>
+              <th>Task ID</th><th>Draft Order ID</th><th>Buyer ID</th><th>PO source</th><th>Tipe</th><th>Repeat</th>
               <th>Article ID</th><th>Size / Qty tervalidasi</th><th>Deadline buyer</th><th>Quotation</th><th>Kelengkapan</th>
               <th>Prepared by</th><th>Review Cecep</th><th>Reason perbaikan</th><th>Tahap</th><th>Total Qty</th><th>Status</th>
-              <th>Yang Kurang</th><th>Next Action</th><th>Owner</th><th>Due / SLA</th><th>Handoff</th><th>Sumber</th><th></th>
+              <th>Yang Kurang</th><th>Next Action</th><th>Owner</th><th>Due / SLA internal</th><th>Handoff</th><th>Sumber</th><th>Updated at</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -169,7 +169,14 @@ export default function OrderList(){
               const repeatable=(o.articles||[]).filter(a=>REPEATABLE_ARTICLE.includes(a.production_status)).length;
               const sizes=sizesOf(o);
               const prep=preparedBy(o,po,users);
+              /* Kolom wajib antrean (REF-DEBY poin 3): Task ID, SLA internal dan
+                 status handoff per-order. SLA dihitung dari deadline buyer yang
+                 dipakai sebagai tenggat internal order ini. */
+              const tid=o.task_id||taskId('ORDER',o.order_id);
+              const sla=slaBadge(o.buyer_deadline);
+              const handoff=handoffStatus({queue:act,closed:o.flow_step==='CLOSED'});
               return <tr key={o.id}>
+                <td><b>{tid}</b></td>
                 <td><Link to={'/orders/'+o.order_id}><b>{o.order_id}</b></Link></td>
                 <td>Customer ID: {o.customer_id??'—'}<br/><small>{o.buyer}</small></td>
                 <td>{po?<><Link to="/cmo/po-inbox"><b>{po.po_number||'Draft PO #'+po.id}</b></Link><br/><small>{po.received_at} · {po.document_name||'tanpa dokumen'}</small></>:<small>Tidak tertaut PO (dibuat langsung di Order Create)</small>}</td>
@@ -189,13 +196,14 @@ export default function OrderList(){
                 <td>{missing.length?<span className="badge amber">{missing.join(', ')}</span>:<span className="badge green">Lengkap</span>}</td>
                 <td>{act.action}</td>
                 <td><span className="badge gray">{act.owner}</span></td>
-                <td>{o.buyer_deadline?(isOverdue(o.buyer_deadline)?<span className="badge red">{o.buyer_deadline} · lewat</span>:o.buyer_deadline):'—'}</td>
-                <td><small>{act.handoff}</small></td>
+                <td>{o.buyer_deadline?<><span className={'badge '+sla.tone}>{sla.label}</span><br/><small>{o.buyer_deadline}</small></>:<span className="badge gray">Tanpa due date</span>}</td>
+                <td><span className={'badge '+handoff.tone}>{handoff.owner}</span><br/><small>Berikutnya: {handoff.to}</small></td>
                 <td><small>{queueSource(o)}</small></td>
+                <td><small>{o.updated_at?new Date(o.updated_at+'Z').toLocaleString('id-ID'):'—'}</small></td>
                 <td><Link to={'/orders/'+o.order_id} className="icon-btn" title="Detail"><ExternalLink size={15}/></Link></td>
               </tr>;
             })}
-            {f2.length===0&&<tr><td colSpan={23} className="empty">Tidak ada order ditemukan</td></tr>}
+            {f2.length===0&&<tr><td colSpan={25} className="empty">Tidak ada order ditemukan</td></tr>}
           </tbody>
         </table>
       </div>
