@@ -15,6 +15,7 @@ value is fabricated.
 """
 from alembic import op
 import sqlalchemy as sa
+from datetime import date, datetime
 
 
 revision = "0019_versioned_business_policy"
@@ -50,12 +51,16 @@ def upgrade():
         # ada user sama sekali, lewati backfill daripada memasukkan nilai palsu.
         owner = conn.execute(sa.text("SELECT id FROM users ORDER BY id LIMIT 1")).fetchone()
         if owner is not None:
+            # Nilai tanggal/waktu dihitung di Python, bukan diserahkan sebagai
+            # objek fungsi SQLAlchemy. Mengirim sa.func.* sebagai parameter bind
+            # gagal di PostgreSQL ("can't adapt type 'current_date'") dan membuat
+            # container crash-loop saat migration jalan.
             conn.execute(sa.text(
                 "INSERT INTO business_policy_versions "
                 "(version, policy_json, effective_from, change_reason, previous_json, changed_by_id, is_active, created_at) "
                 "VALUES (1, :policy, :today, :reason, NULL, :uid, 1, :now)"
-            ), {"policy": row[1], "today": sa.func.current_date(), "uid": owner[0],
-                "reason": "Initial version captured on upgrade", "now": sa.func.now()})
+            ), {"policy": row[1], "today": date.today(), "uid": owner[0],
+                "reason": "Initial version captured on upgrade", "now": datetime.utcnow()})
 
 
 def downgrade():
