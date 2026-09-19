@@ -31,6 +31,8 @@ class PODraft(BaseModel):
     articles: list[ArticleCreate] = Field(default_factory=list)
     notes: str | None = Field(default=None, max_length=5000)
     follow_up_note: str | None = Field(default=None, max_length=2000)
+    currency: str | None = Field(default=None, max_length=8)
+    payment_terms: str | None = Field(default=None, max_length=255)
 
 
 class POChange(PODraft):
@@ -50,6 +52,7 @@ def po_out(po: POIntake) -> dict:
         "buyer_deadline": po.buyer_deadline, "articles": json.loads(po.articles_json),
         "notes": po.notes, "has_document": bool(po.document_name),
         "document_name": po.document_name, "status": po.status,
+        "currency": po.currency, "payment_terms": po.payment_terms,
         "missing_items": json.loads(po.missing_items_json),
         "follow_up_note": po.follow_up_note, "review_note": po.review_note,
         "created_by_id": po.created_by_id, "reviewed_by_id": po.reviewed_by_id,
@@ -100,6 +103,10 @@ def apply_draft(po: POIntake, payload: PODraft, db: Session):
     if "customer_id" in values and values["customer_id"] is not None and db.get(Customer, values["customer_id"]) is None:
         raise HTTPException(404, "Customer not found")
     for field in ("po_number", "buyer", "notes", "follow_up_note"):
+        if field in values:
+            value = values[field]
+            setattr(po, field, value.strip() or None if isinstance(value, str) else value)
+    for field in ("currency", "payment_terms"):
         if field in values:
             value = values[field]
             setattr(po, field, value.strip() or None if isinstance(value, str) else value)

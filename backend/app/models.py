@@ -92,6 +92,8 @@ class POIntake(Base):
     buyer_deadline = Column(Date, nullable=True)
     articles_json = Column(Text, default="[]", nullable=False)
     notes = Column(Text, nullable=True)
+    currency = Column(String(8), default="IDR", nullable=False)
+    payment_terms = Column(String(255), nullable=True)
     document_name = Column(String(255), nullable=True)
     document_mime = Column(String(80), nullable=True)
     document_data = Column(LargeBinary, nullable=True)
@@ -222,6 +224,8 @@ class Quotation(Base):
     valid_until = Column(Date, nullable=True)
     status = Column(String(32), default="DRAFT", nullable=False)
     notes = Column(Text, nullable=True)
+    currency = Column(String(8), default="IDR", nullable=False)
+    sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class SampleRecord(Base):

@@ -133,7 +133,7 @@ export default function POInboxPage(){
           <td>{(row.articles||[]).length?<ul style={{margin:0,paddingLeft:16}}>{row.articles.map((article,index)=><li key={index}>{article.article_code||'(kode kosong)'} · {articleQty(article)} pcs{article.sample_required?<small> · sample</small>:null}</li>)}</ul>:'—'}</td>
           <td>{row.has_document?<button className="btn sm" onClick={()=>download(row)}>{row.document_name||'Unduh PO'}</button>:'Belum diunggah'}</td>
           <td>{row.order_type?<span className="badge gray">{ORDER_TYPE_LABELS[row.order_type]||row.order_type.replace(/_/g,' ')}</span>:'—'}</td>
-          <td><span className="badge gray">—</span><br/><small>Belum ada di master</small></td>
+          <td><span className="badge gray">{row.currency||'—'}</span><br/><small>{row.payment_terms||'Terms belum diisi'}</small></td>
           <td>{(row.articles||[]).length} article<br/><small>{totals} pcs</small>{sizeSummary(row.articles)&&<><br/><small>Size {sizeSummary(row.articles)}</small></>}</td>
           <td><span className={'badge '+state.tone}>{state.label}</span></td>
           <td>{row.missing_items?.length?<span className="badge amber">{row.missing_items.join(', ')}</span>:<span className="badge green">Tidak ada</span>}

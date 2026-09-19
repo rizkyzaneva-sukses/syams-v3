@@ -97,11 +97,12 @@ class PricingLineIn(BaseModel):
 
 class QuotationIn(BaseModel):
     quotation_no:str; order_fk:int; amount:float=0; status:str="DRAFT"; valid_until:Optional[date]=None; notes:Optional[str]=None
-    pricing_lines:Optional[list[PricingLineIn]]=None; payment_plan:Optional[str]=None
+    pricing_lines:Optional[list[PricingLineIn]]=None; payment_plan:Optional[str]=None; currency:Optional[str]=None
 
 class QuotationUpdate(BaseModel):
     status:Optional[str]=None; valid_until:Optional[date]=None; notes:Optional[str]=None
     pricing_lines:Optional[list[PricingLineIn]]=None; payment_plan:Optional[str]=None; approval_reason:Optional[str]=None
+    currency:Optional[str]=None; sent_at:Optional[datetime]=None
 
 @router.get("/cmo/quotations")
 def list_quotations(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db:Session=Depends(get_db), user=Depends(get_current_user)):
@@ -124,6 +125,10 @@ def update_quotation(q_id:int, data:QuotationUpdate, db:Session=Depends(get_db),
         raise HTTPException(403, "CFO may only record a pricing decision")
     if role(user) == "CMO_MANAGER" and ("approval_reason" in values or values.get("status") == "APPROVED"):
         raise HTTPException(403, "Only CFO may approve quotation")
+    # Sending to the buyer is the moment sent_at becomes meaningful; record it
+    # once, so a later status flip does not rewrite when it was actually sent.
+    if values.get("status") == "SENT" and x.sent_at is None:
+        values["sent_at"] = datetime.utcnow()
     for key, value in values.items():
         setattr(x, key, value)
     if data.pricing_lines is not None:

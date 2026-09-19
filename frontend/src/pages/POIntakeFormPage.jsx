@@ -3,7 +3,7 @@ import {Link,useNavigate,useParams,useLocation} from 'react-router-dom';
 import {api} from '../api';
 
 const blankArticle={article_code:'',garment_type:'',qty:'',size_breakdown:'',sample_required:false,production_route:''};
-const blank={po_number:'',buyer:'',order_type:'SAMPLE_PRODUCTION',buyer_deadline:'',notes:'',follow_up_note:'',articles:[{...blankArticle}]};
+const blank={po_number:'',buyer:'',order_type:'SAMPLE_PRODUCTION',buyer_deadline:'',notes:'',follow_up_note:'',currency:'IDR',payment_terms:'',articles:[{...blankArticle}]};
 
 export default function POIntakeFormPage(){
   const {poId}=useParams(),nav=useNavigate(),{state}=useLocation();
@@ -35,6 +35,8 @@ export default function POIntakeFormPage(){
         <label>Buyer *<input required value={form.buyer||''} onChange={e=>setForm({...form,buyer:e.target.value})}/></label>
         <label>Tipe order *<select value={form.order_type||''} onChange={e=>setForm({...form,order_type:e.target.value})}><option value="SAMPLE_ONLY">Sample saja</option><option value="SAMPLE_PRODUCTION">Sample + produksi</option><option value="REPEAT_PRODUCTION">Produksi berulang</option></select></label>
         <label>Deadline buyer *<input required type="date" value={form.buyer_deadline||''} onChange={e=>setForm({...form,buyer_deadline:e.target.value})}/></label>
+        <label>Currency<input maxLength={8} value={form.currency||'IDR'} onChange={e=>setForm({...form,currency:e.target.value.toUpperCase()})}/></label>
+        <label>Terms pembayaran<input maxLength={255} value={form.payment_terms||''} onChange={e=>setForm({...form,payment_terms:e.target.value})} placeholder="DP 30%, pelunasan sebelum kirim"/></label>
         <label>Dokumen PO *<input type="file" accept="application/pdf,image/png,image/jpeg" required={!poId&&!existing?.has_document} onChange={e=>setFile(e.target.files?.[0]||null)}/><small>PDF, PNG, atau JPG, maksimal 10 MB.</small></label>
       </div>
       <label>Catatan PO<textarea rows={3} value={form.notes||''} onChange={e=>setForm({...form,notes:e.target.value})}/></label>
