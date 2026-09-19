@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 from pydantic import BaseModel as PydanticBaseModel, ConfigDict, model_validator
 from typing import Literal, Optional
 from datetime import date
@@ -969,31 +969,122 @@ def delete_decision(dec_id:int, db:Session=Depends(get_db), user=Depends(require
     x=get_or_404(db,models.CEODecision,dec_id); info=x.subject; db.delete(x); commit_changes(db, user); return {"ok":True}
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ EXCEPTIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Revisi #73: exception bertipe dengan sumber, dampak, rekomendasi, dan alasan
+# eskalasi. Severity dibatasi ke RED/YELLOW supaya routing notifikasi bisa
+# ditentukan dari nilainya, bukan dari teks bebas.
+SEVERITIES = {"RED", "YELLOW"}
+# Kategori bertipe: hanya domain ini yang boleh dipakai, supaya owner dan
+# routing-nya bisa ditentukan, bukan diketik bebas oleh pembuat exception.
+EXCEPTION_CATEGORIES = {
+    "COMMERCIAL": "CMO_MANAGER", "CUSTOMER": "CMO_MANAGER",
+    "MATERIAL": "COO_MANAGER", "PRODUCTION": "COO_MANAGER",
+    "QUALITY": "COO_MANAGER", "SHIPMENT": "COO_MANAGER",
+    "FINANCE": "CFO_MANAGER", "PURCHASING": "CFO_MANAGER",
+    "PEOPLE": "CHRO_MANAGER", "HR_CONFIDENTIAL": "CHRO_MANAGER",
+}
+
 class ExceptionIn(BaseModel):
-    order_fk:Optional[int]=None; severity:str="YELLOW"; category:str; title:str; owner_role:Optional[str]=None; owner_name:Optional[str]=None; due_date:Optional[date]=None; next_action:Optional[str]=None
+    order_fk:Optional[int]=None; severity:str="YELLOW"; category:str; title:str
+    owner_role:Optional[str]=None; owner_name:Optional[str]=None; due_date:Optional[date]=None; next_action:Optional[str]=None
+    source_module:Optional[str]=None; source_entity:Optional[str]=None; source_entity_id:Optional[int]=None
+    impact:Optional[str]=None; recommendation:Optional[str]=None; escalation_reason:Optional[str]=None
+    decision_required:bool=False; evidence_ref:Optional[str]=None; confidential:bool=False
+
+    @model_validator(mode="after")
+    def validate_typed(self):
+        if self.severity not in SEVERITIES:
+            raise ValueError("Severity must be RED or YELLOW")
+        if self.category not in EXCEPTION_CATEGORIES:
+            raise ValueError("Unknown exception category")
+        # RED memicu push notification, jadi harus ada alasan eskalasi dan dampak
+        # yang bisa dibaca penerima. Tanpa itu eskalasi tidak bisa dipertanggungjawabkan.
+        if self.severity == "RED":
+            if not (self.escalation_reason or "").strip():
+                raise ValueError("RED exception requires escalation_reason")
+            if not (self.impact or "").strip():
+                raise ValueError("RED exception requires impact")
+        return self
 
 class ExceptionUpdate(BaseModel):
-    severity:Optional[str]=None; category:Optional[str]=None; title:Optional[str]=None; owner_role:Optional[str]=None; owner_name:Optional[str]=None; due_date:Optional[date]=None; next_action:Optional[str]=None; status:Optional[str]=None
+    severity:Optional[str]=None; category:Optional[str]=None; title:Optional[str]=None
+    owner_role:Optional[str]=None; owner_name:Optional[str]=None; due_date:Optional[date]=None
+    next_action:Optional[str]=None; status:Optional[str]=None
+    impact:Optional[str]=None; recommendation:Optional[str]=None; escalation_reason:Optional[str]=None
+    decision_required:Optional[bool]=None; evidence_ref:Optional[str]=None
+    resolution_note:Optional[str]=None
+
+    @model_validator(mode="after")
+    def validate_severity(self):
+        if self.severity is not None and self.severity not in SEVERITIES:
+            raise ValueError("Severity must be RED or YELLOW")
+        return self
+
+# Revisi #73 poin RBAC: manager domain yang membuat exception; CEO hanya
+# menerima RED/Decision Needed/typed override. CMO_SUPPORT hanya melihat dan
+# mengelola yang ditugaskan kepadanya, jadi tidak boleh membuat exception baru.
+EXCEPTION_CREATORS = (models.Role.CMO_MANAGER, models.Role.COO_MANAGER,
+                      models.Role.CFO_MANAGER, models.Role.CHRO_MANAGER)
 
 @router.get("/exceptions")
 def list_exceptions(db:Session=Depends(get_db), user=Depends(get_current_user)):
     query = db.query(models.ExceptionItem)
-    if role(user) != "CEO":
-        from sqlalchemy import or_
-        query = query.filter(models.ExceptionItem.owner_role == role(user), or_(models.ExceptionItem.owner_name == user.name, models.ExceptionItem.owner_name.is_(None)))
+    if role(user) == "CEO":
+        # CEO hanya melihat yang butuh dia: RED, butuh keputusan, atau yang
+        # sudah dieskalasi. Exception rutin YELLOW cukup di dashboard domain.
+        query = query.filter(or_(models.ExceptionItem.severity == "RED",
+                                 models.ExceptionItem.decision_required.is_(True),
+                                 models.ExceptionItem.escalation_reason.is_not(None)))
+    else:
+        # Owner domain melihat miliknya; kasus confidential hanya owner role-nya.
+        query = query.filter(models.ExceptionItem.owner_role == role(user),
+                             or_(models.ExceptionItem.owner_name == user.name,
+                                 models.ExceptionItem.owner_name.is_(None)))
     return query.order_by(desc(models.ExceptionItem.id)).all()
 
 @router.post("/exceptions")
-def create_exception(data:ExceptionIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.COO_MANAGER,models.Role.CEO,models.Role.CMO_SUPPORT))):
-    x=models.ExceptionItem(**data.model_dump()); db.add(x); commit_changes(db, user); db.refresh(x); return x
+def create_exception(data:ExceptionIn, db:Session=Depends(get_db), user=Depends(require_roles(*EXCEPTION_CREATORS))):
+    values = data.model_dump()
+    # Owner ditentukan kategori, bukan diketik bebas: routing eskalasi harus
+    # bisa ditentukan sistem, bukan bergantung pada teks pembuat.
+    values["owner_role"] = EXCEPTION_CATEGORIES[data.category]
+    if data.category == "HR_CONFIDENTIAL":
+        values["confidential"] = True
+    x=models.ExceptionItem(**values); db.add(x)
+    # RED memicu notifikasi; dicatat agar push bisa diaudit dan tidak dikirim ulang.
+    detail = data.escalation_reason or data.title
+    log_audit(db, user, "EXCEPTION_" + data.severity, "ExceptionItem", None, detail,
+              obj=x, new_status=data.severity, reason=data.escalation_reason)
+    commit_changes(db, user); db.refresh(x); return x
 
 @router.patch("/exceptions/{exc_id}")
 def update_exception(exc_id:int, data:ExceptionUpdate, db:Session=Depends(get_db), user=Depends(get_current_user)):
-    return apply_update(get_or_404(db,models.ExceptionItem,exc_id,"Exception not found"), data, db, user)
+    x = get_or_404(db, models.ExceptionItem, exc_id, "Exception not found")
+    if role(user) != "CEO" and x.owner_role != role(user):
+        raise HTTPException(403, "Only the owning domain or CEO may update this exception")
+    if x.confidential and role(user) not in ("CEO", x.owner_role):
+        raise HTTPException(403, "Confidential HR case is restricted")
+    values = data.model_dump(exclude_unset=True, exclude={"resolution_note"})
+    before = x.status
+    for key, value in values.items():
+        setattr(x, key, value)
+    # Resolusi harus disertai bukti hasil, bukan sekadar ganti status.
+    if values.get("status") in ("RESOLVED", "CLOSED"):
+        note = (data.resolution_note or x.resolution_note or "").strip()
+        if not note:
+            raise HTTPException(400, "Resolution requires a resolution_note as verification")
+        x.resolution_note = note
+        x.resolved_at = datetime.utcnow()
+        x.verified_by_id = user.id
+        x.verified_at = datetime.utcnow()
+    log_audit(db, user, "EXCEPTION_UPDATE", "ExceptionItem", x.id, ", ".join(sorted(values)) or None,
+              obj=x, previous_status=before, new_status=x.status, reason=data.resolution_note)
+    commit_changes(db, user); db.refresh(x); return x
 
 @router.delete("/exceptions/{exc_id}")
 def delete_exception(exc_id:int, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CEO))):
-    x=get_or_404(db,models.ExceptionItem,exc_id); info=x.title; db.delete(x); commit_changes(db, user); return {"ok":True}
+    # Revisi #73: tanpa hard delete. Menutup exception berarti statusnya berubah,
+    # barisnya tetap ada supaya jejak eskalasi dan penyelesaiannya tidak hilang.
+    raise HTTPException(405, "Exceptions are never hard-deleted; close them with resolution evidence")
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ TASKS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class TaskIn(BaseModel):

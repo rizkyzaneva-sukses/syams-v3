@@ -137,6 +137,24 @@ class ExceptionItem(Base):
     due_date = Column(Date, nullable=True)
     next_action = Column(Text, nullable=True)
     status = Column(String(32), default="OPEN", nullable=False)
+    # Revisi #73: exception wajib punya sumber, dampak, rekomendasi, alasan
+    # eskalasi, dan penanda butuh keputusan CEO — bukan sekadar judul bebas.
+    source_module = Column(String(80), nullable=True)
+    source_entity = Column(String(80), nullable=True)
+    source_entity_id = Column(Integer, nullable=True)
+    impact = Column(Text, nullable=True)
+    recommendation = Column(Text, nullable=True)
+    escalation_reason = Column(Text, nullable=True)
+    decision_required = Column(Boolean, default=False, nullable=False)
+    evidence_ref = Column(Text, nullable=True)
+    resolution_note = Column(Text, nullable=True)
+    verified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    verified_at = Column(DateTime, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # Confidential: kasus HR bersifat terbatas, hanya owner role + CEO.
+    confidential = Column(Boolean, default=False, nullable=False)
+    resolved_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class CapacitySnapshot(Base):
