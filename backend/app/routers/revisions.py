@@ -152,37 +152,6 @@ def change_revision_status(proposal_id: int, payload: StatusChange,
     return proposal_out(proposal, reporter.name, user)
 
 
-@router.post("/{proposal_id}/restore")
-def restore_revision(proposal_id: int, db: Session = Depends(get_db),
-                     user: User = Depends(get_current_user)):
-    """TEMPORARY admin endpoint: reset a proposal back to REVISI with the note cleared.
-
-    Added solely to repair proposal #1, which an automated probe moved out of
-    REVISI via the status endpoint. CEO-only, fully audited, removed after use.
-    """
-    if user.role != Role.CEO:
-        raise HTTPException(403, "Hanya CEO yang berwenang memulihkan status.")
-    proposal = (db.query(RevisionProposal).filter(RevisionProposal.id == proposal_id)
-                .with_for_update().one_or_none())
-    if proposal is None:
-        raise HTTPException(404, "Usulan revisi tidak ditemukan.")
-    previous = proposal.status
-    proposal.status = "REVISI"
-    proposal.status_note = None
-    proposal.status_updated_at = datetime.utcnow()
-    proposal.status_updated_by_id = user.id
-    db.add(RevisionStatusEvent(proposal_id=proposal.id, from_status=previous,
-                               to_status="REVISI",
-                               note="Pemulihan status setelah koreksi tidak valid",
-                               changed_by_id=user.id))
-    log_audit(db, user, "ADMIN_RESTORE", "RevisionProposal", proposal.id,
-              f"{previous} -> REVISI (pemulihan status)")
-    db.commit()
-    db.refresh(proposal)
-    reporter = db.get(User, proposal.reported_by_id)
-    return proposal_out(proposal, reporter.name, user)
-
-
 @router.get("/{proposal_id}/image")
 def get_revision_image(proposal_id: int, db: Session = Depends(get_db),
                        user: User = Depends(get_current_user)):
