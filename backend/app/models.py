@@ -171,6 +171,7 @@ class RevisionProposal(Base):
     status_note = Column(Text, nullable=True)
     status_updated_at = Column(DateTime, nullable=True)
     status_updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    operator = Column(String(64), nullable=True)
 
 class RevisionStatusEvent(Base):
     __tablename__ = "revision_status_events"
@@ -181,6 +182,7 @@ class RevisionStatusEvent(Base):
     note = Column(Text, nullable=True)
     changed_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    operator = Column(String(64), nullable=True)
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"

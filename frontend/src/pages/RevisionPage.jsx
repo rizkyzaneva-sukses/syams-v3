@@ -2,10 +2,13 @@ import React,{useEffect,useState} from 'react';
 import {Camera,ImagePlus,MessageSquarePlus,Search,X} from 'lucide-react';
 import {api} from '../api';
 
-const emptyForm={module_name:'',bug_description:'',expected_behavior:'',owner_role:''};
+const emptyForm={module_name:'',bug_description:'',expected_behavior:'',owner_role:'',operator:''};
 const maxImageBytes=5*1024*1024;
 const allowedTypes=new Set(['image/png','image/jpeg','image/webp']);
 const statusLabels={REVISI:'Revisi',CHECK:'Check',TINJAU_ULANG:'Tinjau Ulang',SOLVED:'Solved'};
+/* Operator yang mengerjakan revisi. Bebas diisi, tapi pilihan umum disiapkan
+   supaya penulisan konsisten — "Hermes" untuk agen ini, lalu agen lain. */
+const operatorSuggestions=['Hermes','GPT','Claude','Gemini','Manusia'];
 const ownerLabels={CEO:'CEO',CMO_MANAGER:'CMO Manager',CMO_SUPPORT:'CMO Support',CFO_MANAGER:'CFO Manager',FINANCE_SUPPORT:'Finance Support',COO_MANAGER:'COO Manager',SAMPLE_PIC:'Sample PIC',PRINTING_PIC:'Printing PIC',PRODUCTION_PIC:'Production PIC',CHRO_MANAGER:'CHRO Manager',HR_SUPPORT:'HR Support',SHIPMENT_ADMIN:'Shipment Admin'};
 const statusFilters=['SEMUA','REVISI','CHECK','TINJAU_ULANG','SOLVED'];
 
@@ -122,6 +125,18 @@ export default function RevisionPage(){
               {Object.entries(ownerLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}
             </select>
           </label>
+          <label><span>Operator yang mengerjakan <span className="revision-optional">(opsional)</span></span>
+            <input list="revision-operator-options" maxLength={64} value={form.operator}
+              onChange={e=>setForm({...form,operator:e.target.value})}
+              placeholder="Contoh: Hermes, GPT, Claude, atau nama orang"/>
+            <small className="revision-field-hint">
+              Diisi siapa yang mengerjakan revisi ini, supaya jelas siapa yang bertanggung jawab
+              kalau hasilnya belum benar.
+            </small>
+          </label>
+          <datalist id="revision-operator-options">
+            {operatorSuggestions.map(name=><option key={name} value={name}/>)}
+          </datalist>
           <label><span>Bug <span className="revision-required">*</span></span>
             <textarea required maxLength={5000} rows={4} value={form.bug_description} onChange={e=>setForm({...form,bug_description:e.target.value})} placeholder="Apa yang terjadi saat modul digunakan?"/>
           </label>
@@ -146,6 +161,10 @@ export default function RevisionPage(){
         <div className="search-bar"><Search size={16}/><input aria-label="Cari usulan revisi" placeholder="Cari modul, bug, atau pelapor..." value={query} onChange={e=>setQuery(e.target.value)}/></div>
         {visible.map(item=><article key={item.id} className="revision-card">
           <div className="revision-card-top"><span className="revision-module">{item.module_name}</span><div className="revision-card-badges"><span className={`revision-status revision-status-${item.status?.toLowerCase()}`}>{statusLabels[item.status]||item.status}</span>{item.has_image&&<span className="revision-image-badge"><Camera size={14}/> Gambar</span>}</div></div>
+          <div className="revision-card-operator">
+            <span className="revision-operator-label">Operator</span>
+            <span className={'revision-operator-value'+(item.operator?'':' revision-operator-empty')}>{item.operator||'Belum dicatat'}</span>
+          </div>
           <div className="revision-card-meta">{item.reported_by_name} · {formatDate(item.created_at)} · Owner: {ownerLabels[item.owner_role]||item.owner_role||'Belum ditentukan'}</div>
           <div className="revision-card-copy"><b>Bug</b><p>{item.bug_description}</p></div>
           <div className="revision-card-copy"><b>Harusnya</b><p>{item.expected_behavior}</p></div>
@@ -161,9 +180,13 @@ export default function RevisionPage(){
       <div className="modal-head"><h2 id="revision-detail-title">{detail.module_name}</h2><button className="icon-btn" type="button" aria-label="Tutup detail" onClick={()=>setDetail(null)}><X size={18}/></button></div>
       <div className="revision-modal-body"><p className="revision-card-meta">Dikirim oleh {detail.reported_by_name} · {formatDate(detail.created_at)} · Owner: {ownerLabels[detail.owner_role]||detail.owner_role||'Belum ditentukan'}</p>
         <span className={`revision-status revision-status-${detail.status?.toLowerCase()}`}>{statusLabels[detail.status]||detail.status}</span>
+        <div className="revision-card-operator">
+          <span className="revision-operator-label">Operator</span>
+          <span className={'revision-operator-value'+(detail.operator?'':' revision-operator-empty')}>{detail.operator||'Belum dicatat'}</span>
+        </div>
         <h3>Bug</h3><p>{detail.bug_description}</p><h3>Harusnya seperti apa</h3><p>{detail.expected_behavior}</p>{detail.has_image&&<><h3>Gambar pendukung</h3>{detailImage?<img className="revision-detail-image" src={detailImage} alt={`Gambar pendukung untuk ${detail.module_name}`}/>:<p>Memuat gambar...</p>}</>}
         <h3>Riwayat status</h3>
-        <div className="revision-history"><div><b>Revisi</b><small>Usulan dibuat · {formatDate(detail.created_at)}</small></div>{history.map((event,index)=><div key={index}><b>{statusLabels[event.to_status]}</b><small>{event.changed_by_name} · {formatDate(event.created_at)}</small>{event.note&&<p>{event.note}</p>}</div>)}</div>
+        <div className="revision-history"><div><b>Revisi</b><small>Usulan dibuat · {formatDate(detail.created_at)}</small>{detail.operator&&<p>Operator: {detail.operator}</p>}</div>{history.map((event,index)=><div key={index}><b>{statusLabels[event.to_status]}</b><small>{event.changed_by_name} · {formatDate(event.created_at)}</small>{event.operator&&<small>Operator: {event.operator}</small>}{event.note&&<p>{event.note}</p>}</div>)}</div>
         {detail.allowed_next_statuses?.length>0&&<div className="revision-status-action">
           <h3>{detail.status==='CHECK'?'Hasil pengecekan tim':'Hasil perbaikan'}</h3>
           <textarea aria-label="Catatan perubahan status" maxLength={2000} rows={3} value={statusNote} onChange={e=>setStatusNote(e.target.value)} placeholder={detail.status==='CHECK'?'Jika perlu ditinjau ulang, tuliskan apa yang belum sesuai.':'Tuliskan yang diperbaiki dan apa yang perlu dicek tim.'}/>

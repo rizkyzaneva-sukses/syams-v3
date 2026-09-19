@@ -17,6 +17,8 @@ class StatusChange(BaseModel):
     expected_status: str
     status: str
     note: str = ""
+    # Who or what is making this change — "Hermes", "GPT", "Claude", a human name.
+    operator: str | None = None
 
 
 def image_mime(data: bytes) -> str | None:
@@ -52,6 +54,9 @@ def proposal_out(proposal: RevisionProposal, reporter_name: str, user: User) -> 
         "status_note": proposal.status_note,
         "status_updated_at": proposal.status_updated_at.isoformat() + "Z" if proposal.status_updated_at else None,
         "status_updated_by_id": proposal.status_updated_by_id,
+        # Who or what produced this revision — "Hermes", "GPT", "Claude", or a
+        # human name. Null means the reporter did not declare an operator.
+        "operator": proposal.operator,
         "allowed_next_statuses": allowed_next(proposal, user),
     }
 
@@ -69,6 +74,7 @@ def list_revisions(limit: int = Query(100, ge=1, le=200), offset: int = Query(0,
 @router.post("", status_code=201)
 async def create_revision(module_name: str = Form(...), bug_description: str = Form(...),
                           expected_behavior: str = Form(...), owner_role: str | None = Form(None),
+                          operator: str | None = Form(None),
                           image: UploadFile | None = File(None),
                           db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     module_name = module_name.strip()
@@ -83,6 +89,7 @@ async def create_revision(module_name: str = Form(...), bug_description: str = F
     owner_role = owner_role or user.role.value
     if owner_role not in {role.value for role in Role}:
         raise HTTPException(422, "Bagian owner tidak valid.")
+    operator = (operator or "").strip()[:64] or None
 
     data = None
     mime = None
@@ -96,10 +103,12 @@ async def create_revision(module_name: str = Form(...), bug_description: str = F
 
     proposal = RevisionProposal(module_name=module_name, bug_description=bug_description,
                                 expected_behavior=expected_behavior, image_data=data, image_mime=mime,
-                                reported_by_id=user.id, owner_role=owner_role)
+                                reported_by_id=user.id, owner_role=owner_role,
+                                operator=operator)
     db.add(proposal)
     db.flush()
-    log_audit(db, user, "CREATE", "RevisionProposal", proposal.id, module_name)
+    log_audit(db, user, "CREATE", "RevisionProposal", proposal.id,
+              f"{module_name} | operator={operator or '-'}")
     db.commit()
     db.refresh(proposal)
     return proposal_out(proposal, user.name, user)
@@ -117,6 +126,7 @@ def revision_history(proposal_id: int, db: Session = Depends(get_db),
               .order_by(RevisionStatusEvent.id.asc()).all())
     return [{"from_status": event.from_status, "to_status": event.to_status,
              "note": event.note, "changed_by_name": name,
+             "operator": event.operator,
              "created_at": event.created_at.isoformat() + "Z"} for event, name in events]
 
 
@@ -141,11 +151,12 @@ def change_revision_status(proposal_id: int, payload: StatusChange,
     proposal.status_note = note or None
     proposal.status_updated_at = datetime.utcnow()
     proposal.status_updated_by_id = user.id
+    event_operator = (payload.operator or "").strip()[:64] or proposal.operator
     db.add(RevisionStatusEvent(proposal_id=proposal.id, from_status=previous,
                                to_status=proposal.status, note=proposal.status_note,
-                               changed_by_id=user.id))
+                               changed_by_id=user.id, operator=event_operator))
     log_audit(db, user, "STATUS_CHANGE", "RevisionProposal", proposal.id,
-              f"{previous} -> {proposal.status}: {note}")
+              f"{previous} -> {proposal.status}: {note} | operator={event_operator or '-'}")
     db.commit()
     db.refresh(proposal)
     reporter = db.get(User, proposal.reported_by_id)
