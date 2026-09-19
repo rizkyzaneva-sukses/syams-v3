@@ -1,4 +1,5 @@
 import React,{useEffect,useState} from 'react';
+import {Link} from 'react-router-dom';
 import {api} from '../api';
 import {useRole} from '../components/Access';
 import FormModal from '../components/FormModal';
@@ -12,6 +13,21 @@ function rowsFor(order,quote){
  return (order?.articles||[]).map(a=>({article_id:a.id,article_code:a.article_code,qty:a.qty,
    unit_price:existing.find(x=>x.article_id===a.id)?.unit_price||'',
    unit_hpp:existing.find(x=>x.article_id===a.id)?.unit_hpp||''}));
+}
+/* Blueprint poin 7: quotation belum lengkap kalau harga tiap article belum
+   diisi. Dipakai untuk kolom kelengkapan tanpa memanggil endpoint baru. */
+export function quotationComplete(quote){
+  let lines=[];try{lines=JSON.parse(quote?.pricing_breakdown||'[]')}catch{}
+  return Array.isArray(lines)&&lines.length>0&&lines.every(l=>Number(l.unit_price)>0&&l.unit_hpp!=null&&l.unit_hpp!=='');
+}
+/* Next action, owner Deby/Cecep, dan buyer response per status quotation. */
+export function quotationQueue(quote){
+  const yyyy_mm_dd=new Date().toISOString().slice(0,10),expired=Boolean(quote.valid_until&&quote.valid_until<yyyy_mm_dd);
+  if(quote.status==='DRAFT'&&quote.approved_by_id)return {next:'Terbitkan penawaran dan catat pengiriman',owner:'CMO_SUPPORT (Deby)',response:'Belum dikirim — harga siap'};
+  if(quote.status==='DRAFT')return {next:'Hitung harga per article, kirim ke CFO',owner:'CMO_SUPPORT (Deby)',response:'Belum dikirim'};
+  if(quote.status==='SENT')return {next:expired?'Perbarui masa berlaku lalu kirim ulang':'Tunggu balasan buyer, catat hasilnya',owner:'CMO_SUPPORT (Deby)',response:expired?'Kedaluwarsa tanpa balasan':'Sudah dikirim — menunggu buyer'};
+  if(quote.status==='APPROVED')return {next:'Kirim penawaran resmi ke buyer, catat balasan',owner:'CMO_SUPPORT (Deby)',response:'Disetujui CFO — belum dikirim ke buyer'};
+  return {next:'Perbaiki harga dan kirim ulang',owner:'CMO_SUPPORT (Deby)',response:'Ditolak CFO'};
 }
 
 export default function QuotationPage(){
@@ -38,7 +54,21 @@ export default function QuotationPage(){
  return <div className="page"><div className="page-title"><div><h1>Pricing & Quotation</h1><p>Harga, HPP dan margin dihitung per artikel sebelum approval.</p></div>{isCMO&&<button className="btn primary" onClick={()=>openQuote(blank)}>Tambah Quotation</button>}</div>
  {error&&!form&&!decision&&<div className="notice danger" role="alert">{error}</div>}{!policy&&['CEO','CFO_MANAGER','CMO_MANAGER'].includes(role)&&<div className="notice danger">Kebijakan pricing dan DP belum diatur CEO; approval akan tertahan.</div>}
  <input aria-label="Cari quotation" placeholder="Cari nomor quotation" value={query} onChange={e=>setQuery(e.target.value)}/>
- <div className="table-scroll"><table><thead><tr><th>Quotation / Order</th><th>Penjualan</th><th>HPP</th><th>Margin</th><th>Payment Plan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>{list.filter(q=>matchesSearch(q,query,['quotation_no','notes'])).map(q=><tr key={q.id}><td>{q.quotation_no}<br/>{orders.find(o=>o.id===q.order_fk)?.order_id||'—'}</td><td>{money(q.amount)}</td><td>{money(q.hpp_total)}</td><td>{Number(q.margin_percent||0)}%</td><td>{q.payment_plan||'—'}</td><td><span className={'badge '+statusTone(q.status)}>{q.status}</span>{q.ceo_approved_by_id&&<small> · CEO reviewed</small>}</td><td>{manager&&q.status!=='APPROVED'&&<button className="btn" onClick={()=>openQuote(q)}>Edit</button>}{isCFO&&q.status!=='APPROVED'&&<button className="btn" onClick={()=>openQuote(q)}>Review CFO</button>}{isCEO&&policy&&Number(q.amount)>Number(policy.cfo_quotation_limit)&&!q.ceo_approved_by_id&&<button className="btn" onClick={()=>setDecision({id:q.id,reason:''})}>Approve Limit</button>}{manager&&q.status!=='APPROVED'&&<button className="btn" onClick={()=>remove(q.id)}>Hapus</button>}</td></tr>)}{!list.length&&<tr><td colSpan={7}>Belum ada quotation.</td></tr>}</tbody></table></div>
+ <div className="table-scroll"><table><thead><tr><th>Quotation ID / version</th><th>Buyer / Opportunity</th><th>Draft Order / Order</th><th>Currency</th><th>Pricing output CFO</th><th>Proposed price</th><th>Validity</th><th>Status Prepare Deby</th><th>Approval / Send Cecep</th><th>Sent at</th><th>Buyer response</th><th>Aksi</th></tr></thead><tbody>{list.filter(q=>matchesSearch(q,query,['quotation_no','notes'])).map(q=>{
+ const order=orders.find(o=>o.id===q.order_fk),queue=quotationQueue(q),complete=quotationComplete(q),today=new Date().toISOString().slice(0,10);
+ return <tr key={q.id}>
+ <td><b>{q.quotation_no}</b><br/><small>v{q.id} · dibuat {q.created_at||'—'}</small></td>
+ <td>{order?.buyer||'—'}<br/><small>{order?.order_type?order.order_type.replace(/_/g,' '):'Order belum tertaut'} · {order?.buyer_deadline?'deadline '+order.buyer_deadline:'deadline belum diisi'}</small></td>
+ <td>{order?<><Link to={'/orders/'+order.order_id}><b>{order.order_id}</b></Link><br/><small>Draft Order ID {order.id}</small></>:<small>Order belum tertaut</small>}</td>
+ <td><span className="badge gray">IDR</span><br/><small>Nominal Rupiah; master currency belum tersedia</small></td>
+ <td><span className={'badge '+(complete?'green':'amber')}>{complete?'Harga per article lengkap':'Harga per article belum lengkap'}</span><br/><small>HPP {money(q.hpp_total)} · Margin {money(q.margin_amount)} ({Number(q.margin_percent||0)}%)</small></td>
+ <td>{money(q.amount)}<br/><small>{q.payment_plan||'Payment plan belum diisi'}</small></td>
+ <td>{q.valid_until?(q.valid_until<today?<span className="badge red">{q.valid_until} · kedaluwarsa</span>:q.valid_until):'—'}</td>
+ <td><span className="badge blue">{queue.owner}</span><br/><small>{queue.next}</small></td>
+ <td>{q.ceo_approved_by_id?<span className="badge green">Disetujui CEO (di atas limit)</span>:q.status==='APPROVED'?<span className="badge green">Disetujui CFO</span>:q.status==='REJECTED'?<span className="badge red">Ditolak CFO</span>:<span className="badge amber">Menunggu keputusan CFO</span>}{q.ceo_approval_reason&&<><br/><small>CEO: {q.ceo_approval_reason}</small></>}{q.approval_reason&&<><br/><small>CFO: {q.approval_reason}</small></>}</td>
+ <td><span className={'badge '+statusTone(q.status)}>{q.status}</span><br/><small>{q.status==='SENT'?'Terkirim — tanggal kirim belum dilacak sistem':'Belum ada tanggal kirim tersimpan'}</small></td>
+ <td><small>{queue.response}</small></td>
+ <td>{manager&&q.status!=='APPROVED'&&<button className="btn" onClick={()=>openQuote(q)}>Edit</button>}{isCFO&&q.status!=='APPROVED'&&<button className="btn" onClick={()=>openQuote(q)}>Review CFO</button>}{isCEO&&policy&&Number(q.amount)>Number(policy.cfo_quotation_limit)&&!q.ceo_approved_by_id&&<button className="btn" onClick={()=>setDecision({id:q.id,reason:''})}>Approve Limit</button>}{manager&&q.status!=='APPROVED'&&<button className="btn" onClick={()=>remove(q.id)}>Hapus</button>}</td></tr>;})}{!list.length&&<tr><td colSpan={12}>Belum ada quotation.</td></tr>}</tbody></table></div>
  {form&&<FormModal title={isCFO?'Review CFO':form.id?'Edit Quotation':'Quotation Baru'} onClose={()=>setForm(null)} onSubmit={save} busy={busy} error={error}>{isCFO?<><p>Penjualan {money(form.amount)} · HPP {money(form.hpp_total)} · Margin {Number(form.margin_percent||0)}%</p><label>Keputusan<select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option value="DRAFT">DRAFT</option><option value="APPROVED">APPROVED</option><option value="REJECTED">REJECTED</option></select></label><label>Alasan CFO<textarea required value={form.approval_reason||''} onChange={e=>setForm({...form,approval_reason:e.target.value})}/></label></>:<><label>Nomor Quotation<input required disabled={Boolean(form.id)} value={form.quotation_no} onChange={e=>setForm({...form,quotation_no:e.target.value})}/></label><label>Order<select required disabled={Boolean(form.id)} value={form.order_fk} onChange={e=>selectOrder(e.target.value)}><option value="">Pilih order</option>{orders.map(o=><option key={o.id} value={o.id}>{o.order_id} — {o.buyer}</option>)}</select></label>{selected&&<section className="panel"><h2>Harga dan HPP per artikel</h2>{form.pricing_lines.map((line,i)=><div className="form-grid" key={line.article_id}><span>{line.article_code} · {line.qty} pcs</span><label>Harga/unit<input type="number" min="0.01" step="0.01" required value={line.unit_price} onChange={e=>updateLine(i,'unit_price',e.target.value)}/></label><label>HPP/unit<input type="number" min="0" step="0.01" required value={line.unit_hpp} onChange={e=>updateLine(i,'unit_hpp',e.target.value)}/></label></div>)}<p>Penjualan {money(total)} · HPP {money(hpp)} · Margin {total?((total-hpp)/total*100).toFixed(2):'0'}%</p></section>}<label>Payment Plan<textarea required value={form.payment_plan||''} onChange={e=>setForm({...form,payment_plan:e.target.value})}/></label><label>Berlaku Sampai<input type="date" value={form.valid_until||''} onChange={e=>setForm({...form,valid_until:e.target.value})}/></label><label>Status<select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option>DRAFT</option><option>SENT</option></select></label><label>Catatan<textarea value={form.notes||''} onChange={e=>setForm({...form,notes:e.target.value})}/></label></>}</FormModal>}
  {decision&&<FormModal title="Persetujuan CEO di atas limit" onClose={()=>setDecision(null)} onSubmit={approveLimit} busy={busy} error={error}><label>Alasan keputusan<textarea required value={decision.reason} onChange={e=>setDecision({...decision,reason:e.target.value})}/></label></FormModal>}</div>;
 }
