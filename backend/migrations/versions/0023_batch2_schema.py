@@ -303,6 +303,11 @@ def _backfill_sample_versions():
     if not missing:
         print("[0023] sample_versions: tidak ada sample lama yang belum punya versi")
         return
+    # PORTABILITAS BOOLEAN (bug produksi nyata): `CASE WHEN ... THEN 0 ELSE 1 END`
+    # diterima SQLite (boolean = integer), tetapi PostgreSQL menolaknya dengan
+    #   DatatypeMismatch: column "submitted" is of type boolean but expression
+    #   is of type integer
+    # Jadi literal TRUE/FALSE yang dipakai — sah di kedua database.
     _execute(
         "INSERT INTO sample_versions "
         "(sample_fk, version, ppm_version, ppm_reference, submitted, submitted_at, "
@@ -311,7 +316,8 @@ def _backfill_sample_versions():
         "SELECT r.id, "
         "       CASE WHEN r.sample_version IS NULL OR r.sample_version < 1 THEN 1 ELSE r.sample_version END, "
         "       NULL, NULL, "
-        "       CASE WHEN r.submitted_at IS NULL THEN 0 ELSE 1 END, r.submitted_at, r.submitted_by_id, '[]', "
+        "       CASE WHEN r.submitted_at IS NULL THEN FALSE ELSE TRUE END, "
+        "       r.submitted_at, r.submitted_by_id, '[]', "
         "       CASE WHEN r.status = 'APPROVED' THEN 'APPROVED' "
         "            WHEN r.status = 'REJECTED' THEN 'REJECTED' ELSE NULL END, "
         "       r.customer_approved_by_id, r.customer_decision_at, r.customer_decision_reason, "
