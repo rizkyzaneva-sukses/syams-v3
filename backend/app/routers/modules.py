@@ -223,15 +223,22 @@ def delete_quotation(q_id:int, db:Session=Depends(get_db), user=Depends(require_
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CMO: SAMPLE RECORDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class SampleIn(BaseModel):
     order_fk:int; article_code:str; status:str="PROCESS"; notes:Optional[str]=None; requested_date:Optional[date]=None; completed_date:Optional[date]=None
+    # Versi boleh disebut eksplisit; kalau tidak, server menghitungnya dari
+    # versi terakhir artikel yang sama (bukan dari urutan id).
+    sample_version:Optional[int]=Field(default=None, ge=1)
+    previous_version_id:Optional[int]=None
+    revision_reason:Optional[str]=None
 
 class SampleUpdate(BaseModel):
     status:Optional[str]=None; notes:Optional[str]=None; completed_date:Optional[date]=None
+    revision_reason:Optional[str]=Field(default=None, max_length=2000)
 
 class SampleDecision(BaseModel):
     action:Literal["APPROVE", "REJECT"]
     reason:str=Field(min_length=1, max_length=2000)
 
 SAMPLE_EVIDENCE_LIMIT = 10 * 1024 * 1024
+SAMPLE_EVIDENCE_KINDS = ("PROGRESS", "INSPECTION", "RESULT")
 SAMPLE_EVIDENCE_TYPES = {
     b"%PDF-": "application/pdf",
     b"\x89PNG\r\n\x1a\n": "image/png",
@@ -240,7 +247,11 @@ SAMPLE_EVIDENCE_TYPES = {
 
 def sample_evidence_out(evidence):
     return {"id": evidence.id, "file_name": evidence.file_name, "file_mime": evidence.file_mime,
-            "note": evidence.note, "uploaded_by_id": evidence.uploaded_by_id, "created_at": evidence.created_at}
+            "note": evidence.note, "uploaded_by_id": evidence.uploaded_by_id,
+            "evidence_kind": getattr(evidence, "evidence_kind", None),
+            "sample_version": getattr(evidence, "sample_version", None),
+            "uploaded_stage": getattr(evidence, "uploaded_stage", None),
+            "created_at": evidence.created_at}
 
 def sample_out(sample):
     return {"id": sample.id, "order_fk": sample.order_fk, "article_code": sample.article_code,
@@ -250,10 +261,33 @@ def sample_out(sample):
             "customer_decision_at": sample.customer_decision_at,
             "customer_decision_by_id": sample.customer_approved_by_id,
             "customer_decision_reason": sample.customer_decision_reason,
+            # Batch 2: versi sample eksplisit + rantai revisi + submission.
+            "sample_version": sample.sample_version,
+            "previous_version_id": sample.previous_version_id,
+            "revision_reason": sample.revision_reason,
+            "current_stage": sample.current_stage,
+            "submitted_by_id": sample.submitted_by_id,
+            "submitted_at": sample.submitted_at,
             "evidence_count": len(sample.evidence), "created_at": sample.created_at}
 
 def sample_file_mime(data):
     return next((mime for signature, mime in SAMPLE_EVIDENCE_TYPES.items() if data.startswith(signature)), None)
+
+def sample_version_row(db, sample):
+    """Baris `sample_versions` untuk satu sample (SMP-F-006 / revisi #32/#36).
+
+    PENTING: TIDAK memanggil `db.flush()`. Flush di sini akan membersihkan
+    riwayat perubahan `sample_records` sebelum `commit_changes` sempat
+    membacanya, sehingga audit `UPDATE SampleRecord` hilang dan tes
+    audit-trail sample gagal. Baris ini ikut ter-flush di transaksi yang sama.
+    """
+    row = (db.query(models.SampleVersion)
+           .filter_by(sample_fk=sample.id, version=sample.sample_version or 1)
+           .first())
+    if row is None:
+        row = models.SampleVersion(sample_fk=sample.id, version=sample.sample_version or 1)
+        db.add(row)
+    return row
 
 @router.get("/cmo/samples")
 def list_samples(db:Session=Depends(get_db), user=Depends(get_current_user)):
@@ -262,11 +296,36 @@ def list_samples(db:Session=Depends(get_db), user=Depends(get_current_user)):
 
 @router.post("/cmo/samples")
 def create_sample(data:SampleIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.SAMPLE_PIC))):
-    x=models.SampleRecord(**data.model_dump()); db.add(x); commit_changes(db, user); db.refresh(x); return x
+    values = data.model_dump()
+    # Versi berikutnya untuk artikel yang sama, dan rantai revisi yang eksplisit.
+    # Pertanyaan "versi ke berapa" harus punya satu jawaban, bukan tebakan urutan id.
+    previous = (db.query(models.SampleRecord)
+                .filter(models.SampleRecord.order_fk == data.order_fk,
+                        models.SampleRecord.article_code == data.article_code)
+                .order_by(desc(models.SampleRecord.id)).first())
+    if previous is not None:
+        values.setdefault("sample_version", (previous.sample_version or 1) + 1)
+        values.setdefault("previous_version_id", previous.id)
+    values["created_by_id"] = user.id
+    x=models.SampleRecord(**values); db.add(x); commit_changes(db, user); db.refresh(x)
+    sample_version_row(db, x)
+    db.commit(); db.refresh(x)
+    log_audit(db, user, "SAMPLE_VERSION_RECORDED", "SampleRecord", x.id,
+              f"version={x.sample_version}; previous={x.previous_version_id}", obj=x, reason=x.revision_reason)
+    db.commit(); db.refresh(x)
+    return x
 
 @router.patch("/cmo/samples/{s_id}")
 def update_sample(s_id:int, data:SampleUpdate, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.SAMPLE_PIC))):
-    return apply_update(get_or_404(db,models.SampleRecord,s_id,"Sample not found"), data, db, user)
+    sample = get_or_404(db, models.SampleRecord, s_id, "Sample not found")
+    # Revisi #38: `revision_reason` ikut divalidasi SEBELUM objek disentuh, dan
+    # objek tidak boleh diubah di sini — `apply_update` yang menuliskan nilainya.
+    # Kalau tidak, riwayat SQLAlchemy sudah bersih saat `workflow.validate`
+    # membaca `changes(obj)`, sehingga "approved sample is immutable" lolos.
+    revision = data.revision_reason
+    if revision is not None and not revision.strip():
+        raise HTTPException(400, "Revision reason cannot be empty")
+    return apply_update(sample, data, db, user)
 
 @router.get("/cmo/samples/{s_id}/evidence")
 def list_sample_evidence(s_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
@@ -275,10 +334,15 @@ def list_sample_evidence(s_id:int, db:Session=Depends(get_db), user=Depends(get_
     return [sample_evidence_out(x) for x in db.query(models.SampleEvidence).filter_by(sample_fk=s_id).order_by(models.SampleEvidence.id.desc()).all()]
 
 @router.post("/cmo/samples/{s_id}/evidence", status_code=201)
-async def upload_sample_evidence(s_id:int, evidence:UploadFile=File(...), note:str=Form(""), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.CMO_SUPPORT,models.Role.SAMPLE_PIC))):
+async def upload_sample_evidence(s_id:int, evidence:UploadFile=File(...), note:str=Form(""),
+                                 evidence_kind:str=Form("PROGRESS"), uploaded_stage:str=Form(""),
+                                 db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.CMO_SUPPORT,models.Role.SAMPLE_PIC))):
     sample=get_or_404(db, models.SampleRecord, s_id, "Sample not found")
     if sample.status == "APPROVED":
         raise HTTPException(409, "Approved sample evidence is immutable; create a revision")
+    kind = (evidence_kind or "PROGRESS").strip().upper()
+    if kind not in SAMPLE_EVIDENCE_KINDS:
+        raise HTTPException(422, "Evidence kind must be PROGRESS, INSPECTION, or RESULT")
     data=await evidence.read(SAMPLE_EVIDENCE_LIMIT+1)
     if len(data)>SAMPLE_EVIDENCE_LIMIT:
         raise HTTPException(413, "Sample evidence exceeds 10 MB")
@@ -287,7 +351,13 @@ async def upload_sample_evidence(s_id:int, evidence:UploadFile=File(...), note:s
         raise HTTPException(415, "Upload a PDF, PNG, or JPG sample evidence")
     name=(evidence.filename or "sample-evidence").replace("\\", "/").split("/")[-1][:255]
     row=models.SampleEvidence(sample_fk=sample.id, file_name=name, file_mime=mime, file_data=data,
-                              note=note.strip()[:2000] or None, uploaded_by_id=user.id)
+                              note=note.strip()[:2000] or None, uploaded_by_id=user.id,
+                              # Jenis bukti disimpan apa adanya; sebelumnya hanya
+                              # ditebak dari substring nama file sehingga evidence
+                              # "IMG_2231.pdf" tidak terklasifikasi.
+                              evidence_kind=kind,
+                              sample_version=sample.sample_version or 1,
+                              uploaded_stage=(uploaded_stage or "").strip().upper()[:20] or None)
     db.add(row); log_audit(db, user, "UPLOAD_EVIDENCE", "SampleRecord", sample.id, name, obj=sample); commit_changes(db, user); db.refresh(row)
     return sample_evidence_out(row)
 
@@ -311,6 +381,13 @@ def decide_sample_customer(s_id:int, data:SampleDecision, db:Session=Depends(get
     sample.customer_approved_by_id=user.id if data.action == "APPROVE" else None
     sample.customer_decision_at=datetime.utcnow()
     sample.customer_decision_reason=data.reason.strip()
+    # Keputusan melekat pada VERSI, bukan pada artikel (revisi #32): versi baru
+    # tidak pernah menimpa keputusan versi sebelumnya.
+    version = sample_version_row(db, sample)
+    version.decision = "APPROVED" if data.action == "APPROVE" else "REJECTED"
+    version.decided_by_id = user.id
+    version.decided_at = sample.customer_decision_at
+    version.decision_reason = sample.customer_decision_reason
     db.info["sample_decision"] = True
     log_audit(db, user, "CUSTOMER_SAMPLE_" + data.action, "SampleRecord", sample.id, data.reason.strip(),
               obj=sample, previous_status="PROCESS", new_status=sample.status, reason=data.reason.strip())
@@ -483,9 +560,14 @@ def delete_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CFO: INVOICES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class InvoiceIn(BaseModel):
     invoice_no:str; order_fk:int; amount:float; paid_amount:float=0; due_date:Optional[date]=None; status:str="UNPAID"
+    # Revisi #17: aging & collection queue butuh janji bayar, mata uang, dan owner.
+    currency:Optional[str]="IDR"; promised_date:Optional[date]=None
+    next_action:Optional[str]=None; collection_owner_id:Optional[int]=None
 
 class InvoiceUpdate(BaseModel):
     amount:Optional[float]=None; paid_amount:Optional[float]=None; due_date:Optional[date]=None; status:Optional[str]=None
+    currency:Optional[str]=None; promised_date:Optional[date]=None
+    next_action:Optional[str]=None; collection_owner_id:Optional[int]=None
 
 @router.get("/cfo/invoices")
 def invoices(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT,models.Role.CEO))):
@@ -544,9 +626,20 @@ def reconcile_invoice(inv_id:int, data:InvoiceReconcileIn, db:Session=Depends(ge
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CFO: PURCHASE ORDERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class POIn(BaseModel):
     po_no:str; order_fk:Optional[int]=None; item:str; qty:float; unit:Optional[str]=None; supplier:Optional[str]=None; amount:Optional[float]=0; status:str="PENDING"; arrival_date:Optional[date]=None; material_status:str="WAITING"
+    # Revisi #20: AP Register memisahkan supplier / makloon / logistik / vendor.
+    vendor_type:Optional[str]=None; vendor_invoice_no:Optional[str]=None
+    invoice_date:Optional[date]=None; due_date:Optional[date]=None
+    currency:Optional[str]="IDR"; tax_amount:Optional[float]=0
+    approval_status:Optional[str]="PENDING"
 
 class POUpdate(BaseModel):
     item:Optional[str]=None; qty:Optional[float]=None; unit:Optional[str]=None; supplier:Optional[str]=None; amount:Optional[float]=None; status:Optional[str]=None; arrival_date:Optional[date]=None; material_status:Optional[str]=None
+    vendor_type:Optional[str]=None; vendor_invoice_no:Optional[str]=None
+    invoice_date:Optional[date]=None; due_date:Optional[date]=None
+    currency:Optional[str]=None; tax_amount:Optional[float]=None
+    approval_status:Optional[str]=None
+
+AP_VENDOR_TYPES = ("SUPPLIER", "MAKLOON", "LOGISTIK", "VENDOR")
 
 @router.get("/cfo/purchase-orders")
 def list_pos(db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT,models.Role.CEO))):
@@ -554,7 +647,12 @@ def list_pos(db:Session=Depends(get_db), user=Depends(require_roles(models.Role.
 
 @router.post("/cfo/purchase-orders")
 def create_po(data:POIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT))):
-    x=models.PurchaseOrder(**data.model_dump()); db.add(x); commit_changes(db, user); db.refresh(x); return x
+    if data.vendor_type is not None and data.vendor_type.upper() not in AP_VENDOR_TYPES:
+        raise HTTPException(400, "Vendor type must be SUPPLIER, MAKLOON, LOGISTIK, or VENDOR")
+    values = data.model_dump()
+    if data.vendor_type:
+        values["vendor_type"] = data.vendor_type.upper()
+    x=models.PurchaseOrder(**values); db.add(x); commit_changes(db, user); db.refresh(x); return x
 
 @router.patch("/cfo/purchase-orders/{po_id}")
 def update_po(po_id:int, data:POUpdate, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER))):
@@ -568,6 +666,10 @@ def delete_po(po_id:int, db:Session=Depends(get_db), user=Depends(require_roles(
 class PaymentIn(BaseModel):
     invoice_no:str; amount:float; payment_date:Optional[date]=None; method:Optional[str]=None; notes:Optional[str]=None
     invoice_id:Optional[int]=None
+    # Revisi #17: PAYMENT_REPORTED butuh bukti; status/verifikasi TIDAK boleh
+    # dikirim klien — hanya endpoint verify/reject yang menentukannya.
+    evidence_ref:Optional[str]=None
+    currency:Optional[str]="IDR"
 
 @router.get("/cfo/payments")
 def list_payments(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT,models.Role.CEO))):
@@ -588,8 +690,69 @@ def create_payment(data:PaymentIn, db:Session=Depends(get_db), user=Depends(requ
                    .order_by(models.Invoice.id.desc()).first())
     if invoice is None:
         raise HTTPException(400, "Payment must reference a known invoice so its Order ID can be resolved")
-    x=models.Payment(**data.model_dump(exclude={"invoice_id"}), invoice_id=invoice.id, order_fk=invoice.order_fk)
+    values = data.model_dump()
+    values.pop("invoice_id", None)
+    # Setiap pelaporan pembayaran punya pelaku dan waktu, dan mulai dari
+    # REPORTED — VERIFIED hanya lewat aksi CFO (revisi #17).
+    values.setdefault("reported_by_id", user.id)
+    values["reported_at"] = datetime.utcnow()
+    values["status"] = "REPORTED"
+    x=models.Payment(**values, invoice_id=invoice.id, order_fk=invoice.order_fk)
     db.add(x); commit_changes(db, user); db.refresh(x); return x
+
+class PaymentVerifyIn(BaseModel):
+    """Keputusan CFO atas pembayaran yang dilaporkan (revisi #17)."""
+    evidence_ref:Optional[str]=None
+    reason:Optional[str]=None
+
+def _payment_or_404(db, payment_id):
+    row = db.get(models.Payment, payment_id)
+    if row is None:
+        raise HTTPException(404, "Payment not found")
+    return row
+
+def _payment_decision_guard(row):
+    """Baris lama tanpa `status` dianggap sudah VERIFIED — itu perilaku lama.
+
+    Pembayaran yang sudah punya keputusan akhir tidak boleh diputus dua kali;
+    keputusan harus satu arah dan berjejak.
+    """
+    if row.status in ("VERIFIED", "REJECTED"):
+        raise HTTPException(409, f"Payment is already {row.status}; record a new payment instead")
+
+@router.post("/cfo/payments/{payment_id}/verify")
+def verify_payment(payment_id:int, data:PaymentVerifyIn, db:Session=Depends(get_db),
+                   user=Depends(require_roles(models.Role.CFO_MANAGER))):
+    row = _payment_or_404(db, payment_id)
+    _payment_decision_guard(row)
+    evidence = (data.evidence_ref or row.evidence_ref or "").strip()
+    # Verifikasi tanpa bukti = pembayaran hantu; ditolak, bukan dicatat diam-diam.
+    if not evidence:
+        raise HTTPException(400, "Payment verification requires an evidence reference")
+    row.evidence_ref = evidence
+    row.status = "VERIFIED"
+    row.verified_by_id = user.id
+    row.verified_at = datetime.utcnow()
+    row.rejection_reason = None
+    log_audit(db, user, "PAYMENT_VERIFIED", "Payment", row.id, evidence, obj=row,
+              previous_status="REPORTED", new_status="VERIFIED", reason=data.reason or evidence)
+    db.commit(); db.refresh(row); return row
+
+@router.post("/cfo/payments/{payment_id}/reject")
+def reject_payment(payment_id:int, data:PaymentVerifyIn, db:Session=Depends(get_db),
+                   user=Depends(require_roles(models.Role.CFO_MANAGER))):
+    row = _payment_or_404(db, payment_id)
+    _payment_decision_guard(row)
+    reason = (data.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "Payment rejection requires a reason")
+    row.status = "REJECTED"
+    row.rejection_reason = reason
+    row.verified_by_id = user.id
+    row.verified_at = datetime.utcnow()
+    log_audit(db, user, "PAYMENT_REJECTED", "Payment", row.id, reason, obj=row,
+              previous_status="REPORTED", new_status="REJECTED", reason=reason)
+    db.commit(); db.refresh(row); return row
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ COO: MATERIAL REQUESTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class BOMIn(BaseModel):
@@ -743,9 +906,27 @@ def delete_material_request(mr_id:int, db:Session=Depends(get_db), user=Depends(
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ COO: PRODUCTION MOVEMENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class MovementIn(BaseModel):
     article_id:int; process:str; qty_in:int=0; qty_done:int=0; qty_reject:int=0; status:str="IN_PROCESS"; pic_name:Optional[str]=None; target_date:Optional[date]=None; reject_reason:Optional[str]=None
+    # Revisi #43/#46: Job Card & internal production butuh metode, warna,
+    # placement, ukuran, teknik, mesin/vendor, tim, shift, dan Batch ID.
+    job_notes:Optional[str]=None; colors:Optional[str]=None; placement:Optional[str]=None
+    size_spec:Optional[str]=None; technique:Optional[str]=None; vendor_type:Optional[str]=None
+    machine:Optional[str]=None; team:Optional[str]=None; shift:Optional[str]=None
+    requirement_version:Optional[str]=None; batch_id:Optional[str]=None
+    route_version:Optional[str]=None; approved_artwork_version:Optional[str]=None
+    priority:Optional[str]=None; sla_due_date:Optional[date]=None
+    started_at:Optional[datetime]=None; ended_at:Optional[datetime]=None
+    evidence_ref:Optional[str]=None
 
 class MovementUpdate(BaseModel):
     qty_in:Optional[int]=None; qty_done:Optional[int]=None; qty_reject:Optional[int]=None; status:Optional[str]=None; pic_name:Optional[str]=None; reject_reason:Optional[str]=None; target_date:Optional[date]=None
+    job_notes:Optional[str]=None; colors:Optional[str]=None; placement:Optional[str]=None
+    size_spec:Optional[str]=None; technique:Optional[str]=None; vendor_type:Optional[str]=None
+    machine:Optional[str]=None; team:Optional[str]=None; shift:Optional[str]=None
+    requirement_version:Optional[str]=None; batch_id:Optional[str]=None
+    route_version:Optional[str]=None; approved_artwork_version:Optional[str]=None
+    priority:Optional[str]=None; sla_due_date:Optional[date]=None
+    started_at:Optional[datetime]=None; ended_at:Optional[datetime]=None
+    evidence_ref:Optional[str]=None
 
 @router.post("/coo/movements")
 def create_movement(data:MovementIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.COO_MANAGER,models.Role.PRODUCTION_PIC,models.Role.PRINTING_PIC,models.Role.SAMPLE_PIC))):
@@ -1219,6 +1400,8 @@ class ExceptionIn(BaseModel):
     source_module:Optional[str]=None; source_entity:Optional[str]=None; source_entity_id:Optional[int]=None
     impact:Optional[str]=None; recommendation:Optional[str]=None; escalation_reason:Optional[str]=None
     decision_required:bool=False; evidence_ref:Optional[str]=None; confidential:bool=False
+    # Revisi #37: ikatan langsung ke sample + versinya, plus scope kepemilikan.
+    sample_fk:Optional[int]=None; sample_version:Optional[int]=None; scope:Optional[str]=None
 
     @model_validator(mode="after")
     def validate_typed(self):
