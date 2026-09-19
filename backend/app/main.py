@@ -9,7 +9,10 @@ from alembic.script import ScriptDirectory
 from .database import Base, engine, SessionLocal
 from .config import settings
 from . import auth_models
-from .routers import auth, orders, master, dashboard, modules, revisions, po_intake, cmo_priority, cmo_pipeline, cmo_support
+from .routers import (auth, orders, master, dashboard, modules, revisions, po_intake, cmo_priority,
+                      cmo_pipeline, cmo_support, cmo_manager, hr_employees, hr_recruitment,
+                      sample_lifecycle, sample_work, printing_jobs, printing_ops,
+                      cfo_receivables, cfo_costing, coo_execution)
 from .services.seed import seed
 
 
@@ -61,7 +64,15 @@ async def security_headers(request, call_next):
     return response
 
 
-for router in (auth.router, orders.router, master.router, dashboard.router, modules.router, revisions.router, po_intake.router, cmo_priority.router, cmo_pipeline.router, cmo_support.router):
+for router in (auth.router, orders.router, master.router, dashboard.router, modules.router,
+               revisions.router, po_intake.router, cmo_priority.router, cmo_pipeline.router,
+               cmo_support.router,
+               # Router domain baru (10 agent paralel). Masing-masing memakai prefix
+               # internalnya sendiri; loop ini hanya memasang prefix /api.
+               cmo_manager.router, hr_employees.router, hr_recruitment.router,
+               sample_lifecycle.router, sample_work.router, printing_jobs.router,
+               printing_ops.router, cfo_receivables.router, cfo_costing.router,
+               coo_execution.router):
     app.include_router(router, prefix="/api")
 
 
