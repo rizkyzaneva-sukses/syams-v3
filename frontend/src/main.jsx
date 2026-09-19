@@ -44,6 +44,7 @@ import BuyerCRMPage from './pages/BuyerCRMPage';
 import SampleApprovalFeedPage from './pages/SampleApprovalFeedPage';
 import ReleaseToCOOPage from './pages/ReleaseToCOOPage';
 import ExceptionCenterPage from './pages/ExceptionCenterPage';
+import DebyTodayPage from './pages/DebyTodayPage';
 import GuidePage from './pages/GuidePage';
 import Access from './components/Access';
 import Layout from './components/Layout';
@@ -69,6 +70,7 @@ function App(){return <BrowserRouter><Routes>
     <Route path="cmo/sample-approval" element={<Access><SampleApprovalFeedPage/></Access>}/>
     <Route path="cmo/release-to-coo" element={<Access><ReleaseToCOOPage/></Access>}/>
     <Route path="cmo/exception-center" element={<Access><ExceptionCenterPage/></Access>}/>
+    <Route path="cmo/today" element={<Access><DebyTodayPage/></Access>}/>
     <Route path="cmo/customers" element={<Access><CustomerList/></Access>}/>
     <Route path="cmo/orders" element={<Access><OrderList/></Access>}/>
     <Route path="cmo/orders/new" element={<Navigate to="/cmo/po-inbox/new" replace/>}/>
