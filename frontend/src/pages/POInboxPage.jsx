@@ -120,7 +120,7 @@ export default function POInboxPage(){
     <div className="table-scroll"><table><thead><tr>
       <th>PO ID</th><th>Buyer ID</th><th>Nomor / Tanggal PO</th><th>Article ID</th><th>Dokumen buyer</th><th>Order type</th>
       <th>Currency / Terms</th><th>Jumlah article</th><th>Kelengkapan</th><th>Missing items</th>
-      <th>Reason perbaikan</th><th>Received at</th><th>Next action</th><th>Due</th><th>Review Cecep</th><th>Aksi</th>
+      <th>Reason perbaikan</th><th>Received at</th><th>Source / evidence</th><th>Updated at</th><th>Next action</th><th>Due</th><th>Review Cecep</th><th>Aksi</th>
     </tr></thead><tbody>
       {shown.map(row=>{
         const queue=poQueue(row),state=completeStatus(row.missing_items,row.status);
@@ -140,6 +140,8 @@ export default function POInboxPage(){
             {row.follow_up_note&&<p><small>Follow up: {row.follow_up_note}</small></p>}{row.review_note&&<p><small>Catatan Cecep: {row.review_note}</small></p>}</td>
           <td>{fixes.length?<span className="badge amber">{fixes.join(' · ')}</span>:<span className="badge green">Tidak ada</span>}</td>
           <td>{row.received_at||'—'}<br/><small>Diinput Deby · {row.created_at||'—'}</small></td>
+          <td><small>{row.has_document?`Dokumen buyer: ${row.document_name}`:'Tidak ada dokumen'}</small><br/><small>Nomor PO: {row.po_number||'belum ada'}</small>{row.follow_up_note&&<><br/><small>Follow up buyer</small></>}</td>
+          <td>{row.updated_at||'—'}</td>
           <td>{queue.action}</td>
           <td>{queue.due?queue.due:'—'}</td>
           <td><span className={'badge '+queue.reviewTone}>{queue.review}</span>{row.reviewed_at&&<><br/><small>{row.reviewed_at}</small></>}</td>
@@ -149,7 +151,7 @@ export default function POInboxPage(){
           </td>
         </tr>;
       })}
-      {!shown.length&&<tr><td colSpan={16} className="empty">Belum ada PO terdaftar.</td></tr>}
+      {!shown.length&&<tr><td colSpan={18} className="empty">Belum ada PO terdaftar.</td></tr>}
     </tbody></table></div>
     {/* Pintu masuk 'PO Masuk' dari Draft Order (blueprint poin 3 & 4): order yang
         sudah ada di sistem tapi belum punya PO intake tertaut. Keputusan accept/
