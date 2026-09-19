@@ -4,6 +4,7 @@ import {flowGates} from '../business';
 import {api} from '../api';
 import FlowProgress from '../components/FlowProgress';
 import FlowGate from '../components/FlowGate';
+import {customerStatus,customerVisibleFields,customerHiddenFields,assertCustomerSafe} from '../customerStatus';
 
 export default function OrderDetail(){
   const {orderId}=useParams();
@@ -151,6 +152,47 @@ export default function OrderDetail(){
           </div>
         </section>
       )}
+
+      {/* ── Lihat Status Customer Portal (INT-ORDER-001 poin 9) ──
+          Tim bisa memeriksa persis informasi yang dilihat buyer. Yang tampil di
+          sini hanya field yang diizinkan poin 7; field terlarang poin 8
+          diperiksa dengan assertCustomerSafe supaya kebocoran kelihatan. */}
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Lihat Status Customer Portal</h2>
+          <span>Pratinjau apa yang dilihat buyer</span>
+        </div>
+        {(()=>{
+          const status=customerStatus(o);
+          const visible=customerVisibleFields();
+          const hidden=customerHiddenFields();
+          const leaks=assertCustomerSafe(o);
+          return <>
+            <p style={{margin:'4px 0 12px'}}>
+              Status untuk customer: <b>{status.label}</b>
+              <br/><small>Sumber status internal: {status.karena}</small>
+            </p>
+            <div className="form-grid">
+              <div><small>Order ID</small><br/><b>{o.order_id}</b></div>
+              <div><small>Buyer</small><br/><b>{o.buyer||'—'}</b></div>
+              <div><small>Article &amp; qty</small><br/><b>{(o.articles||[]).map(a=>`${a.article_code} ${a.qty}`).join(', ')||'—'}</b></div>
+              <div><small>Tahap</small><br/><b>{status.label}</b></div>
+              <div><small>ETA / proyeksi shipment</small><br/><b>{o.projected_shipment||'belum ada'}</b></div>
+              <div><small>Status pembayaran</small><br/><b>{o.finance_status||'—'}</b></div>
+              <div><small>Shipment</small><br/><b>{o.shipment_status||'—'}</b></div>
+              <div><small>Updated at</small><br/><b>{o.updated_at||o.created_at||'—'}</b></div>
+            </div>
+            <details style={{marginTop:10}}>
+              <summary>Field yang boleh tampil ({visible.length}) dan yang dilarang ({hidden.length})</summary>
+              <p><small><b>Boleh:</b> {visible.join(', ')}</small></p>
+              <p><small><b>Dilarang:</b> {hidden.join(', ')}</small></p>
+              <p><small>{leaks.length
+                ? <span className="badge red">Kebocoran: {leaks.join(', ')}</span>
+                : <span className="badge green">Tidak ada field terlarang pada payload order ini</span>}</small></p>
+            </details>
+          </>;
+        })()}
+      </section>
 
       {/* ── Closure ── */}
       <section className="panel">

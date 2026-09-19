@@ -78,11 +78,13 @@ test('priority order: closing > shipped > ready to ship > QC > production > SPK 
     articles: [{ id: 1, production_status: 'IN_PROCESS' }],
   })), 'Pesanan telah dikirim');
 
-  // Shipment stage beats a still-running production article.
+  // Shipment document finalised and waiting for dispatch.
+  // PREPARING is NOT "siap dikirim": packing work is still running there, and
+  // announcing readiness would over-promise to the buyer.
   assert.equal(customerStatusLabel(order({
     flow_step: 'SHIPMENT',
-    shipment_status: 'PREPARING',
-    articles: [{ id: 1, production_status: 'IN_PROCESS' }],
+    shipment_status: 'PACKED',
+    articles: [{ id: 1, production_status: 'PRODUCED' }],
   })), 'Pesanan siap dikirim');
 
   // QC pass beats production.
@@ -91,11 +93,13 @@ test('priority order: closing > shipped > ready to ship > QC > production > SPK 
     articles: [{ id: 1, production_status: 'PRODUCED', qc_status: 'PASS' }],
   })), 'Pemeriksaan kualitas selesai');
 
-  // Production beats sample: once material moves, the sample phase is over.
+  // Production beats sample: once real production progress exists, the sample
+  // phase is over. A planned production_route alone does NOT count as running
+  // production — draft orders carry a route from the start.
   assert.equal(customerStatusLabel(order({
     flow_step: 'SPK',
     shipment_status: 'NOT_READY',
-    articles: [{ id: 1, sample_status: 'PROCESS', production_route: 'Cutting>Packing' }],
+    articles: [{ id: 1, sample_status: 'PROCESS', production_status: 'IN_PROCESS', production_route: 'Cutting>Packing' }],
   })), 'Pesanan sedang diproduksi');
 
   // Sample beats the SPK sentence when SPK is not released yet.
@@ -213,4 +217,24 @@ test('simple payment status never exposes amounts, terms or credit limits', () =
   assert.equal(simplePaymentStatus(order({ finance_status: 'PAID', finance_gate_status: 'APPROVED' })), 'Pembayaran lunas');
   const text = simplePaymentStatus(order({ finance_status: 'PAID', finance_gate_status: 'REJECTED' }));
   assert.equal(/rp|idr|\d{4,}/i.test(text), false);
+});
+
+test('over-promise guards: PREPARING is not ready-to-ship, planned route is not production', () => {
+  // Regresi: 3 order live ber-flow_step=ORDER + shipment_status=PREPARING dulu
+  // tampil "siap dikirim" padahal belum ada shipment sama sekali.
+  assert.equal(customerStatusLabel(order({
+    flow_step: 'ORDER',
+    overall_status: 'NEW',
+    shipment_status: 'PREPARING',
+    articles: [{ id: 1, production_status: 'NOT_STARTED', production_route: 'Cutting > Sewing > QC' }],
+  })), 'Pesanan sedang diverifikasi');
+
+  // Regresi: production_route yang cuma direncanakan tidak boleh diklaim
+  // sebagai produksi berjalan.
+  assert.equal(customerStatusLabel(order({
+    flow_step: 'ORDER',
+    overall_status: 'NEW',
+    shipment_status: 'NOT_READY',
+    articles: [{ id: 1, production_status: 'NOT_STARTED', production_route: 'Cutting > Sewing' }],
+  })), 'Pesanan sedang diverifikasi');
 });

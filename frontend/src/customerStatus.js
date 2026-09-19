@@ -45,7 +45,10 @@ const QC_UNFINISHED = ['PENDING', 'PROCESS', 'IN_PROCESS', 'REWORK', 'FAIL', 'RE
 
 // Shipment states that mean goods have physically left, not merely prepared.
 const SHIPMENT_SENT = ['SHIPPED', 'DELIVERED'];
-const SHIPMENT_READY = ['READY', 'PREPARING', 'PACKED', 'PACKING'];
+// Shipment states that mean the shipment document is finalised and waiting for
+// dispatch. PREPARING/PACKING are deliberately EXCLUDED: those mean work is
+// still ongoing, and claiming "siap dikirim" there would over-promise.
+const SHIPMENT_READY = ['READY', 'PACKED'];
 const CLOSE_OPEN = ['OPEN', 'PENDING', 'PARTIAL'];
 
 /** Normalise any server value for comparison: 'in process' / 'shipped' -> 'IN_PROCESS'. */
@@ -62,12 +65,13 @@ function productionStarted(order) {
   );
 }
 
-/** True once cutting→packing work exists: a route was planned or movements exist. */
+/** True once cutting→packing work actually exists (a process reported progress). */
 function productionEngaged(order) {
-  const articles = order?.articles || [];
-  return articles.some(
-    (a) => String(a?.production_route || '').trim() !== '' || productionStarted(order),
-  );
+  // A planned production_route alone is NOT production running: every draft
+  // order carries a route the moment it is prepared. Only real progress on an
+  // article counts, otherwise an order still in CMO review would be announced
+  // to the buyer as "sedang diproduksi".
+  return productionStarted(order);
 }
 
 function qcFinished(order) {
