@@ -59,6 +59,7 @@ export default function Layout(){
  const foot=footerLinks(me?.role);
  async function logout(){try{await api('/auth/logout',{method:'POST'})}catch{}finally{clearToken();nav('/login')}}
  return <div className="app-shell">
+   {open && <div className="sidebar-backdrop" onClick={()=>setOpen(false)} role="button" tabIndex={0} aria-label="Tutup Menu"/>}
    <aside className={'sidebar '+(open?'open':'')}>
     <div className="brand"><b>BOS SYAMS</b><span>Business Operating System</span></div>
     <button className="close-mobile" onClick={()=>setOpen(false)}><X/></button>
