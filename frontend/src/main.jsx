@@ -52,7 +52,11 @@ import {getToken} from './api';
 import './styles.css';
 
 function Protected({children}){return getToken()?children:<Navigate to="/login" replace/>}
-function HomeRedirect(){const role=useOutletContext()?.me?.role;return role?<Navigate to={['CHRO_MANAGER','HR_SUPPORT'].includes(role)?'/chro':'/master'} replace/>:null}
+/* Halaman awal per divisi. Deby (CMO Support) harus mendarat di daftar kerjanya,
+   bukan dashboard lintas divisi — itu isi revisi #1. Cecep tetap ke Morning
+   Priority miliknya, CHRO ke HR, sisanya ke Master Control. */
+const HOME_BY_ROLE={CMO_SUPPORT:'/cmo/today',CMO_MANAGER:'/cmo/priority',CHRO_MANAGER:'/chro',HR_SUPPORT:'/chro'};
+function HomeRedirect(){const role=useOutletContext()?.me?.role;return role?<Navigate to={HOME_BY_ROLE[role]||'/master'} replace/>:null}
 function App(){return <BrowserRouter><Routes>
   <Route path="/login" element={<Login/>}/>
   <Route path="/" element={<Protected><Layout/></Protected>}>
