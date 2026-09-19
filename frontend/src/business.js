@@ -3,10 +3,13 @@ const routeRoles={
   '/master':['CEO',...groups.cmo,...groups.cfo,...groups.coo,'SAMPLE_PIC'],
   '/cmo':groups.cmo,'/cmo/priority':['CMO_MANAGER','CEO'],'/cmo/sales-pipeline':['CMO_MANAGER','CEO'],'/cmo/reports':['CMO_MANAGER','CEO'],'/cmo/buyer-crm':[...groups.cmo,'CEO'],'/cmo/sample-approval':['CMO_MANAGER','CEO','SAMPLE_PIC'],'/cmo/release-to-coo':['CMO_MANAGER','CEO'],'/cmo/exception-center':['CMO_MANAGER','CEO'],'/cmo/today':['CMO_SUPPORT','CMO_MANAGER','CEO'],'/cmo/orders':groups.cmo,'/cmo/orders/new':groups.cmo,'/cmo/po-inbox':['CMO_MANAGER','CMO_SUPPORT','CEO'],'/cmo/customers':groups.cmo,
   '/cmo/quotations':[...groups.cmo,'CFO_MANAGER','CEO'],'/cmo/samples':[...groups.cmo,'SAMPLE_PIC'],'/cmo/spk':groups.cmo,'/cmo/after-sales':['CMO_SUPPORT','CMO_MANAGER','CEO'],
-  '/cfo':[...groups.cfo,'CEO'],'/cfo/invoices':[...groups.cfo,'CEO'],'/cfo/purchase-orders':[...groups.cfo,'CEO'],'/cfo/shipments':[...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN','CMO_MANAGER','CEO'],
-  '/coo':groups.coo,'/coo/material-requests':['COO_MANAGER','PRODUCTION_PIC'],'/coo/bom-cost':['CEO','COO_MANAGER','PRODUCTION_PIC','CFO_MANAGER'],'/coo/production':groups.coo,'/coo/wip':groups.coo,
-  '/coo/qc':['COO_MANAGER','PRODUCTION_PIC'],'/coo/planning':['COO_MANAGER'],'/coo/deliveries':['CMO_MANAGER',...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN','CEO'],
-  '/coo/closing':['CMO_MANAGER','CFO_MANAGER','COO_MANAGER','CEO'], '/chro':groups.hr,'/chro/employees':groups.hr,'/chro/training':groups.hr,
+  // CEO tidak punya halaman kerja operasional: pembuatan/ubah PO, invoice, dan
+  // delivery adalah wewenang CFO/COO (revisi #74 poin RBAC & #77 poin sidebar).
+  // CEO melihat angkanya lewat drill-down read-only di Company Performance.
+  '/cfo':[...groups.cfo,'CEO'],'/cfo/invoices':[...groups.cfo],'/cfo/purchase-orders':[...groups.cfo],'/cfo/shipments':[...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN','CMO_MANAGER','CEO'],
+  '/coo':groups.coo,'/coo/material-requests':['COO_MANAGER','PRODUCTION_PIC'],'/coo/bom-cost':['COO_MANAGER','PRODUCTION_PIC','CFO_MANAGER'],'/coo/production':groups.coo,'/coo/wip':groups.coo,
+  '/coo/qc':['COO_MANAGER','PRODUCTION_PIC'],'/coo/planning':['COO_MANAGER'],'/coo/deliveries':['CMO_MANAGER',...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN'],
+  '/coo/closing':['CMO_MANAGER','CFO_MANAGER','COO_MANAGER'], '/chro':groups.hr,'/chro/employees':groups.hr,'/chro/training':groups.hr,
   '/chro/performance':['CHRO_MANAGER'],'/chro/issues':['CHRO_MANAGER'],'/ceo':['CEO'],'/ceo/decisions':['CEO'],'/ceo/business-policy':['CEO'],'/audit-log':['CEO'],
   // Registrations added because an unlisted path used to fall through to
   // `return true` in canAccess, letting every role open these pages.

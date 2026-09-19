@@ -45,3 +45,24 @@ test('flow gates and WIP use server field names and quantities', () => {
   const rows = orderWip([{id: 1, order_id: 'SO-1', buyer: 'Buyer', articles: [{id: 10}]}], [{article_id: 10, process: 'Cutting', qty_in: 20, qty_done: 12, qty_reject: 3, status: 'IN_PROCESS'}]);
   assert.deepEqual(rows, [{order_id: 'SO-1', buyer: 'Buyer', totalWIP: 5, processes: [{process: 'Cutting', wip: 5, status: 'IN_PROCESS'}]}]);
 });
+
+test('CEO tidak punya halaman kerja operasional (revisi #74 & #77)', () => {
+  // Workspace operasional milik CFO/COO. CEO melihat angka lewat drill-down
+  // read-only, bukan dengan membuka halaman pembuatan/ubah.
+  assert.equal(canAccess('CEO', '/cfo/invoices'), false);
+  assert.equal(canAccess('CEO', '/cfo/purchase-orders'), false);
+  assert.equal(canAccess('CEO', '/coo/deliveries'), false);
+  assert.equal(canAccess('CEO', '/coo/closing'), false);
+  assert.equal(canAccess('CEO', '/coo/bom-cost'), false);
+  // Yang tetap boleh: tampilan keputusan dan kontrol milik CEO.
+  assert.equal(canAccess('CEO', '/ceo'), true);
+  assert.equal(canAccess('CEO', '/ceo/decisions'), true);
+  assert.equal(canAccess('CEO', '/ceo/business-policy'), true);
+  assert.equal(canAccess('CEO', '/audit-log'), true);
+  assert.equal(canAccess('CEO', '/exceptions'), true);
+  // CFO/COO tetap bisa bekerja seperti sebelumnya.
+  assert.equal(canAccess('CFO_MANAGER', '/cfo/purchase-orders'), true);
+  assert.equal(canAccess('CFO_MANAGER', '/cfo/invoices'), true);
+  assert.equal(canAccess('COO_MANAGER', '/coo/closing'), true);
+  assert.equal(canAccess('COO_MANAGER', '/coo/bom-cost'), true);
+});

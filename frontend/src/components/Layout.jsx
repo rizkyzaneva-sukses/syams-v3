@@ -11,7 +11,11 @@ import GlobalSearch from './GlobalSearch';
    revisi #9 poin 1. Neither list shows Delivery Execution, Order Closing,
    Payment Verification, Production, Inventory or QC as a CMO action. */
 const roleMenus={
-  CEO:[['CEO Home','/ceo',Crown],['Master Control','/master',Database],['Decisions','/ceo/decisions',ClipboardList],['Exceptions','/exceptions',AlertTriangle],['Audit Log','/audit-log',ClipboardList],['CFO Home','/cfo',DollarSign],['Shipment Gate','/cfo/shipments',Truck],['Deliveries','/coo/deliveries',Truck],['Order Closing','/coo/closing',CheckSquare]],
+  /* Blueprint REF-CEO-IYAN: sidebar CEO hanya berisi tampilan keputusan dan
+     kontrol. Workspace operasional (CFO Home, Shipment Gate, Deliveries, Order
+     Closing, PO rutin) sengaja TIDAK ada — CEO melihatnya sebagai drill-down
+     read-only, bukan sebagai menu kerja (revisi #74 & #77). */
+  CEO:[['Morning CEO View','/ceo',Crown],['Company Performance','/ceo',BarChart3],['Decision Needed','/ceo/decisions',ClipboardList],['CEO Action Tracker','/ceo/decisions',CheckSquare],['Exception Center','/exceptions',AlertTriangle],['Policy & Override','/ceo/business-policy',DollarSign],['Master Control — Lihat Saja','/master',Database],['Audit Trail','/audit-log',ClipboardList],['Usulan Revisi','/revisions',MessageSquarePlus]],
   CMO_MANAGER:[['Morning Priority','/cmo/priority',Target],['Orders','/cmo/orders',ShoppingCart],['PPM','/cmo/samples',ClipboardList],['Sample Approval Feed','/cmo/sample-approval',ClipboardList],['SPK','/cmo/spk',CheckSquare],['Release to COO','/cmo/release-to-coo',CheckSquare],['Buyer CRM','/cmo/buyer-crm',Users],['Sales Pipeline','/cmo/sales-pipeline',TrendingUp],['Exception Center','/cmo/exception-center',AlertTriangle],['Reports','/cmo/reports',BarChart3],['Usulan Revisi','/revisions',MessageSquarePlus]],
   CMO_SUPPORT:[['Hari Ini','/cmo/today',Target],['PO Masuk','/cmo/po-inbox',ShoppingCart],['Buyer & Follow-up','/cmo/buyer-crm',Users],['Draft Order','/cmo/orders',ShoppingCart],['Quotation','/cmo/quotations',FileText],['Sample/PPM','/cmo/samples',ClipboardList],['SPK — Generate & Print','/cmo/spk',CheckSquare],['After Sales','/cmo/buyer-crm',Users],['Tugas Saya','/tasks',ClipboardList],['Master Control — Lihat Saja','/master',Database],['Usulan Revisi','/revisions',MessageSquarePlus]],
   CFO_MANAGER:[['CFO Home','/cfo',Home],['Invoices','/cfo/invoices',DollarSign],['Purchase Orders','/cfo/purchase-orders',Package],['Shipments Gate','/cfo/shipments',Truck],['Master Control','/master',Database],['Deliveries','/coo/deliveries',Truck],['Closing Keuangan','/coo/closing',CheckSquare]],
@@ -25,8 +29,7 @@ const roleMenus={
   SHIPMENT_ADMIN:[['Shipments','/cfo/shipments',Truck],['Master Control','/master',Database],['Deliveries','/coo/deliveries',Truck]]
 };
 roleMenus.CFO_MANAGER.splice(3,0,['Quotation Approval','/cmo/quotations',FileText]);
-roleMenus.CEO.splice(3,0,['Pricing Policy','/ceo/business-policy',DollarSign],['Quotation Limit','/cmo/quotations',FileText]);
-for(const role of ['CEO','CFO_MANAGER','COO_MANAGER','PRODUCTION_PIC']) roleMenus[role].push(['BOM & Actual Cost','/coo/bom-cost',Package]);
+for(const role of ['CFO_MANAGER','COO_MANAGER','PRODUCTION_PIC']) roleMenus[role].push(['BOM & Actual Cost','/coo/bom-cost',Package]);
 
 /* Footer links are role-scoped. Previously Panduan / Usulan Revisi / Task /
    Exception were rendered unconditionally, which leaked CMO Manager menus to
