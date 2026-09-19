@@ -127,7 +127,8 @@ def _migration_flags(emp: Employee, cols: set[str]) -> list[str]:
 
 def _row(emp: Employee, cols: set[str], *, today: date, warnings_at: int) -> dict:
     status = _status(emp)
-    join_date = _as_date(_get(emp, cols, "join_date")) or _as_date(emp.created_at)
+    _created = _get(emp, cols, "created_at") or getattr(emp, "created_at", None) or getattr(emp, "updated_at", None)
+    join_date = _as_date(_get(emp, cols, "join_date")) or _as_date(_created)
     join_source = "JOIN_DATE" if _as_date(_get(emp, cols, "join_date")) else "CREATED_AT_PROXY"
     contract_end = _as_date(_get(emp, cols, "contract_end_date"))
     exit_date = _as_date(_get(emp, cols, "exit_date"))

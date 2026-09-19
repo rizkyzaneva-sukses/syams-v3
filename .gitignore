@@ -12,3 +12,4 @@ htmlcov/
 playwright-report/
 test-results/
 REQUESTS/
+backend/frontend_dist/

@@ -134,7 +134,7 @@ def test_cmo_support_cannot_release_or_void_spk():
     """
     import re
 
-    src = (Path(__file__).resolve().parents[1] / "app" / "routers" / "modules.py").read_text()
+    src = (Path(__file__).resolve().parents[1] / "app" / "routers" / "modules.py").read_text(encoding="utf-8")
     for action in ("RELEASE", "VOID"):
         mt = re.search(rf'"{action}"\s*,\s*\{{([^}}]*)\}}', src)
         assert mt, f"batas peran untuk aksi {action} tidak ditemukan"

@@ -60,6 +60,8 @@ import ExceptionCenterPage from './pages/ExceptionCenterPage';
 import DebyTodayPage from './pages/DebyTodayPage';
 import AfterSalesPage from './pages/AfterSalesPage';
 import GuidePage from './pages/GuidePage';
+import PrintingTodayPage from './pages/PrintingTodayPage';
+import PurchasingPage from './pages/PurchasingPage';
 import Access from './components/Access';
 import Layout from './components/Layout';
 import {getToken} from './api';
@@ -97,6 +99,8 @@ function App(){return <BrowserRouter><Routes>
       <Route path="sample/tasks" element={<Access><SampleTaskPage/></Access>}/>
       <Route path="printing/job-cards" element={<Access><PrintingJobCardPage/></Access>}/>
       <Route path="printing/daily-target" element={<Access><PrintingDailyTargetPage/></Access>}/>
+      <Route path="printing/today" element={<Access><PrintingTodayPage/></Access>}/>
+      <Route path="purchasing" element={<Access><PurchasingPage/></Access>}/>
       <Route path="cfo/receivables" element={<Access><CFOReceivablesPage/></Access>}/>
       <Route path="cfo/costing" element={<Access><CFOCostingPage/></Access>}/>
       <Route path="coo/execution" element={<Access><COOExecutionPage/></Access>}/>

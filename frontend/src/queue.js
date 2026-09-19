@@ -102,9 +102,9 @@ const SLA_TONE = { OVERDUE: 'red', DUE_TODAY: 'amber', DUE_3_HARI: 'amber', DUE_
    disepakati di internal (buyer_deadline / valid_until); `code` = nilai `sla`
    kalau endpoint sudah menghitungnya, supaya UI tidak menghitung ulang dengan
    aturan yang bisa berbeda dari server. */
-export function slaBadge(dueDate, code) {
-  const resolved = code || (dueDate ? (slaDays(dueDate) < 0 ? 'OVERDUE' : slaDays(dueDate) === 0 ? 'DUE_TODAY' : slaDays(dueDate) <= 3 ? 'DUE_3_HARI' : slaDays(dueDate) <= 7 ? 'DUE_7_HARI' : 'AMAN') : 'TANPA_DUE');
-  const days = slaDays(dueDate);
+export function slaBadge(dueDate, code, now) {
+  const resolved = code || (dueDate ? (slaDays(dueDate, now) < 0 ? 'OVERDUE' : slaDays(dueDate, now) === 0 ? 'DUE_TODAY' : slaDays(dueDate, now) <= 3 ? 'DUE_3_HARI' : slaDays(dueDate, now) <= 7 ? 'DUE_7_HARI' : 'AMAN') : 'TANPA_DUE');
+  const days = slaDays(dueDate, now);
   const suffix = resolved === 'OVERDUE' && days != null ? ` (${Math.abs(days)} hari)` : days != null && days > 0 ? ` (${days} hari)` : '';
   return { code: resolved, label: slaLabel(resolved) + suffix, tone: SLA_TONE[resolved] || 'gray', days };
 }

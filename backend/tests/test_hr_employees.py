@@ -82,10 +82,12 @@ def test_summary_groups_by_status_and_flags_seed_rows(db, hr_client, headers):
 
 def test_join_date_is_derived_honestly_when_column_missing(db, hr_client, headers):
     """Tanpa kolom join_date, tanggal masuk dipakai dari created_at dan ditandai."""
-    employee(db, "EMP-100", "Ayu")
+    emp = employee(db, "EMP-100", "Ayu")
+    db.refresh(emp)
+    expected_date = emp.created_at.date().isoformat() if emp.created_at else date.today().isoformat()
     data = hr_client.get("/api/hr/employees-summary", headers=headers("CHRO_MANAGER")).json()
     row = data["employees"][0]
-    assert row["join_date"] == date.today().isoformat()
+    assert row["join_date"] == expected_date
     if data["migration"]["join_date_column_present"]:
         # Kolom sudah ada (batch 2) -> tanggal dibaca dari kolom, bukan ditaksir.
         # Utang migrasi hilang karena kolomnya sudah ada. Sumber tanggalnya masih
