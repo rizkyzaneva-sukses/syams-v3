@@ -40,6 +40,10 @@ import RevisionPage from './pages/RevisionPage';
 import CMOPriorityPage from './pages/CMOPriorityPage';
 import SalesPipelinePage from './pages/SalesPipelinePage';
 import CMOReportsPage from './pages/CMOReportsPage';
+import BuyerCRMPage from './pages/BuyerCRMPage';
+import SampleApprovalFeedPage from './pages/SampleApprovalFeedPage';
+import ReleaseToCOOPage from './pages/ReleaseToCOOPage';
+import ExceptionCenterPage from './pages/ExceptionCenterPage';
 import GuidePage from './pages/GuidePage';
 import Access from './components/Access';
 import Layout from './components/Layout';
@@ -61,6 +65,10 @@ function App(){return <BrowserRouter><Routes>
     <Route path="cmo/priority" element={<Access><CMOPriorityPage/></Access>}/>
     <Route path="cmo/sales-pipeline" element={<Access><SalesPipelinePage/></Access>}/>
     <Route path="cmo/reports" element={<Access><CMOReportsPage/></Access>}/>
+    <Route path="cmo/buyer-crm" element={<Access><BuyerCRMPage/></Access>}/>
+    <Route path="cmo/sample-approval" element={<Access><SampleApprovalFeedPage/></Access>}/>
+    <Route path="cmo/release-to-coo" element={<Access><ReleaseToCOOPage/></Access>}/>
+    <Route path="cmo/exception-center" element={<Access><ExceptionCenterPage/></Access>}/>
     <Route path="cmo/customers" element={<Access><CustomerList/></Access>}/>
     <Route path="cmo/orders" element={<Access><OrderList/></Access>}/>
     <Route path="cmo/orders/new" element={<Navigate to="/cmo/po-inbox/new" replace/>}/>

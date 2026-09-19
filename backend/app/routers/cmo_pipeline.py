@@ -173,6 +173,99 @@ def stages_label(stage):
     return dict(STAGES).get(stage, stage)
 
 
+@router.get("/buyer-crm")
+def buyer_crm(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Buyer CRM (revisi #14 poin 6): Buyer/Opportunity, stage, customer
+    commitment, after-sales, next follow-up, owner dan repeat opportunity.
+
+    Customer commitment and after-sales live here rather than as separate menus,
+    which is what the locked blueprint requires. Read-only.
+    """
+    _require_view(user)
+
+    customers = db.query(m.Customer).order_by(m.Customer.name).all()
+    orders = db.query(m.Order).all()
+    orders_by_buyer = {}
+    for order in orders:
+        orders_by_buyer.setdefault(order.buyer, []).append(order)
+
+    # Delivery confirmations carry the after-sales / commitment signal.
+    confirmations = {}
+    for row in db.query(m.DeliveryConfirmation).all():
+        shipment = db.get(m.Shipment, row.shipment_fk)
+        if shipment is None:
+            continue
+        order = db.get(m.Order, shipment.order_fk)
+        if order is None:
+            continue
+        confirmations.setdefault(order.buyer, []).append(row)
+
+    rows = []
+    seen = set()
+    for customer in customers:
+        seen.add(customer.name)
+        rows.append(_crm_row(customer.name, customer, orders_by_buyer.get(customer.name, []),
+                             confirmations.get(customer.name, [])))
+    for name in sorted(orders_by_buyer):
+        if name not in seen:
+            rows.append(_crm_row(name, None, orders_by_buyer[name], confirmations.get(name, [])))
+
+    # Most urgent follow-up first: overdue, then soonest, then no date.
+    rows.sort(key=lambda row: (row["next_follow_up"] is None, row["next_follow_up"] or "9999-12-31"))
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "total_buyers": len(rows),
+        "repeat_buyers": sum(1 for row in rows if row["repeat_opportunity"]),
+        "rows": rows,
+    }
+
+
+def _crm_row(name, customer, buyer_orders, confirmations):
+    active = [o for o in buyer_orders if o.overall_status != "CLOSED"]
+    closed = [o for o in buyer_orders if o.overall_status == "CLOSED"]
+    latest = max(buyer_orders, key=lambda o: o.id) if buyer_orders else None
+
+    # Customer commitment: promised delivery date on the active order furthest along.
+    commitment_order = max(active, key=lambda o: o.id) if active else latest
+    promised = None
+    if commitment_order is not None:
+        promised = commitment_order.projected_shipment or commitment_order.buyer_deadline
+
+    # After-sales: latest recorded delivery confirmation for this buyer.
+    after_sales = None
+    if confirmations:
+        latest_confirmation = max(confirmations, key=lambda c: c.id)
+        after_sales = {
+            "confirmed_by_customer": latest_confirmation.confirmed_by_customer,
+            "confirmation_date": latest_confirmation.confirmation_date.isoformat()
+                                 if latest_confirmation.confirmation_date else None,
+            "feedback": latest_confirmation.feedback,
+            "status": latest_confirmation.status,
+        }
+
+    follow_up = promised
+    return {
+        "buyer": name,
+        "buyer_id": customer.id if customer else None,
+        "country": customer.country if customer else None,
+        "contact_name": customer.contact_name if customer else None,
+        "contact_info": customer.contact_info if customer else None,
+        "notes": customer.notes if customer else None,
+        "total_orders": len(buyer_orders),
+        "active_orders": len(active),
+        "closed_orders": len(closed),
+        "latest_order_id": latest.order_id if latest else None,
+        "customer_commitment": promised,
+        "next_follow_up": follow_up,
+        "owner": "CMO_SUPPORT" if active else "CMO_MANAGER",
+        "after_sales": after_sales,
+        "repeat_opportunity": len(buyer_orders) > 1,
+        "next_action": ("Konfirmasi komitmen pengiriman ke buyer" if active
+                        else "Tawarkan repeat order" if buyer_orders
+                        else "Hubungi & catat kebutuhan buyer"),
+    }
+
+
 @router.get("/reports")
 def cmo_reports(db: Session = Depends(get_db), user=Depends(get_current_user)):
     """CMO performance report (Revisi #14 poin 8). Read-only, no data changes."""
