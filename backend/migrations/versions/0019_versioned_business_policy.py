@@ -55,11 +55,14 @@ def upgrade():
             # objek fungsi SQLAlchemy. Mengirim sa.func.* sebagai parameter bind
             # gagal di PostgreSQL ("can't adapt type 'current_date'") dan membuat
             # container crash-loop saat migration jalan.
+            # is_active dikirim sebagai boolean asli: literal 1 ditolak PostgreSQL
+            # ("column is_active is of type boolean but expression is of type
+            # integer"), walau SQLite menerimanya.
             conn.execute(sa.text(
                 "INSERT INTO business_policy_versions "
                 "(version, policy_json, effective_from, change_reason, previous_json, changed_by_id, is_active, created_at) "
-                "VALUES (1, :policy, :today, :reason, NULL, :uid, 1, :now)"
-            ), {"policy": row[1], "today": date.today(), "uid": owner[0],
+                "VALUES (1, :policy, :today, :reason, NULL, :uid, :active, :now)"
+            ), {"policy": row[1], "today": date.today(), "uid": owner[0], "active": True,
                 "reason": "Initial version captured on upgrade", "now": datetime.utcnow()})
 
 
