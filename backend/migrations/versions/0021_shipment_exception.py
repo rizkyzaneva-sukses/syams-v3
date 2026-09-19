@@ -20,7 +20,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0021_shipment_outstanding_exception"
+revision = "0021_shipment_exception"
 down_revision = "0020_decision_and_action_tracker"
 branch_labels = None
 depends_on = None
