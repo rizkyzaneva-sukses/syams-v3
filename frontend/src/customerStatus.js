@@ -87,9 +87,19 @@ function qcFinished(order) {
 }
 
 function sampleInProgress(order) {
-  const articles = order?.articles || [];
-  return articles.some((a) => ['PROCESS', 'REQUESTED', 'IN_PROCESS', 'PENDING'].includes(norm(a?.sample_status)))
-    || articles.some((a) => a?.sample_required === true && !norm(a?.sample_status));
+  const o = order || {};
+  const articles = o.articles || [];
+  // Tidak ada artikel yang butuh sample = tidak ada tahap sample sama sekali.
+  // Mengumumkan "Sampel sedang diproses" di sini akan menyesatkan buyer.
+  const required = articles.filter(
+    (a) => a?.sample_required === true || norm(o.order_type) === 'SAMPLE_ONLY',
+  );
+  if (!required.length) return false;
+  // Sample sudah selesai kalau demand-nya sudah terpenuhi. Backend
+  // (workflow.samples_ready) mensyaratkan status APPROVED, jadi sample yang
+  // masih PROCESS/PENDING belum boleh diumumkan sebagai selesai — tapi artikel
+  // yang sample-nya tidak diminta pun tidak boleh menahan seluruh order.
+  return required.some((a) => !['APPROVED'].includes(norm(a?.sample_status)));
 }
 
 /**
