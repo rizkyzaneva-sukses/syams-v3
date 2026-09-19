@@ -146,7 +146,8 @@ def update_forecast(order_id: str, data: ForecastIn, db: Session = Depends(get_d
     old = order.projected_shipment
     order.projected_shipment = data.projected_shipment
     order.buffer_days = (order.buyer_deadline - data.projected_shipment).days if order.buyer_deadline and data.projected_shipment else None
-    log_audit(db, user, "UPDATE", "OrderForecast", order.id, f"projected_shipment: {old} -> {data.projected_shipment}")
+    log_audit(db, user, "UPDATE", "OrderForecast", order.id, f"projected_shipment: {old} -> {data.projected_shipment}",
+              obj=order, source_module="OrderForecast")
     db.commit()
     return forecast_row(db,order)
 

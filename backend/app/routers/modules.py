@@ -156,7 +156,7 @@ def approve_quotation_limit(q_id:int, data:QuotationCEOApprovalIn, db:Session=De
     quote.ceo_approved_by_id = user.id
     quote.ceo_approval_reason = data.reason.strip()
     from ..audit import log_audit
-    log_audit(db, user, "CEO_QUOTATION_LIMIT_APPROVED", "Quotation", quote.id, data.reason.strip())
+    log_audit(db, user, "CEO_QUOTATION_LIMIT_APPROVED", "Quotation", quote.id, data.reason.strip(), obj=quote, reason=data.reason.strip())
     db.commit()
     db.refresh(quote)
     return quote
@@ -233,7 +233,7 @@ async def upload_sample_evidence(s_id:int, evidence:UploadFile=File(...), note:s
     name=(evidence.filename or "sample-evidence").replace("\\", "/").split("/")[-1][:255]
     row=models.SampleEvidence(sample_fk=sample.id, file_name=name, file_mime=mime, file_data=data,
                               note=note.strip()[:2000] or None, uploaded_by_id=user.id)
-    db.add(row); log_audit(db, user, "UPLOAD_EVIDENCE", "SampleRecord", sample.id, name); commit_changes(db, user); db.refresh(row)
+    db.add(row); log_audit(db, user, "UPLOAD_EVIDENCE", "SampleRecord", sample.id, name, obj=sample); commit_changes(db, user); db.refresh(row)
     return sample_evidence_out(row)
 
 @router.get("/cmo/samples/{s_id}/evidence/{evidence_id}/file")
@@ -257,7 +257,8 @@ def decide_sample_customer(s_id:int, data:SampleDecision, db:Session=Depends(get
     sample.customer_decision_at=datetime.utcnow()
     sample.customer_decision_reason=data.reason.strip()
     db.info["sample_decision"] = True
-    log_audit(db, user, "CUSTOMER_SAMPLE_" + data.action, "SampleRecord", sample.id, data.reason.strip())
+    log_audit(db, user, "CUSTOMER_SAMPLE_" + data.action, "SampleRecord", sample.id, data.reason.strip(),
+              obj=sample, previous_status="PROCESS", new_status=sample.status, reason=data.reason.strip())
     commit_changes(db, user); db.refresh(sample)
     return sample_out(sample)
 
@@ -270,7 +271,7 @@ class SPKUpdate(BaseModel):
 
 
 def spk_deny(db, user, action, spk_id=None):
-    log_audit(db, user, "DENIED_SPK_ACTION", "SPK", spk_id, action)
+    log_audit(db, user, "DENIED_SPK_ACTION", "SPK", spk_id, action, reason=action)
     db.commit()
     raise HTTPException(403, "Role or route not allowed for this SPK action")
 

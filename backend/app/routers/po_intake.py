@@ -151,7 +151,7 @@ def create_po_intake(payload: PODraft, db: Session = Depends(get_db),
     db.add(po)
     apply_draft(po, payload, db)
     db.flush()
-    log_audit(db, user, "CREATE_DRAFT", "POIntake", po.id, po.po_number or "Incomplete PO")
+    log_audit(db, user, "CREATE_DRAFT", "POIntake", po.id, po.po_number or "Incomplete PO", obj=po)
     commit_or_conflict(db)
     db.refresh(po)
     return po_out(po)
@@ -163,7 +163,7 @@ def update_po_intake(po_id: int, payload: POChange, db: Session = Depends(get_db
     po = load_po(db, po_id, lock=True)
     require_editable(po)
     apply_draft(po, payload, db)
-    log_audit(db, user, "UPDATE_DRAFT", "POIntake", po.id, ", ".join(sorted(payload.model_fields_set)))
+    log_audit(db, user, "UPDATE_DRAFT", "POIntake", po.id, ", ".join(sorted(payload.model_fields_set)), obj=po)
     commit_or_conflict(db)
     db.refresh(po)
     return po_out(po)
@@ -188,7 +188,7 @@ async def upload_po_document(po_id: int, document: UploadFile = File(...), db: S
     po.document_data = data
     po.status = "DRAFT"
     po.missing_items_json = json.dumps(missing_items(po), ensure_ascii=False)
-    log_audit(db, user, "UPLOAD_DOCUMENT", "POIntake", po.id, name)
+    log_audit(db, user, "UPLOAD_DOCUMENT", "POIntake", po.id, name, obj=po)
     db.commit()
     db.refresh(po)
     return po_out(po)
@@ -213,7 +213,7 @@ def check_po_intake(po_id: int, db: Session = Depends(get_db),
     missing = missing_items(po)
     po.missing_items_json = json.dumps(missing, ensure_ascii=False)
     po.status = "NEEDS_INFO" if missing else "READY"
-    log_audit(db, user, "CHECK_COMPLETENESS", "POIntake", po.id, ", ".join(missing) or "Complete")
+    log_audit(db, user, "CHECK_COMPLETENESS", "POIntake", po.id, ", ".join(missing) or "Complete", obj=po)
     db.commit()
     db.refresh(po)
     return po_out(po)
@@ -229,7 +229,7 @@ def submit_po_intake(po_id: int, db: Session = Depends(get_db),
     if missing:
         raise HTTPException(409, "PO is incomplete: " + ", ".join(missing))
     po.status = "SUBMITTED"
-    log_audit(db, user, "SUBMIT_REVIEW", "POIntake", po.id, po.po_number)
+    log_audit(db, user, "SUBMIT_REVIEW", "POIntake", po.id, po.po_number, obj=po)
     db.commit()
     db.refresh(po)
     return po_out(po)
@@ -257,13 +257,14 @@ def review_po_intake(po_id: int, payload: POReview, db: Session = Depends(get_db
         order = create_order_record(order_payload, db, user)
         po.order_fk = order.id
         po.status = "ACCEPTED"
-        log_audit(db, user, "CREATE_FROM_PO", "Order", order.id, f"POIntake {po.id}: {order.order_id}")
+        log_audit(db, user, "CREATE_FROM_PO", "Order", order.id, f"POIntake {po.id}: {order.order_id}", obj=order)
     else:
         po.status = "REJECTED"
     po.review_note = note or None
     po.reviewed_by_id = user.id
     po.reviewed_at = datetime.utcnow()
-    log_audit(db, user, payload.action, "POIntake", po.id, note or (order.order_id if order else ""))
+    log_audit(db, user, payload.action, "POIntake", po.id, note or (order.order_id if order else ""),
+              obj=po, previous_status="SUBMITTED", new_status=po.status, reason=note or None)
     commit_or_conflict(db)
     db.refresh(po)
     return po_out(po)
