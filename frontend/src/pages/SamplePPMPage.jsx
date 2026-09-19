@@ -16,7 +16,10 @@ function customerDecision(sample){
 
 export default function SamplePPMPage(){
   const role=useRole();
+  /* CMO-017: Deby hanya input bukti persetujuan buyer. Pembuatan/edit proses
+     Sample dan keputusan Approved/Rejected milik role berwenang (Cecep/Fahrul). */
   const canRecord=['CMO_MANAGER','SAMPLE_PIC'].includes(role);
+  const canUploadEvidence=['CMO_MANAGER','CMO_SUPPORT','SAMPLE_PIC'].includes(role);
   const canApprove=role==='CMO_MANAGER';
   const canViewEvidence=['CEO','CMO_MANAGER','CMO_SUPPORT','SAMPLE_PIC','COO_MANAGER'].includes(role);
   const [list,setList]=useState([]),[orders,setOrders]=useState([]);
@@ -141,8 +144,8 @@ export default function SamplePPMPage(){
     {evidence&&<div className="modal-bg" onClick={()=>{setEvidence(null);setErr('')}}><div className="modal" onClick={event=>event.stopPropagation()}><div className="modal-head"><h2>Bukti Sample / PPM · {evidence.sample.article_code||'Sample'}</h2><button type="button" className="icon-btn" disabled={saving} onClick={()=>{setEvidence(null);setErr('')}} aria-label="Tutup">×</button></div><form onSubmit={uploadEvidence}>{err&&<div className="notice danger" role="alert">{err}</div>}
       <p className="notice info">Simpan foto, PDF PPM, atau bukti persetujuan customer pada record ini. File tersimpan bersama data aplikasi.</p>
       {evidence.rows.length?<div className="table-scroll"><table><thead><tr><th>File</th><th>Diunggah</th><th></th></tr></thead><tbody>{evidence.rows.map(item=><tr key={item.id}><td>{item.file_name||item.document_name||`Bukti #${item.id}`}</td><td>{item.created_at?new Date(item.created_at+'Z').toLocaleString('id-ID'):'—'}</td><td><button type="button" className="btn sm" disabled={saving} onClick={()=>downloadEvidence(item)}><Download size={13}/> Unduh</button></td></tr>)}</tbody></table></div>:<p>Belum ada bukti yang diunggah.</p>}
-      {canRecord&&<><label>File bukti *<input required type="file" accept={evidenceAccept} onChange={event=>setEvidenceFile(event.target.files?.[0]||null)}/><small>PDF, PNG, atau JPG. Maksimal 10 MB.</small></label><div className="modal-foot"><button type="button" className="btn" onClick={()=>{setEvidence(null);setErr('')}}>Tutup</button><button className="btn primary" disabled={saving||!evidenceFile}><Paperclip size={14}/> {saving?'Mengunggah...':'Simpan bukti'}</button></div></>}
-      {!canRecord&&<div className="modal-foot"><button type="button" className="btn" onClick={()=>{setEvidence(null);setErr('')}}>Tutup</button></div>}
+      {canUploadEvidence&&<><label>File bukti *<input required type="file" accept={evidenceAccept} onChange={event=>setEvidenceFile(event.target.files?.[0]||null)}/><small>PDF, PNG, atau JPG. Maksimal 10 MB.</small></label><div className="modal-foot"><button type="button" className="btn" onClick={()=>{setEvidence(null);setErr('')}}>Tutup</button><button className="btn primary" disabled={saving||!evidenceFile}><Paperclip size={14}/> {saving?'Mengunggah...':'Simpan bukti'}</button></div></>}
+      {!canUploadEvidence&&<div className="modal-foot"><button type="button" className="btn" onClick={()=>{setEvidence(null);setErr('')}}>Tutup</button></div>}
     </form></div></div>}
 
     {decision&&<div className="modal-bg" onClick={()=>{setDecision(null);setErr('')}}><div className="modal" onClick={event=>event.stopPropagation()}><div className="modal-head"><h2>{decision.action==='APPROVE'?'Setujui Sample oleh Customer':'Minta Revisi Sample'}</h2><button type="button" className="icon-btn" disabled={saving} onClick={()=>{setDecision(null);setErr('')}} aria-label="Tutup">×</button></div><form onSubmit={decide}>{err&&<div className="notice danger" role="alert">{err}</div>}

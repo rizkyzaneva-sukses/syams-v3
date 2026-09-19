@@ -220,7 +220,7 @@ def list_sample_evidence(s_id:int, db:Session=Depends(get_db), user=Depends(get_
     return [sample_evidence_out(x) for x in db.query(models.SampleEvidence).filter_by(sample_fk=s_id).order_by(models.SampleEvidence.id.desc()).all()]
 
 @router.post("/cmo/samples/{s_id}/evidence", status_code=201)
-async def upload_sample_evidence(s_id:int, evidence:UploadFile=File(...), note:str=Form(""), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.SAMPLE_PIC))):
+async def upload_sample_evidence(s_id:int, evidence:UploadFile=File(...), note:str=Form(""), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.CMO_SUPPORT,models.Role.SAMPLE_PIC))):
     sample=get_or_404(db, models.SampleRecord, s_id, "Sample not found")
     if sample.status == "APPROVED":
         raise HTTPException(409, "Approved sample evidence is immutable; create a revision")
