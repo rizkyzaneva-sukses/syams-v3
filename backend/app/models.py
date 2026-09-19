@@ -461,6 +461,45 @@ class PrintingDefectDisposition(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+class PrintingMakloonJob(Base):
+    """Pekerjaan makloon/embroidery sebagai entitas tercatat (revisi #46).
+
+    Sebelumnya jejak makloon hanya DIPETAKAN dari `production_movements.pic_name`
+    (PIC di luar Printing/Iman) — itu heuristik: tidak ada qty kirim/kembali/
+    diterima/ditolak, tanggal kirim/kembali, status inspeksi, maupun outstanding
+    external WIP yang bisa dipertanggungjawabkan.
+
+    `outstanding_external_wip` disimpan sebagai kolom biasa (bukan generated
+    column) karena nilainya bergantung pada inspeksi yang bisa terlambat:
+    router yang menghitung dan menyimpannya, jadi angkanya punya jejak waktu.
+    """
+    __tablename__ = "printing_makloon_jobs"
+    id = Column(Integer, primary_key=True)
+    order_fk = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    article_id = Column(Integer, ForeignKey("articles.id", ondelete="SET NULL"), nullable=True)
+    job_id = Column(String(120), nullable=False, index=True)
+    process = Column(String(80), default="BORDIR", nullable=False)
+    # `vendors` belum tentu ada di skema ini; relasi tegasnya lewat nama vendor
+    # supaya baris tetap sah walau master vendor belum dipakai.
+    vendor_id = Column(Integer, nullable=True, index=True)
+    vendor_name = Column(String(160), nullable=True)
+    vendor_eligible = Column(Boolean, default=False, nullable=False)
+    qty_sent = Column(Integer, default=0, nullable=False)
+    qty_returned = Column(Integer, default=0, nullable=False)
+    qty_accepted = Column(Integer, default=0, nullable=False)
+    qty_rejected = Column(Integer, default=0, nullable=False)
+    sent_date = Column(Date, nullable=True)
+    return_date = Column(Date, nullable=True)
+    # PENDING / PASSED / FAILED / PARTIAL
+    inspection_status = Column(String(32), nullable=True)
+    evidence_ref = Column(Text, nullable=True)
+    handoff_stage = Column(String(80), nullable=True)
+    outstanding_external_wip = Column(Integer, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class CEOOverride(Base):
     """Registry override CEO yang terkontrol (revisi #74).
 
