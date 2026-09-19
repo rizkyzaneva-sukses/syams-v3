@@ -32,6 +32,7 @@ from ..models import (
     CapacitySnapshot,
     MaterialConsumption,
     Order,
+    ProductionHandoff,
     ProductionMovement,
     Role,
 )
@@ -54,6 +55,11 @@ EXEC_ROLES = (
 # held. Kept as a plain string set so the same vocabulary is shared with
 # workflow.STATUSES without importing the mutable registry.
 OPEN_STATUSES = {"WAITING", "IN_PROCESS", "HOLD"}
+
+# Status handoff yang berarti qty_sent sudah terkunci (revisi #54). Daftar
+# tertutup, bukan "tidak sama dengan PENDING_RECEIPT", supaya status tak dikenal
+# tidak diam-diam dianggap belum terkunci.
+LOCKED_HANDOFF_STATUSES = frozenset({"RECEIVED", "PARTIAL"})
 
 # Threshold (percent) above which committed load is called out as a conflict.
 CAPACITY_CONFLICT_PCT = 100
@@ -438,18 +444,33 @@ def daily_execution(
 
 
 def _handoff_edges(db: Session, article_pairs):
-    """Derive handoff antar proses dari selisih done upstream vs in downstream.
+    """Edge handoff: utamakan transaksi tersimpan, rekonstruksi hanya cadangan.
 
-    Revisi #54: handoff harus terlihat dengan FROM, TO, qty sent, qty received,
-    dan discrepancy. Ledger existing tidak punya tabel handoff tersendiri, jadi
-    edge direkonstruksi dari transaksi proses yang berurutan dan discrepancy
-    dihitung sebagai selisih yang belum diterima proses berikutnya.
+    Revisi #54 meminta handoff menjadi transaksi tersendiri dengan qty sent yang
+    tidak bisa ditimpa. Kalau tabel ``production_handoffs`` sudah punya baris
+    untuk artikel ini, angka dari baris itulah yang dilaporkan (beserta
+    batch_no/evidence/shift/location). Rekonstruksi dari urutan
+    ``production_movements`` hanya dipakai untuk edge yang belum pernah
+    dicatat, dan ditandai ``persisted=False`` supaya tidak menyamar sebagai
+    transaksi sah.
     """
     edges = []
     for article, order in article_pairs:
         route = route_for(article)
         if len(route) < 2:
             continue
+
+        persisted_rows = (
+            db.query(ProductionHandoff)
+            .filter(ProductionHandoff.article_id == article.id)
+            .order_by(ProductionHandoff.id)
+            .all()
+        )
+        persisted = {}
+        for row in persisted_rows:
+            key = (row.from_process or "", row.to_process or "")
+            persisted.setdefault(key, []).append(row)
+
         movements = (
             db.query(ProductionMovement)
             .filter(ProductionMovement.article_id == article.id)
@@ -463,9 +484,59 @@ def _handoff_edges(db: Session, article_pairs):
             target_bucket = rollup.get((article.id, target))
             sent = _num(source_bucket["qty_done"]) if source_bucket else 0
             received = _num(target_bucket["qty_in"]) if target_bucket else 0
-            discrepancy = received - sent
+
+            recorded = persisted.get((source, target))
+            if recorded:
+                # Ada transaksi tersimpan: laporkan apa adanya dari baris itu.
+                qty_sent = sum(int(r.qty_sent or 0) for r in recorded)
+                qty_received = sum(int(r.qty_received or 0) for r in recorded)
+                discrepancy = qty_received - qty_sent
+                pending = [r for r in recorded if r.status == "PENDING_RECEIPT"]
+                status = (
+                    "MATCHED" if discrepancy == 0
+                    else "PENDING_RECEIPT" if discrepancy < 0
+                    else "OVER_RECEIPT"
+                )
+                edges.append(
+                    {
+                        "order_id": order.order_id,
+                        "article_id": article.id,
+                        "article_code": article.article_code,
+                        "from_process": source,
+                        "to_process": target,
+                        "qty_sent": qty_sent,
+                        "qty_received": qty_received,
+                        "discrepancy": discrepancy,
+                        "remaining_balance": qty_sent - qty_received,
+                        "status": status,
+                        # batch/evidence/shift/location hanya ada karena baris tersimpan.
+                        "handoff_ids": [r.id for r in recorded],
+                        "handoff_nos": [r.handoff_no for r in recorded],
+                        "batch_nos": sorted({r.batch_no for r in recorded if r.batch_no}),
+                        "evidence_refs": sorted({r.evidence_ref for r in recorded if r.evidence_ref}),
+                        "shifts": sorted({r.shift for r in recorded if r.shift}),
+                        "locations": sorted({r.location for r in recorded if r.location}),
+                        "pending_receipt_count": len(pending),
+                        "qty_sent_locked": any(r.status in LOCKED_HANDOFF_STATUSES for r in recorded),
+                        "sender_pics": sorted(source_bucket["pics"]) if source_bucket else [],
+                        "receiver_pics": sorted(target_bucket["pics"]) if target_bucket else [],
+                        "movement_ids_sent": sorted(source_bucket["movement_ids"]) if source_bucket else [],
+                        "movement_ids_received": sorted(target_bucket["movement_ids"]) if target_bucket else [],
+                        "qty_source": {
+                            "source": "production_handoffs",
+                            "persisted": True,
+                            "handoff_ids": [r.id for r in recorded],
+                            "sent_field": "production_handoffs.qty_sent",
+                            "received_field": "production_handoffs.qty_received",
+                            "immutability": "qty_sent terkunci setelah ada penerimaan",
+                        },
+                    }
+                )
+                continue
+
             if sent == 0 and received == 0:
                 continue
+            discrepancy = received - sent
             edges.append(
                 {
                     "order_id": order.order_id,
@@ -484,6 +555,14 @@ def _handoff_edges(db: Session, article_pairs):
                         if discrepancy < 0
                         else "OVER_RECEIPT"
                     ),
+                    "handoff_ids": [],
+                    "handoff_nos": [],
+                    "batch_nos": [],
+                    "evidence_refs": [],
+                    "shifts": [],
+                    "locations": [],
+                    "pending_receipt_count": 0,
+                    "qty_sent_locked": False,
                     "sender_pics": sorted(source_bucket["pics"]) if source_bucket else [],
                     "receiver_pics": sorted(target_bucket["pics"]) if target_bucket else [],
                     "movement_ids_sent": sorted(source_bucket["movement_ids"]) if source_bucket else [],
@@ -492,15 +571,17 @@ def _handoff_edges(db: Session, article_pairs):
                     # qty sent/received bisa ditelusuri ke movement id — bukan
                     # angka rekonstruksi tanpa asal-usul.
                     "qty_source": {
+                        "source": "production_movements",
                         "sent_from": "production_movements.qty_done",
                         "received_from": "production_movements.qty_in",
                         "sent_movement_ids": sorted(source_bucket["movement_ids"]) if source_bucket else [],
                         "received_movement_ids": sorted(target_bucket["movement_ids"]) if target_bucket else [],
                         "persisted": False,
                         "persistence_note": (
-                            "Edge direkonstruksi dari urutan ProductionMovement; "
-                            "tabel production_handoffs belum ada sehingga "
-                            "batch_no/evidence_ref/shift/location belum tersimpan"
+                            "Edge direkonstruksi dari urutan ProductionMovement "
+                            "karena belum ada baris production_handoffs; "
+                            "catat lewat POST /api/coo/handoffs agar "
+                            "batch_no/evidence_ref/shift/location tersimpan"
                         ),
                     },
                 }
@@ -619,6 +700,11 @@ def handoff_capacity(
             "handoff_count": len(edges),
             "discrepancy_count": len(discrepancies),
             "total_discrepancy": sum(e["discrepancy"] for e in edges),
+            # Revisi #54: berapa edge yang benar-benar transaksi tersimpan vs
+            # masih rekonstruksi. Angka ini yang memberi tahu COO mana yang
+            # sudah punya bukti/simpan permanen dan mana yang belum.
+            "persisted_handoffs": sum(1 for e in edges if e["qty_source"]["persisted"]),
+            "reconstructed_handoffs": sum(1 for e in edges if not e["qty_source"]["persisted"]),
             "capacity_rows": len(capacity),
             "conflict_count": len(conflicts),
             "bottleneck_process": bottlenecks[0]["process"] if bottlenecks else None,

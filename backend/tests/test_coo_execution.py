@@ -416,6 +416,98 @@ def test_handoff_qty_sources_name_their_movements_and_persistence_gap(db, client
     source = edge["qty_source"]
     assert source["sent_movement_ids"] == [mv_in.id]
     assert source["received_movement_ids"] == [mv_out.id]
-    # Jujur soal keterbatasan: belum ada tabel handoff, jadi belum tersimpan.
+    # Tanpa baris production_handoffs, edge ini jujur menyebut dirinya rekonstruksi.
     assert source["persisted"] is False
     assert "production_handoffs" in source["persistence_note"]
+
+
+# ── Revisi #54 lanjutan: papan membaca transaksi tersimpan lebih dulu ────────
+def test_persisted_handoff_supersedes_reconstruction_on_the_board(db, client, headers):
+    order, article = make_order(db, "SO-PERSIST-1", route="Cutting>Sewing", qty=100)
+    db.add_all([
+        m.ProductionMovement(article_id=article.id, process="Cutting", qty_in=100,
+                             qty_done=100, status="DONE"),
+        m.ProductionMovement(article_id=article.id, process="Sewing", qty_in=95,
+                             qty_done=40, status="IN_PROCESS"),
+    ])
+    db.commit()
+    row = m.ProductionHandoff(
+        order_fk=order.id, article_id=article.id, handoff_no="HO-PB-1",
+        from_process="CUTTING", to_process="SEWING", batch_no="BATCH-9",
+        qty_sent=100, qty_received=95, discrepancy=-5, status="PARTIAL",
+        evidence_ref="GD-9", shift="SHIFT-1", location="LINE-B",
+    )
+    db.add(row)
+    db.commit()
+
+    body = client.get(f"/api/coo/handoff-capacity?order_fk={order.id}",
+                      headers=headers("COO_MANAGER")).json()
+    edge = body["handoffs"][0]
+    assert edge["qty_sent"] == 100 and edge["qty_received"] == 95
+    assert edge["discrepancy"] == -5
+    assert edge["handoff_ids"] == [row.id]
+    assert edge["handoff_nos"] == ["HO-PB-1"]
+    # batch/evidence/shift/location HANYA ada karena baris tersimpan (#54).
+    assert edge["batch_nos"] == ["BATCH-9"]
+    assert edge["evidence_refs"] == ["GD-9"]
+    assert edge["shifts"] == ["SHIFT-1"]
+    assert edge["locations"] == ["LINE-B"]
+    assert edge["qty_sent_locked"] is True
+    assert edge["qty_source"]["source"] == "production_handoffs"
+    assert edge["qty_source"]["persisted"] is True
+    assert body["summary"]["persisted_handoffs"] == 1
+    # Rute Cutting>Sewing hanya punya satu edge dan edge itu tersimpan.
+    assert body["summary"]["reconstructed_handoffs"] == 0
+
+
+def test_end_to_end_send_then_board_reads_persisted_values(db, client, headers):
+    """Kirim lewat POST /coo/handoffs, lalu papan harus membaca angka itu."""
+    from app.routers.coo_handoffs import router as handoff_router
+
+    from app.main import app
+    if not any(getattr(r, "path", "") == "/api/coo/handoffs" for r in app.routes):
+        app.include_router(handoff_router, prefix="/api")
+
+    order, article = make_order(db, "SO-E2E-1", route="Cutting>Sewing>QC", qty=100)
+    db.add(m.ProductionMovement(article_id=article.id, process="Cutting", qty_in=100,
+                                qty_done=100, status="DONE"))
+    db.commit()
+
+    sent = client.post("/api/coo/handoffs",
+                       json={"order_fk": order.id, "article_id": article.id,
+                             "from_process": "Cutting", "to_process": "Sewing",
+                             "qty_sent": 100, "batch_no": "BATCH-E2E",
+                             "evidence_ref": "GD-E2E", "shift": "SHIFT-3",
+                             "location": "LINE-C"},
+                       headers=headers("COO_MANAGER"))
+    assert sent.status_code == 201, sent.text
+    handoff_id = sent.json()["handoff"]["id"]
+
+    # Belum diterima: board melaporkan discrepancy -100 dan qty belum terkunci.
+    body = client.get(f"/api/coo/handoff-capacity?order_fk={order.id}",
+                      headers=headers("COO_MANAGER")).json()
+    edge = body["handoffs"][0]
+    assert edge["handoff_ids"] == [handoff_id]
+    assert edge["qty_sent"] == 100 and edge["qty_received"] == 0
+    assert edge["discrepancy"] == -100
+    assert edge["batch_nos"] == ["BATCH-E2E"]
+    assert edge["locations"] == ["LINE-C"]
+    assert edge["qty_sent_locked"] is False
+
+    # Terima sebagian: board mengikuti angka tersimpan dan mengunci qty_sent.
+    assert client.post(f"/api/coo/handoffs/{handoff_id}/receive",
+                       json={"qty_received": 100},
+                       headers=headers("PRODUCTION_PIC")).status_code == 200
+    body = client.get(f"/api/coo/handoff-capacity?order_fk={order.id}",
+                      headers=headers("COO_MANAGER")).json()
+    edge = body["handoffs"][0]
+    assert edge["qty_received"] == 100 and edge["discrepancy"] == 0
+    assert edge["status"] == "MATCHED"
+    assert edge["qty_sent_locked"] is True
+
+    # Dan qty_sent-nya benar-benar tidak bisa ditimpa lagi.
+    tamper = client.patch(f"/api/coo/handoffs/{handoff_id}",
+                          json={"qty_sent": 60}, headers=headers("COO_MANAGER"))
+    assert tamper.status_code == 409, tamper.text
+    db.expire_all()
+    assert db.get(m.ProductionHandoff, handoff_id).qty_sent == 100
