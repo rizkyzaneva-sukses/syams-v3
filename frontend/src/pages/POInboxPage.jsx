@@ -50,13 +50,17 @@ export default function POInboxPage(){
   async function action(id,step){setBusy(true);setErr('');try{await api(`/cmo/po-intake/${id}/${step}`,{method:'POST'});await load()}catch(e){setErr(e.message)}finally{setBusy(false)}}
   async function decide(e){e.preventDefault();setBusy(true);setErr('');try{await api(`/cmo/po-intake/${review.id}/review`,{method:'POST',body:JSON.stringify({action:review.action,note:review.note})});setReview(null);await load()}catch(e){setErr(e.message)}finally{setBusy(false)}}
   async function download(row){try{const blob=await api(`/cmo/po-intake/${row.id}/document`,{responseType:'blob'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=row.document_name||'po-document';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){setErr(e.message)}}
-  const shown=rows.filter(row=>`${row.po_number||''} ${row.buyer||''} ${row.status} ${row.order_id||''} ${row.customer_id??''}`.toLowerCase().includes(q.toLowerCase()));
+  /* PO MASUK (blueprint poin 4 + poin 3): kolom PO ID, Buyer ID, nomor/tanggal
+     PO, buyer document, order type, currency/terms, jumlah article,
+     completeness, missing items, received_at, next action, due, review Cecep.
+     Setiap baris membuka Buyer/Order/Article terkait (poin 3). */
+  const shown=rows.filter(row=>`${row.po_number||''} ${row.buyer||''} ${row.status} ${row.order_id||''} ${row.customer_id??''} ${(row.articles||[]).map(a=>a.article_code).join(' ')}`.toLowerCase().includes(q.toLowerCase()));
   return <div className="page">
     <div className="page-title"><div><h1>PO Inbox / Register</h1><p>Deby memeriksa kelengkapan PO dan mengirim draft. Cecep menerima atau menolak; Order aktif hanya setelah diterima.</p></div>{canPrepare&&<Link to="/cmo/po-inbox/new" className="btn primary">Terima PO Baru</Link>}</div>
     {err&&!review&&<div role="alert" className="notice danger">{err}</div>}
-    <input aria-label="Cari PO" placeholder="Cari nomor PO, buyer, status, atau Order ID" value={q} onChange={e=>setQ(e.target.value)}/>
+    <input aria-label="Cari PO" placeholder="Cari nomor PO, buyer, artikel, status, atau Order ID" value={q} onChange={e=>setQ(e.target.value)}/>
     <div className="table-scroll"><table><thead><tr>
-      <th>PO ID</th><th>Buyer ID</th><th>Nomor / Tanggal PO</th><th>Dokumen buyer</th><th>Order type</th>
+      <th>PO ID</th><th>Buyer ID</th><th>Nomor / Tanggal PO</th><th>Article ID</th><th>Dokumen buyer</th><th>Order type</th>
       <th>Currency / Terms</th><th>Jumlah article</th><th>Kelengkapan</th><th>Missing items</th>
       <th>Received at</th><th>Next action</th><th>Due</th><th>Review Cecep</th><th>Aksi</th>
     </tr></thead><tbody>
@@ -67,6 +71,7 @@ export default function POInboxPage(){
           <td><b>PO-{row.id}</b>{row.order_id&&<><br/><Link to={'/orders/'+row.order_id}>{row.order_id}</Link></>}</td>
           <td>{row.buyer||'—'}{row.customer_id!=null&&<><br/><small>Customer ID: {row.customer_id}</small></>}</td>
           <td>{row.po_number||'—'}<br/><small>Deadline buyer {row.buyer_deadline||'belum diisi'}</small></td>
+          <td>{(row.articles||[]).length?<ul style={{margin:0,paddingLeft:16}}>{row.articles.map((article,index)=><li key={index}>{article.article_code||'(kode kosong)'} · {articleQty(article)} pcs{article.sample_required?<small> · sample</small>:null}</li>)}</ul>:'—'}</td>
           <td>{row.has_document?<button className="btn sm" onClick={()=>download(row)}>{row.document_name||'Unduh PO'}</button>:'Belum diunggah'}</td>
           <td>{row.order_type?<span className="badge gray">{ORDER_TYPE_LABELS[row.order_type]||row.order_type.replace(/_/g,' ')}</span>:'—'}</td>
           <td><span className="badge gray">—</span><br/><small>Belum ada di master</small></td>
@@ -84,7 +89,7 @@ export default function POInboxPage(){
           </td>
         </tr>;
       })}
-      {!shown.length&&<tr><td colSpan={14} className="empty">Belum ada PO terdaftar.</td></tr>}
+      {!shown.length&&<tr><td colSpan={15} className="empty">Belum ada PO terdaftar.</td></tr>}
     </tbody></table></div>
     {review&&<FormModal title={review.action==='ACCEPT'?'Terima PO dan Aktifkan Order':'Tolak PO'} error={err} busy={busy} onClose={()=>{setReview(null);setErr('')}} onSubmit={decide}><p>{review.action==='ACCEPT'?'Order ID baru akan dibuat dari draft PO ini.':'PO ditolak dan dokumennya tetap tersimpan.'}</p><label>Catatan review<textarea required={review.action==='REJECT'} value={review.note} onChange={e=>setReview({...review,note:e.target.value})}/></label></FormModal>}
   </div>;

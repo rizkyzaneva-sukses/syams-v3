@@ -91,6 +91,7 @@ class OrderOut(BaseModel):
     buffer_days: Optional[int]
     notes: Optional[str]
     articles: List[ArticleOut] = []
+    created_by_id: Optional[int] = None
     created_at: Optional[datetime] = None
     class Config:
         from_attributes = True

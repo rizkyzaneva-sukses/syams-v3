@@ -47,6 +47,17 @@ export function reviewStatus(order){
   return {label:'Diterima — Order aktif', tone:'green'};
 }
 
+/* Siapa yang menyiapkan draft (prepared_by Deby, blueprint poin 3 CMO Manager).
+   Diambil dari PO intake kalau draft lahir dari PO; kalau tidak, dari
+   created_by_id order. Nama diambil dari daftar user kalau tersedia. */
+export function preparedBy(order, po, users){
+  const id = po?.created_by_id ?? order.created_by_id ?? null;
+  const row = (users||[]).find(u=>u.id===id);
+  if(row) return {label:row.name, role:row.role, id};
+  if(id!=null) return {label:`User ${id}`, role:null, id};
+  return {label:'—', role:null, id:null};
+}
+
 /* Blueprint poin 6: kenapa draft harus diperbaiki. Diambil dari gate yang
    masih tertahan (uang, material, deadline), bukan dikarang di frontend. */
 export function fixReason(order){
@@ -81,6 +92,7 @@ export default function OrderList(){
   const [flowFilter,setFlowFilter]=useState('');
   const [source,setSource]=useState([]);
   const [quotes,setQuotes]=useState([]);
+  const [users,setUsers]=useState([]);
 
   /* PO sumber hanya tampil untuk peran yang boleh membaca PO Inbox; kalau
      ditolak, kolom PO source diisi tanda hubung, bukan halaman jadi error. */
@@ -88,6 +100,7 @@ export default function OrderList(){
     api('/orders').then(setOrders).catch(e=>setErr(e.message));
     api('/cmo/po-intake').then(setSource).catch(()=>setSource([]));
     api('/cmo/quotations').then(setQuotes).catch(()=>setQuotes([]));
+    api('/users').then(setUsers).catch(()=>setUsers([]));
   },[]);
 
   const allFlowSteps = [...new Set(orders.map(o=>o.flow_step).filter(Boolean))].sort();
@@ -140,8 +153,8 @@ export default function OrderList(){
           <thead>
             <tr>
               <th>Draft Order ID</th><th>Buyer ID</th><th>PO source</th><th>Tipe</th><th>Repeat</th>
-              <th>Size / Qty tervalidasi</th><th>Deadline buyer</th><th>Quotation</th><th>Kelengkapan</th>
-              <th>Review Cecep</th><th>Reason perbaikan</th><th>Tahap</th><th>Total Qty</th><th>Status</th>
+              <th>Article ID</th><th>Size / Qty tervalidasi</th><th>Deadline buyer</th><th>Quotation</th><th>Kelengkapan</th>
+              <th>Prepared by</th><th>Review Cecep</th><th>Reason perbaikan</th><th>Tahap</th><th>Total Qty</th><th>Status</th>
               <th>Yang Kurang</th><th>Next Action</th><th>Owner</th><th>Due / SLA</th><th>Handoff</th><th>Sumber</th><th></th>
             </tr>
           </thead>
@@ -155,16 +168,19 @@ export default function OrderList(){
               const fixes=fixReason(o);
               const repeatable=(o.articles||[]).filter(a=>REPEATABLE_ARTICLE.includes(a.production_status)).length;
               const sizes=sizesOf(o);
+              const prep=preparedBy(o,po,users);
               return <tr key={o.id}>
                 <td><Link to={'/orders/'+o.order_id}><b>{o.order_id}</b></Link></td>
                 <td>Customer ID: {o.customer_id??'—'}<br/><small>{o.buyer}</small></td>
-                <td>{po?<><Link to="/cmo/po-inbox"><b>{po.po_number||'Draft PO #'+po.id}</b></Link><br/><small>{po.received_at} · {po.document_name||'tanpa dokumen'}</small></>:<small>Manual / tanpa PO tertaut</small>}</td>
+                <td>{po?<><Link to="/cmo/po-inbox"><b>{po.po_number||'Draft PO #'+po.id}</b></Link><br/><small>{po.received_at} · {po.document_name||'tanpa dokumen'}</small></>:<small>Tidak tertaut PO (dibuat langsung di Order Create)</small>}</td>
                 <td><span className="badge gray">{ORDER_TYPE_LABELS[o.order_type]||o.order_type?.replace(/_/g,' ')}</span></td>
                 <td>{repeatable?<span className="badge green">{repeatable} article repeatable</span>:<span className="badge gray">Belum ada</span>}</td>
+                <td>{(o.articles||[]).length?(o.articles||[]).map(a=><div key={a.id}>{a.article_code||'(kode kosong)'} <small>· {a.qty} pcs · {a.production_status}</small></div>):'—'}</td>
                 <td>{sizeVerified(o)?<><span className="badge green">Tervalidasi</span>{sizes&&<><br/><small>Size {sizes}</small></>}</>:<span className="badge amber">Belum tervalidasi</span>}</td>
                 <td>{o.buyer_deadline?(isOverdue(o.buyer_deadline)?<span className="badge red">{o.buyer_deadline} · lewat</span>:o.buyer_deadline):'—'}</td>
                 <td>{quote?<span className="badge gray">{quote.quotation_no}<br/>v{quote.id}</span>:<small>Belum ada quotation</small>}</td>
                 <td>{missing.length?<span className="badge amber">{missing.join(', ')}</span>:<span className="badge green">Lengkap</span>}</td>
+                <td><span className="badge gray">{prep.label}</span>{prep.role&&<><br/><small>{prep.role}</small></>}</td>
                 <td><span className={'badge '+review.tone}>{review.label}</span></td>
                 <td>{fixes.length?<small>{fixes.join('; ')}</small>:<span className="badge green">Tidak ada</span>}</td>
                 <td><Link to={'/orders/'+o.order_id}><span className="badge blue">{STEP_NAMES[o.flow_step]||o.flow_step||'—'}</span></Link></td>
@@ -179,7 +195,7 @@ export default function OrderList(){
                 <td><Link to={'/orders/'+o.order_id} className="icon-btn" title="Detail"><ExternalLink size={15}/></Link></td>
               </tr>;
             })}
-            {f2.length===0&&<tr><td colSpan={21} className="empty">Tidak ada order ditemukan</td></tr>}
+            {f2.length===0&&<tr><td colSpan={23} className="empty">Tidak ada order ditemukan</td></tr>}
           </tbody>
         </table>
       </div>
