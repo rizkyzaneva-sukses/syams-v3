@@ -465,6 +465,13 @@ def validate(db, obj, user, deleting=False):
                 fail("Approved or released sample history cannot be deleted")
         elif not creating and original(obj, "status") == "APPROVED" and changed:
             fail("Approved sample is immutable; create a revision")
+        # Revisi #38: keputusan buyer mengunci versi, bukan hanya saat APPROVED.
+        # Tanpa ini, versi REJECTED/REVISION yang sudah punya customer_decision_at
+        # masih bisa di-PATCH, sehingga jejak keputusan bisa ditimpa.
+        elif (not creating and changed
+              and original(obj, "status") in ("REJECTED", "REVISION")
+              and obj.customer_decision_at is not None):
+            fail("Decided sample is immutable; create a revision")
         elif obj.status in ("APPROVED", "REJECTED"):
             require(user, "CMO_MANAGER")
             if not db.info.get("sample_decision"):
