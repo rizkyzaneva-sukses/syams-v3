@@ -15,13 +15,19 @@ audited elsewhere.
 
 Two documented gaps (see REQUESTS/cfo_receivables.md):
 
-* ``invoices`` has no ``currency``/``payment_evidence`` column, so evidence is
-  taken from the existing ``reconciliation_evidence`` field and currency falls
-  back to IDR.
-* ``purchase_orders`` has no ``vendor_type``/``due_date`` column, so the
-  supplier-vs-makloon split is derived from the supplier name and the due date
-  falls back to ``arrival_date``. Once the orchestrator adds the columns the
-  helpers ``_ap_kind`` / ``_ap_due_date`` will pick them up automatically.
+* ``purchase_orders`` has no ``vendor_type`` column yet, so supplier vs makloon
+  is NOT guessed from the supplier name any more (revisi #20 rejected that
+  heuristic). Rows without ``vendor_type`` are reported as ``UNCLASSIFIED`` and
+  listed in ``summary.unclassified_pos`` so the missing classification is
+  visible instead of being silently absorbed into the wrong bucket.
+* ``payments`` has no ``status``/``evidence_ref`` columns yet, so evidence still
+  falls back to ``notes`` for legacy rows. Once the columns land,
+  ``_payment_evidence`` and ``_payment_status`` read them first and only
+  ``VERIFIED`` payments reduce AR.
+
+The money workflow itself (PAYMENT_REPORTED -> CFO VERIFY/REJECT) lives in
+``cfo_payments.py``; this module stays read-only and derives from what that
+module writes.
 """
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -107,12 +113,36 @@ def days_overdue(due_date, today=None):
 def _payment_evidence(payment):
     """A payment is 'evidenced' when it carries a reference the CFO can check.
 
-    ``notes`` is the only free-text reference the Payment model stores today, so
-    it doubles as the evidence reference (see REQUESTS/cfo_receivables.md for a
-    dedicated ``evidence_ref`` column).
+    ``evidence_ref`` (the real column) is read first. ``notes`` is only a
+    compatibility fallback for rows written before that column existed — see
+    REQUESTS/cfo_receivables.md. Placeholders such as "??" are not evidence.
     """
-    ref = (payment.notes or "").strip()
-    return ref if len(ref) >= MIN_EVIDENCE_LEN else None
+    stored = (getattr(payment, "evidence_ref", None) or "").strip()
+    ref = stored or (payment.notes or "").strip()
+    if len(ref) < MIN_EVIDENCE_LEN:
+        return None
+    if ref.lower() in {"-", "--", "?", "??", "n/a", "na", "none", "null", "tbd"}:
+        return None
+    return ref
+
+
+def _payment_status(payment):
+    """Canonical payment status, or ``None`` for legacy rows without one.
+
+    Legacy rows (no ``status``) count as money already in the ledger, matching
+    today's behaviour. A payment that is merely ``PAYMENT_REPORTED`` has NOT
+    been accepted by the CFO yet, so it must not reduce AR — otherwise Finance
+    could close a receivable without any verification.
+    """
+    raw = (getattr(payment, "status", None) or "").strip().upper()
+    if not raw:
+        return None
+    return {"REPORTED": "PAYMENT_REPORTED"}.get(raw, raw)
+
+
+def _counts_toward_ar(payment):
+    """Only VERIFIED payments (or legacy rows) close a receivable."""
+    return _payment_status(payment) not in {"REJECTED", "PAYMENT_REPORTED"}
 
 
 def _collection_action(bucket, outstanding, status):
@@ -146,19 +176,16 @@ def _collection_status(bucket, outstanding, paid, amount):
     return "PARTIAL" if _dec(paid) > 0 and _dec(paid) < _dec(amount) else "OPEN"
 
 
-def _promised_date(invoice, payments):
-    """Promised date is recorded as a dated note on a payment.
+def _promised_date(invoice):
+    """Promised date from the real ``invoices.promised_date`` column.
 
-    There is no ``promised_date`` column yet (see REQUESTS/cfo_receivables.md);
-    until then we surface the latest payment note that looks like a promise so
-    the collection queue still shows what the buyer committed to.
+    The old version scanned payment notes for the word "promis" to invent a
+    promise date. That was a guess (and a false one as soon as a note said
+    anything else), so it is gone: without the column the field is simply
+    ``None`` — "belum dijanjikan", which is the truth.
     """
-    marker = "promis"
-    for payment in sorted(payments, key=lambda p: p.id or 0, reverse=True):
-        note = (payment.notes or "").strip()
-        if marker in note.lower() and len(note) >= MIN_EVIDENCE_LEN:
-            return note
-    return None
+    value = getattr(invoice, "promised_date", None)
+    return value.isoformat() if value else None
 
 
 def _ar_rows(db, today=None):
@@ -185,7 +212,11 @@ def _ar_rows(db, today=None):
             # Payments recorded before invoice_id existed match by invoice_no.
             ledger = payments_by_invoice.get(invoice.invoice_no, [])
         recorded_paid = _dec(invoice.paid_amount)
-        ledger_total = sum((_dec(p.amount) for p in ledger), Decimal("0"))
+        # Only payments the CFO has verified (or legacy rows without a status)
+        # close the receivable. A payment that is merely reported is pending.
+        ledger_total = sum((_dec(p.amount) for p in ledger if _counts_toward_ar(p)), Decimal("0"))
+        pending_total = sum((_dec(p.amount) for p in ledger
+                             if _payment_status(p) == "PAYMENT_REPORTED"), Decimal("0"))
         amount = _dec(invoice.amount)
         # Reconciliation writes paid_amount from the ledger; trust whichever is
         # larger so a legacy opening balance is never dropped.
@@ -194,8 +225,10 @@ def _ar_rows(db, today=None):
         bucket = aging_bucket(invoice.due_date, today)
         evidence = [p for p in ledger if _payment_evidence(p)]
         unverified = [p for p in ledger if not _payment_evidence(p)]
+        rejected = [p for p in ledger if _payment_status(p) == "REJECTED"]
+        awaiting = [p for p in ledger if _payment_status(p) == "PAYMENT_REPORTED"]
         action = _collection_action(bucket, outstanding, invoice.status)
-        promised = _promised_date(invoice, ledger)
+        promised = _promised_date(invoice)
         rows.append({
             "invoice_id": invoice.id,
             "invoice_no": invoice.invoice_no,
@@ -204,8 +237,9 @@ def _ar_rows(db, today=None):
             "buyer": order.buyer if order else None,
             "amount": float(amount),
             "paid": float(paid),
+            "pending_verification": float(pending_total),
             "outstanding": float(outstanding),
-            "currency": "IDR",
+            "currency": getattr(invoice, "currency", None) or "IDR",
             "due_date": _iso(invoice.due_date),
             "days_overdue": days_overdue(invoice.due_date, today),
             "aging_bucket": bucket,
@@ -222,11 +256,14 @@ def _ar_rows(db, today=None):
             "payment_ids": [p.id for p in ledger],
             "verified_payment_count": len(evidence),
             "unverified_payment_count": len(unverified),
+            "rejected_payment_count": len(rejected),
+            "awaiting_verification_count": len(awaiting),
             # Revisi #17: every applied payment must carry evidence. A payment
             # without a reference is surfaced here instead of being silently
             # counted as collected.
             "evidence_complete": bool(ledger) and not unverified,
             "partial": bool(ledger) and 0 < paid < amount,
+            "has_verified_payment": any(_counts_toward_ar(p) and _payment_evidence(p) for p in ledger),
         })
     return rows
 
@@ -248,6 +285,7 @@ def _ar_summary(rows):
         entry["invoice_count"] += 1
         entry["outstanding"] = float(Decimal(str(entry["outstanding"])) + outstanding)
     unverified = [row["invoice_no"] for row in rows if row["unverified_payment_count"] > 0]
+    awaiting = [row["invoice_no"] for row in rows if row["awaiting_verification_count"] > 0]
     return {
         "total_amount": float(total_amount),
         "total_paid": float(total_paid),
@@ -257,6 +295,9 @@ def _ar_summary(rows):
         "critical_count": sum(1 for row in rows if row["aging_bucket"] == "d_over_60" and row["outstanding"] > 0),
         "buckets": [buckets[key] for key in AGING_BUCKETS],
         "invoices_with_unverified_payment": unverified,
+        # Revisi #17: pembayaran yang dilaporkan Finance tapi belum diputuskan CFO
+        # TIDAK menutup piutang. Daftarnya tampil supaya tidak jadi utang tersembunyi.
+        "invoices_awaiting_cfo_verification": awaiting,
         "currency": "IDR",
     }
 
@@ -370,6 +411,8 @@ def ar_aging(
             {k: v for k, v in row.items() if k not in {
                 "owner", "next_action", "next_action_label", "payment_ids",
                 "verified_payment_count", "unverified_payment_count", "evidence_complete",
+                "awaiting_verification_count", "rejected_payment_count",
+                "has_verified_payment", "reconciliation_evidence",
             }}
             for row in page
         ]
@@ -381,29 +424,46 @@ def ar_aging(
 
 
 # ──────────── AP ────────────
-MAKLOON_MARKERS = ("makloon", "maklon", "cmt", "jahit", "subkon", "subcon")
+# Hanya `purchase_orders.vendor_type` yang menentukan kelas vendor. Tebakan dari
+# NAMA supplier (makloon/maklon/cmt/jahit/subkon) sudah DIHAPUS: nama bebas tidak
+# pernah cukup untuk memutuskan siapa yang dibayar, dan salah tebak di sini
+# membuat AP supplier & makloon dua-duanya salah tanpa ada yang tahu.
+AP_KIND_BY_VENDOR_TYPE = {
+    "SUPPLIER": "SUPPLIER",
+    # LOGISTIK/VENDOR bukan makloon: keduanya diperlakukan sebagai vendor barang/jasa
+    # biasa supaya angka makloon tetap bersih (revisi #20 memisahkan makloon).
+    "VENDOR": "SUPPLIER",
+    "LOGISTIK": "SUPPLIER",
+    "MAKLOON": "MAKLOON",
+    "CMT": "MAKLOON",
+    "SUBCON": "MAKLOON",
+}
+AP_VENDOR_TYPES = ("SUPPLIER", "MAKLOON", "LOGISTIK", "VENDOR")
 
 
 def _ap_kind(po):
     """Supplier vs makloon (revisi #20 keeps these separate).
 
-    ``purchase_orders`` has no ``vendor_type`` column yet, so we classify on the
-    supplier name. When the orchestrator adds ``vendor_type`` this reads it
-    first and the marker list becomes only a fallback.
+    Classification comes from ``purchase_orders.vendor_type`` ONLY. The old
+    version guessed from the supplier name via ``MAKLOON_MARKERS``; that guess is
+    deleted (revisi #20 forbids deriving the vendor class from a free-text name —
+    "CV Makloon Jaya" could just as well be a fabric supplier). A PO without
+    ``vendor_type`` is ``UNCLASSIFIED`` and is reported as such, never folded
+    into supplier or makloon where it would silently corrupt both totals.
     """
-    explicit = getattr(po, "vendor_type", None)
-    if explicit:
-        value = str(explicit).upper()
-        if value in {"MAKLOON", "CMT", "SUBCON"}:
-            return "MAKLOON"
-        if value in {"SUPPLIER", "VENDOR", "LOGISTIK", "MATERIAL"}:
-            return "SUPPLIER"
-    name = (po.supplier or "").lower()
-    return "MAKLOON" if any(marker in name for marker in MAKLOON_MARKERS) else "SUPPLIER"
+    explicit = (getattr(po, "vendor_type", None) or "").strip().upper()
+    if not explicit:
+        return "UNCLASSIFIED"
+    return AP_KIND_BY_VENDOR_TYPE.get(explicit, "UNCLASSIFIED")
 
 
 def _ap_due_date(po):
-    """AP due date. No ``due_date`` column yet -> fall back to arrival_date."""
+    """AP due date.
+
+    ``purchase_orders.due_date`` is the real column. ``arrival_date`` is only a
+    fallback for rows created before it existed — it is the goods-receipt date,
+    not a payment term, so the row says so via ``due_date_source``.
+    """
     explicit = getattr(po, "due_date", None)
     if explicit:
         return explicit
@@ -411,19 +471,38 @@ def _ap_due_date(po):
 
 
 def _ap_paid_amount(db, po):
-    """Paid amount for a PO.
+    """Payments that reduce this PO's AP, from the real ``ap_payments`` ledger.
 
-    ``purchase_orders`` has no payment ledger yet, so payments are matched from
-    the ``payments`` table by the PO number appearing in the payment notes. This
-    is intentionally conservative: a payment only reduces AP when it explicitly
-    references the PO number (revisi #20: "Invoice vendor tidak boleh dibayar
-    ... tanpa referensi/exception yang sah").
+    The previous version scanned ``payments.notes`` for the PO number. That is
+    deleted: a customer receipt whose note mentions "PO-MKL-1" is not a payment
+    to the vendor, and matching on free text made AP look paid when no money had
+    left. Only rows in ``ap_payments`` that point at this PO count.
     """
-    matches = db.query(m.Payment).filter(
-        m.Payment.notes.isnot(None),
-        m.Payment.notes.like(f"%{po.po_no}%"),
-    ).all()
-    return matches
+    return [r for r in _ap_ledger_rows(db, po) if (getattr(r, "approval_status", None) or "APPROVED").upper() != "REJECTED"]
+
+
+def _ap_ledger_rows(db, po):
+    """All ``ap_payments`` rows for this PO, if the table/model exists."""
+    model = getattr(m, "APPayment", None)
+    if model is None:
+        return []
+    try:
+        if not _table_exists(db, "ap_payments"):
+            return []
+    except Exception:
+        return []
+    return db.query(model).filter(model.po_fk == po.id).order_by(model.id.asc()).all()
+
+
+def _table_exists(db, name):
+    from sqlalchemy import inspect as sa_inspect
+
+    return sa_inspect(db.get_bind()).has_table(name)
+
+
+def _ap_gross(po):
+    """AP value of a PO = amount + tax when the tax column exists."""
+    return _dec(po.amount) + _dec(getattr(po, "tax_amount", None))
 
 
 def _ap_rows(db, today=None):
@@ -432,23 +511,27 @@ def _ap_rows(db, today=None):
     rows = []
     for po in db.query(m.PurchaseOrder).order_by(m.PurchaseOrder.id.desc()).all():
         amount = _dec(po.amount)
+        gross = _ap_gross(po)
+        ledger = _ap_ledger_rows(db, po)
         matches = _ap_paid_amount(db, po)
         paid = sum((_dec(p.amount) for p in matches), Decimal("0"))
         # A PO is not payable before goods arrive; outstanding only counts once
         # the material is received. Revisi #20 connects AP to PO/GR.
         received = (po.material_status or "").upper() in {"READY", "RECEIVED", "PARTIAL"}
-        outstanding = max(amount - paid, Decimal("0")) if received else Decimal("0")
+        outstanding = max(gross - paid, Decimal("0")) if received else Decimal("0")
         due = _ap_due_date(po)
         bucket = aging_bucket(due, today) if received else "not_due"
         order = orders.get(po.order_fk)
         schedule = "OVERDUE" if (received and bucket != "not_due") else (
             "DUE_SOON" if received and due and 0 <= (due - today).days <= 7 else
             "SCHEDULED" if due else "UNSCHEDULED")
+        kind = _ap_kind(po)
         rows.append({
             "po_id": po.id,
             "ap_id": f"AP-{po.po_no}",
             "po_no": po.po_no,
-            "vendor_type": _ap_kind(po),
+            "vendor_type": (getattr(po, "vendor_type", None) or "").strip().upper() or None,
+            "vendor_type_class": kind,
             "supplier": po.supplier,
             "partner": po.supplier,
             "item": po.item,
@@ -457,13 +540,17 @@ def _ap_rows(db, today=None):
             "order_id": order.order_id if order else None,
             "order_fk": po.order_fk,
             "buyer": order.buyer if order else None,
-            "vendor_invoice_no": None,
+            "vendor_invoice_no": getattr(po, "vendor_invoice_no", None),
             "amount": float(amount),
+            "tax_amount": float(_dec(getattr(po, "tax_amount", None))),
+            "gross_amount": float(gross),
             "paid": float(paid),
             "outstanding": float(outstanding),
-            "currency": "IDR",
-            "invoice_date": _iso(po.created_at.date()) if po.created_at else None,
+            "currency": getattr(po, "currency", None) or "IDR",
+            "invoice_date": _iso(getattr(po, "invoice_date", None) or (po.created_at.date() if po.created_at else None)),
             "due_date": _iso(due),
+            "due_date_source": "purchase_orders.due_date" if getattr(po, "due_date", None) else (
+                "purchase_orders.arrival_date" if po.arrival_date else None),
             "days_overdue": days_overdue(due, today) if received else 0,
             "aging_bucket": bucket,
             "aging_label": AGING_LABELS[bucket],
@@ -472,11 +559,11 @@ def _ap_rows(db, today=None):
             "material_status": po.material_status,
             "status": "PAID" if received and outstanding <= 0 and paid > 0 else (
                 "OVERDUE" if schedule == "OVERDUE" else ("OUTSTANDING" if received else "NOT_RECEIVED")),
-            "approval_status": po.status,
+            "approval_status": getattr(po, "approval_status", None) or po.status,
             "payment_count": len(matches),
             "payment_ids": [p.id for p in matches],
-            "payment_evidence": [((p.method or "") + " " + (p.notes or "")).strip() for p in matches],
-            "partial": bool(matches) and 0 < paid < amount,
+            "payment_evidence": [(p.evidence_ref or "") for p in matches],
+            "partial": bool(matches) and 0 < paid < gross,
         })
     return rows
 
@@ -485,12 +572,12 @@ def _ap_summary(rows):
     def blank():
         return {"count": 0, "amount": Decimal("0"), "paid": Decimal("0"), "outstanding": Decimal("0")}
 
-    groups = {"SUPPLIER": blank(), "MAKLOON": blank()}
+    groups = {"SUPPLIER": blank(), "MAKLOON": blank(), "UNCLASSIFIED": blank()}
     total = blank()
     for row in rows:
-        for group in (groups[row["vendor_type"]], total):
+        for group in (groups[row["vendor_type_class"]], total):
             group["count"] += 1
-            group["amount"] += Decimal(str(row["amount"]))
+            group["amount"] += Decimal(str(row["gross_amount"]))
             group["paid"] += Decimal(str(row["paid"]))
             group["outstanding"] += Decimal(str(row["outstanding"]))
 
@@ -503,6 +590,10 @@ def _ap_summary(rows):
     return {
         "supplier": dump(groups["SUPPLIER"]),
         "makloon": dump(groups["MAKLOON"]),
+        # Dikeluarkan dari supplier & makloon dengan sengaja: vendor_type belum
+        # diisi pemiliknya, jadi baris ini belum boleh menambah salah satunya.
+        "unclassified": dump(groups["UNCLASSIFIED"]),
+        "unclassified_pos": [row["po_no"] for row in rows if row["vendor_type_class"] == "UNCLASSIFIED"],
         "total": dump(total),
         "overdue_outstanding": float(overdue),
         "due_soon_outstanding": float(due_soon),
@@ -519,41 +610,48 @@ def _ap_summary(rows):
 
 @router.get("/ap-summary")
 def ap_summary(
-    vendor_type: str = Query(None, description="Filter: SUPPLIER|MAKLOON"),
+    vendor_type: str = Query(None, description="Filter: SUPPLIER|MAKLOON|LOGISTIK|VENDOR|UNCLASSIFIED"),
     only_outstanding: bool = Query(False),
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
     """AP register split supplier vs makloon (revisi #20).
 
+    The split uses ``purchase_orders.vendor_type`` only — see ``_ap_kind``. POs
+    with no ``vendor_type`` are returned as ``UNCLASSIFIED`` and are excluded
+    from both the supplier and makloon totals.
+
     Never returns a delete action — AP rows are financial records and are only
     ever closed by payment, never removed.
     """
     if user.role.value not in AP_VIEW_ROLES:
         _forbidden("AP Supplier & Makloon", AP_VIEW_ROLES)
-    if vendor_type and vendor_type.upper() not in {"SUPPLIER", "MAKLOON"}:
+    wanted = (vendor_type or "").strip().upper()
+    allowed_filters = set(AP_VENDOR_TYPES) | {"UNCLASSIFIED"}
+    if wanted and wanted not in allowed_filters:
         from fastapi import HTTPException
 
-        raise HTTPException(400, "vendor_type harus SUPPLIER atau MAKLOON.")
+        raise HTTPException(400, f"vendor_type harus salah satu dari: {', '.join(sorted(allowed_filters))}.")
 
     rows = _ap_rows(db)
-    if vendor_type:
-        rows = [row for row in rows if row["vendor_type"] == vendor_type.upper()]
+    if wanted:
+        rows = [row for row in rows if (row["vendor_type"] or "UNCLASSIFIED") == wanted]
     filtered = [row for row in rows if row["outstanding"] > 0] if only_outstanding else rows
 
     by_vendor = {}
     for row in filtered:
         name = row["supplier"] or "Tanpa Nama"
         entry = by_vendor.setdefault(name, {
-            "vendor": name, "vendor_type": row["vendor_type"], "po_count": 0,
-            "amount": Decimal("0"), "paid": Decimal("0"), "outstanding": Decimal("0"),
+            "vendor": name, "vendor_type": row["vendor_type"], "vendor_type_class": row["vendor_type_class"],
+            "po_count": 0, "amount": Decimal("0"), "paid": Decimal("0"), "outstanding": Decimal("0"),
         })
         entry["po_count"] += 1
-        entry["amount"] += Decimal(str(row["amount"]))
+        entry["amount"] += Decimal(str(row["gross_amount"]))
         entry["paid"] += Decimal(str(row["paid"]))
         entry["outstanding"] += Decimal(str(row["outstanding"]))
     vendors = [{
-        "vendor": e["vendor"], "vendor_type": e["vendor_type"], "po_count": e["po_count"],
+        "vendor": e["vendor"], "vendor_type": e["vendor_type"], "vendor_type_class": e["vendor_type_class"],
+        "po_count": e["po_count"],
         "amount": float(e["amount"]), "paid": float(e["paid"]), "outstanding": float(e["outstanding"]),
     } for e in by_vendor.values()]
     vendors.sort(key=lambda v: v["outstanding"], reverse=True)
@@ -566,4 +664,11 @@ def ap_summary(
         "rows": filtered,
         "filters": {"vendor_type": vendor_type, "only_outstanding": only_outstanding},
         "aging_definition": {key: AGING_LABELS[key] for key in AGING_BUCKETS},
+        "classification_rule": (
+            "vendor_type pada purchase_orders. Kosong = UNCLASSIFIED dan TIDAK dihitung "
+            "sebagai supplier maupun makloon."
+        ),
+        # AP payments come from the real ledger, never from matching PO numbers
+        # inside free-text payment notes.
+        "ap_payment_source": "ap_payments.po_fk" if getattr(m, "APPayment", None) is not None else None,
     }

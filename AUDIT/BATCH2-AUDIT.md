@@ -17,14 +17,57 @@ sementara dipulihkan byte-identik (diverifikasi dengan `diff`).
 
 | # | Temuan | Kelas | Bukti |
 |---|--------|-------|-------|
-| 1 | `GET /api/hr/employees-summary` → **HTTP 500** saat `join_date` NULL (regresi integrasi model) | B — working tree | traceback `hr_employees.py:130` |
-| 2 | `977308a` ("daftarkan 10 router") **tidak bisa di-import** — `ImportError` | A — ter-commit | `ImportError: cannot import name 'sample_lifecycle'` |
-| 3 | 2 halaman frontend baru **tidak didaftarkan** (`CEOCompanyPerformance.jsx`, `CEOOverride.jsx`) | B — working tree | orphan import scan |
-| 4 | 3 halaman orphan **pre-existing** (`ModuleDashboard`, `OrderCreate`, `Workspace`) | A — warisan | git log |
+| **1** | **Fitur CEO Company Performance & Override Governance "selesai" tapi SEMUA endpoint-nya 404.** `ceo_performance.py` + `ceo_override.py` ter-commit tapi **tidak pernah didaftarkan di `main.py`**; halaman yang memanggilnya juga ter-commit. | **A — ter-commit** | `404` untuk 4 endpoint (probe di bawah) |
+| **2** | `bb92b9e` / `69e149c` (coo handoff) **tidak bisa di-import** — `ImportError: cannot import name 'ProductionHandoff' from 'app.models'` | **A — ter-commit** | import app gagal di checkout bersih |
+| 3 | `977308a` ("daftarkan 10 router") **tidak bisa di-import** — `ImportError: cannot import name 'sample_lifecycle'` | A — ter-commit | import app gagal |
+| 4 | `coo_handoffs.py` ter-commit tapi **tidak didaftarkan** (`main.py` grep = 0) | A — ter-commit | orphan router |
+| 5 | `GET /api/hr/employees-summary` → **HTTP 500** saat `join_date` NULL | B — working tree | traceback `hr_employees.py:130` |
+| 6 | 2 halaman frontend baru **tidak didaftarkan** (`CEOCompanyPerformance.jsx`, `CEOOverride.jsx`) | A — ter-commit | orphan import scan |
+| 7 | 3 halaman orphan **pre-existing** (`ModuleDashboard`, `OrderCreate`, `Workspace`) | A — warisan | git log |
 
 **Tidak ditemukan:** hash commit palsu, klaim versi tool palsu, klaim runner palsu,
 atau tes yang tetap hijau saat fiturnya dibatalkan. Semua angka klaim yang saya uji
 di batch 2 **terbukti benar** (lihat §3).
+
+### ⭐ TEMUAN TERKUAT — fitur dilaporkan selesai, tidak jalan sama sekali
+
+Dua router ter-commit tetapi tidak terdaftar di `backend/app/main.py`:
+
+```
+NOT REGISTERED in main.py: ceo_override, ceo_performance, coo_handoffs
+                           (cfo_payments masih untracked/WIP)
+```
+
+Endpoint yang mereka sediakan, diuji nyata sebagai peran `CEO`:
+
+```
+Endpoints the committed CEO pages call, probed as CEO:
+  404  /api/ceo/company-performance      *** UNREACHABLE / BROKEN ***
+  404  /api/ceo/drilldown/finance        *** UNREACHABLE / BROKEN ***
+  404  /api/ceo/closing-status           *** UNREACHABLE / BROKEN ***
+  404  /api/ceo/overrides                *** UNREACHABLE / BROKEN ***
+```
+
+Sementara halaman frontend yang **sudah ter-commit** memanggil endpoint-endpoint itu:
+```
+frontend/src/pages/CEOCompanyPerformance.jsx:
+    api('/ceo/company-performance?environment=' ...)
+    api('/ceo/drilldown/' ...)
+    api('/ceo/closing-status')
+frontend/src/pages/CEOOverride.jsx:
+    api('/ceo/overrides')   (get + post)
+```
+→ Halaman "Company Performance" dan "Override Governance" akan **404 di setiap
+permintaan data**. Commit `3f1227a` ("feat(ceo): Company Performance read-only,
+drill-down, override governance") melaporkan fitur ini selesai, padahal tidak ada
+satu pun endpoint-nya yang tercapai lewat app. Ini persis pola "dilaporkan selesai
+tapi tidak jalan" yang diminta dicari.
+
+Akar masalahnya sama seperti §2d: aturan AGENT-RULES §3 melarang agent mengedit
+`main.py` dan mewajibkan mereka menulis permintaan ke `REQUESTS/<domain>.md`.
+Agent CEO mematuhi aturan itu — tapi orkestrator belum mendaftarkan keempat router
+ini. Perbaikannya satu baris `include_router` per router di `main.py` (milik
+orkestrator), bukan menyalahkan agent.
 
 ---
 
@@ -186,7 +229,21 @@ belum punya route; ini konsisten dengan agent CEO yang masih bekerja.
 **Koreksi terhadap dugaan awal saya** (penting, supaya tidak jadi laporan palsu):
 `hrRecruitment.js`, `ceoPerformance.js`, `sidebarMenu.js`, `SidebarMenu.jsx`, dan
 `GlobalSearch.jsx` **BUKAN yatim** — semuanya diimpor/dipakai (terverifikasi; deteksi
-pertama saya salah karena pola grep yang tidak resolusi ekstensi).
+pertama saya salah karena pola grep yang tidak resolusi ekstensi). Perlu dicatat
+`ceoPerformance.js` sekarang diimpor oleh `CEOCompanyPerformance.jsx`, dan
+`SidebarMenu.jsx` oleh `Layout`-chain — keduanya berubah di tengah audit.
+
+### ⚠️ ROUTER YATIM (ter-commit, tidak terdaftar) — 3 buah
+
+| File | Ter-commit? | Terdaftar di `main.py`? | Endpoint |
+|---|---|---|---|
+| `backend/app/routers/ceo_performance.py` | ✅ ya | ❌ **tidak** | 3 (company-performance, drilldown, closing-status) |
+| `backend/app/routers/ceo_override.py` | ✅ ya | ❌ **tidak** | 5 (overrides CRUD + decide/ack/rollback) |
+| `backend/app/routers/coo_handoffs.py` | ✅ ya | ❌ **tidak** | 4 (handoffs CRUD + receive) |
+| `backend/app/routers/cfo_payments.py` | ❌ untracked (WIP) | ❌ tidak | — |
+
+Keempatnya **tidak terdaftar** (`grep` di `main.py` = 0), sehingga seluruh endpoint
+di atas tidak tercapai. Ini melengkapi temuan §RINGKASAN #1.
 
 ### Kode mati di backend
 `/api` di-`openapi.json`: **140 path**. Setiap router batch-2 diperiksa terhadap app
@@ -241,33 +298,31 @@ harus ditutup**, bukan bug permanen.
 ## OUTPUT MENTAH
 
 ### Backend `pytest` (working tree, saat audit berjalan — sibling masih menulis)
-```
-13 failed, 290 passed, 16 skipped, 54 warnings in 94.95s
-FAILED tests/test_cfo_receivables.py::test_ap_summary_uses_real_vendor_type_column
-FAILED tests/test_hr_employees.py::test_summary_groups_by_status_and_flags_seed_rows
-FAILED tests/test_hr_employees.py::test_join_date_is_derived_honestly_when_column_missing
-FAILED tests/test_hr_employees.py::test_contract_window_and_expiry_are_computed_not_guessed
-FAILED tests/test_hr_employees.py::test_lifecycle_timeline_is_derived_and_scoped_per_employee
-FAILED tests/test_hr_employees.py::test_hr_trace_counts_do_not_touch_attendance_or_payroll
-FAILED tests/test_printing_ops_write.py::test_write_roles_are_enforced_and_denials_are_audited
-FAILED tests/test_printing_ops_write.py::test_receive_handoff_records_discrepancy_and_opens_exception
-FAILED tests/test_printing_ops_write.py::test_rework_blocks_handoff_until_retest_then_handoff_is_allowed
-FAILED tests/test_printing_ops_write.py::test_reject_disposition_closes_without_retest_and_outsider_process_is_denied
-FAILED tests/test_printing_ops_write.py::test_daily_target_table_becomes_the_source_and_audit_trail_of_daily_target
-FAILED tests/test_printing_ops_write.py::test_job_card_fields_are_reported_present_or_missing_honestly
-FAILED tests/test_sample_work.py::test_row_binds_order_article_and_version
-```
-**PENTING — jangan salah baca:** kegagalan ini adalah **mid-flight**, bukan regresi
-ter-commit. Terverifikasi: pada HEAD bersih `3b1384f` seluruh `test_hr_employees.py`
-**8/8 pass** pada setiap revisi yang diuji (bisect `1755a85, 81f2c55, 934c5c7,
-fd63782, 3eab0a1, 3b1384f` → semuanya "8 passed"). Penyebab kegagalan massal adalah
-satu `AttributeError` dari `models.py` uncommitted (lihat §3) yang membuat import
-rusak dan merobohkan file tes yang tidak bersalah.
-
-Baseline bersih yang saya ukur di awal audit (sebelum edit sibling mendarat):
+Putaran awal (baseline bersih sebelum edit sibling mendarat):
 ```
 175 passed, 31 warnings in 44.01s
 ```
+Putaran akhir (working tree, 24 gagal):
+```
+24 failed, 275 passed, 76 warnings in 137.88s
+sebaran: test_hr_employees 5, test_printing_ops_write 6, test_coo_execution 4,
+         test_workflow 4, test_sample_lifecycle 3, test_sample_immutability 2
+```
+**PENTING — jangan salah baca:** kegagalan ini adalah **mid-flight**, bukan regresi
+ter-commit, dan saya sudah membuktikannya satu per satu:
+- `test_hr_employees.py`: pada HEAD bersih **8/8 pass** di setiap revisi yang diuji
+  (bisect `1755a85, 81f2c55, 934c5c7, fd63782, 3eab0a1, 3b1384f` → semuanya "8 passed").
+- `test_sample_immutability.py`: pada HEAD bersih (`3f1227a`) **3/3 pass**; guard
+  `workflow.py:474` masih utuh dan `workflow.py` bersih (`git status` kosong).
+  Kegagalan di working tree ("versi REVISION yang sudah diputuskan harus terkunci,
+  dapat 200") berasal dari `models.py`/`modules.py` uncommitted milik sibling.
+- `test_printing_ops_write.py`: **file baru, untracked** → WIP, bukan barang jadi.
+- Penyebab massal: beberapa `ImportError`/`AttributeError` dari `models.py`
+  uncommitted yang membuat modul tidak bisa diimpor, dan merobohkan file tes lain.
+
+**Catatan sesi audit:** selama ±40 menit audit, HEAD branch bergerak
+`3eab0a1 → 3b1384f → bb92b9e → 69e149c → 3f1227a → …` dan jumlah tes naik
+175 → 264 → 275 → 323. Angka apa pun dari sesi ini adalah **snapshot**.
 
 ### Frontend
 ```

@@ -86,7 +86,9 @@ def test_ar_aging_buckets_and_collection_queue(api_client, headers, db):
 
     # INV-30 keeps its 500k ledger payment (outstanding 1.5jt) but the reference
     # is rejected as evidence, so it still needs CFO follow-up.
-    assert body["summary"]["total_outstanding"] == 8500000.0
+    # Outstanding 9jt: the makloon PO payment is no longer netted against an
+    # invoice (see test_ap_summary_separates_supplier_and_makloon).
+    assert body["summary"]["total_outstanding"] == 9000000.0
     assert body["summary"]["critical_count"] == 1
     assert body["summary"]["overdue_count"] == 3
     bucket_map = {b["bucket"]: b for b in body["summary"]["buckets"]}
@@ -138,30 +140,64 @@ def test_ar_aging_role_gating_hides_collection_ownership_from_cmo(api_client, he
 
 
 def test_ap_summary_separates_supplier_and_makloon(api_client, headers, db):
+    """Klasifikasi HANYA dari vendor_type; tanpa kolom itu -> UNCLASSIFIED.
+
+    Revisi #20 melarang menebak vendor dari nama supplier, jadi PO "CV Makloon
+    Jaya" di sini TIDAK lagi otomatis jadi makloon, dan pembayaran `payments`
+    lama yang menyebut nomor PO di `notes` TIDAK lagi mengurangi AP.
+    """
     seed(db)
     body = call(api_client, headers, "CFO_MANAGER", "/cfo/ap-summary").json()
-    kinds = {row["po_no"]: row["vendor_type"] for row in body["rows"]}
-    assert kinds == {"PO-SUP-1": "SUPPLIER", "PO-MKL-1": "MAKLOON", "PO-WAIT-1": "SUPPLIER"}
+    kinds = {row["po_no"]: row["vendor_type_class"] for row in body["rows"]}
+    assert kinds == {"PO-SUP-1": "UNCLASSIFIED", "PO-MKL-1": "UNCLASSIFIED", "PO-WAIT-1": "UNCLASSIFIED"}
 
-    # Makloon PO had a 1jt payment referencing it -> outstanding 2jt.
+    # Tanpa vendor_type, baris tidak mengotori supplier/makloon sama sekali.
+    assert body["summary"]["supplier"]["count"] == 0
+    assert body["summary"]["makloon"]["count"] == 0
+    assert body["summary"]["unclassified"]["count"] == 3
+    assert set(body["summary"]["unclassified_pos"]) == {"PO-SUP-1", "PO-MKL-1", "PO-WAIT-1"}
+    assert body["summary"]["total"]["count"] == 3
+
+    # Pembayaran `payments` yang menebak PO lewat notes tidak lagi mengurangi AP.
     makloon = [row for row in body["rows"] if row["po_no"] == "PO-MKL-1"][0]
-    assert makloon["paid"] == 1000000.0 and makloon["outstanding"] == 2000000.0
+    assert makloon["paid"] == 0.0
+    assert makloon["outstanding"] == 3000000.0
     assert makloon["payment_schedule"] == "OVERDUE"
+    assert body["summary"]["cash_plan"]["overdue"] == 3000000.0
 
-    assert body["summary"]["supplier"]["count"] == 2
-    assert body["summary"]["makloon"]["count"] == 1
-    assert body["summary"]["makloon"]["outstanding"] == 2000000.0
-    # PO-WAIT-1 material not received -> excluded from outstanding.
-    assert body["summary"]["supplier"]["outstanding"] == 5000000.0
+    # PO yang materialnya belum diterima tetap dikecualikan dari outstanding.
     wait = [row for row in body["rows"] if row["po_no"] == "PO-WAIT-1"][0]
     assert wait["received"] is False and wait["outstanding"] == 0.0 and wait["status"] == "NOT_RECEIVED"
 
-    assert body["summary"]["cash_plan"]["overdue"] == 2000000.0
-    assert body["summary"]["cash_plan"]["currency"] == "IDR"
-
-    only_makloon = call(api_client, headers, "FINANCE_SUPPORT", "/cfo/ap-summary?vendor_type=MAKLOON").json()
-    assert {row["vendor_type"] for row in only_makloon["rows"]} == {"MAKLOON"}
+    # Filter UNCLASSIFIED valid; nama vendor yang tidak dikenal tetap 400.
+    unclassified = call(api_client, headers, "FINANCE_SUPPORT", "/cfo/ap-summary?vendor_type=UNCLASSIFIED").json()
+    assert len(unclassified["rows"]) == 3
     assert call(api_client, headers, "CFO_MANAGER", "/cfo/ap-summary?vendor_type=BOGUS").status_code == 400
+
+
+def test_ap_summary_uses_real_vendor_type_column(api_client, headers, db):
+    """Begitu kolom vendor_type ada, pemisahan memakai kolom itu — bukan nama."""
+    seed(db)
+    from sqlalchemy import inspect as sa_inspect
+
+    if "vendor_type" not in {c["name"] for c in sa_inspect(db.get_bind()).get_columns("purchase_orders")}:
+        pytest.skip("kolom purchase_orders.vendor_type belum ada di models.py")
+
+    # Nama menyesatkan: PO "CV Makloon Jaya" diberi vendor_type SUPPLIER.
+    db.query(m.PurchaseOrder).filter_by(po_no="PO-MKL-1").one().vendor_type = "SUPPLIER"
+    db.query(m.PurchaseOrder).filter_by(po_no="PO-SUP-1").one().vendor_type = "MAKLOON"
+    db.query(m.PurchaseOrder).filter_by(po_no="PO-WAIT-1").one().vendor_type = "SUPPLIER"
+    db.commit()
+
+    body = call(api_client, headers, "CFO_MANAGER", "/cfo/ap-summary").json()
+    kinds = {row["po_no"]: row["vendor_type_class"] for row in body["rows"]}
+    assert kinds == {"PO-MKL-1": "SUPPLIER", "PO-SUP-1": "MAKLOON", "PO-WAIT-1": "SUPPLIER"}
+    assert body["summary"]["makloon"]["count"] == 1
+    assert body["summary"]["supplier"]["count"] == 2
+    assert body["summary"]["unclassified"]["count"] == 0
+    assert body["summary"]["makloon"]["outstanding"] == 5000000.0
+    # AP payments come from the real ledger now, not from PO numbers in notes.
+    assert body["ap_payment_source"] == "ap_payments.po_fk"
 
 
 def test_ap_summary_is_read_only_and_never_deletes(api_client, headers, db):
