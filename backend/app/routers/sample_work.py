@@ -45,9 +45,11 @@ from datetime import date, datetime, timezone
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session, selectinload
 
+from ..audit import log_audit
 from ..auth import get_current_user
 from ..database import get_db
 from .. import models as m
@@ -813,6 +815,20 @@ def _row(*, article, order, sample, sample_version, eligible, ppm_version,
     if db is not None and required_action == "CREATE_SAMPLE" and eligible:
         task = _persist_create_sample_task(db, payload)
         payload.update(task)
+    # Batch 2: sample yang SUDAH ada juga punya baris task, supaya tahap kerja
+    # (START/INSPECTION/SUBMIT_RESULT) punya tempat menyimpan jejak waktunya.
+    elif db is not None and sample is not None:
+        task = _ensure_task_for_sample(db, article, order, sample)
+        if task is not None:
+            payload["task_db_id"] = task.id
+            payload["task_no"] = task.task_no
+            payload["persistence"] = "PERSISTED"
+            payload["persisted_task"] = {
+                "stage": task.stage, "status": task.status, "priority": task.priority,
+                "started_at": _iso(task.started_at),
+                "submitted_at": _iso(task.submitted_at),
+                "created_at": _iso(task.created_at),
+            }
     return payload
 
 
@@ -1208,8 +1224,404 @@ def my_sample_tasks(status: str = None, order_id: str = None,
     }
 
 
+class SampleTaskAction(BaseModel):
+    """Aksi pekerjaan sample. Tidak ada field status bebas — tahap ditentukan
+    server dari aksi, supaya UI tidak bisa mengarang stage."""
+    action: str = Field(min_length=1, max_length=40)
+    reason: str | None = Field(default=None, max_length=2000)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+# ─────────────────── task lifecycle WRITE (revisi #35, #37) ───────────────────
+# Sebelumnya tahap kerja sample hanya DISIMPULKAN dari kelengkapan bukti, jadi
+# START / INSPECTION / SUBMIT_RESULT tidak punya jejak waktu dan tidak bisa
+# diaudit. Endpoint di bawah menuliskan jejak itu ke `sample_tasks`.
+#
+# Batas yang tetap ditegakkan: endpoint ini HANYA menyentuh `sample_tasks`.
+# Tidak ada satu pun yang menulis `SampleRecord.status` menjadi
+# APPROVED/REJECTED, tidak ada keputusan buyer, release SPK, produksi, PO/GR,
+# atau resolve exception — aksi itu tetap milik peran lain.
+WORK_ROLES = {"SAMPLE_PIC"}
+
+# Aksi → (stage hasil, status hasil). `SUBMIT_RESULT` sengaja berhenti di sana:
+# keputusan buyer bukan milik Sample PIC.
+TASK_TRANSITIONS = {
+    "START": ("IN_PROGRESS", "IN_PROGRESS"),
+    "UPDATE_PROGRESS": ("UPDATE", "IN_PROGRESS"),
+    "INSPECTION": ("INSPECTION", "IN_PROGRESS"),
+    "SUBMIT_RESULT": ("SUBMIT_RESULT", "IN_PROGRESS"),
+    "WORK_REVISION": ("WORK_REVISION", "IN_PROGRESS"),
+}
+
+# Prasyarat yang harus terpenuhi sebelum sebuah transisi boleh jalan. Ambil dari
+# `STEP_REQUIREMENTS` supaya tidak ada dua daftar aturan yang bisa berbeda.
+def _transition_requirements(action):
+    stage, _ = TASK_TRANSITIONS[action]
+    return STEP_REQUIREMENTS.get(stage, [])
+
+
+def _task_or_404(db, task_id):
+    model = getattr(m, "SampleTask", None)
+    if model is None:
+        raise HTTPException(400, "Sample task store is not available")
+    task = db.get(model, task_id)
+    if task is None:
+        raise HTTPException(404, "Sample task not found")
+    return task
+
+
+def _task_lookup_for_sample(db, sample_id):
+    """Task `sample_tasks` milik satu sample, kalau tabelnya sudah ada."""
+    model = getattr(m, "SampleTask", None)
+    if model is None or not _table_present(db, "sample_tasks"):
+        return None
+    return (db.query(model).filter(model.sample_fk == sample_id)
+            .order_by(model.id.desc()).first())
+
+
+_HANDOFF = "Keputusan buyer dicatat CMO_MANAGER (BUYER_APPROVE/BUYER_REJECT)"
+
+
+def _ensure_task_for_sample(db, article, order, sample):
+    """Pastikan satu sample punya baris `sample_tasks` (idempoten).
+
+    Tahap/status awal diambil dari kondisi nyata (bukan dikarang): task yang
+    sudah punya Sample Request mulai dari OPEN, dan SLA selalu dari Master.
+    """
+    model = getattr(m, "SampleTask", None)
+    if model is None or not _table_present(db, "sample_tasks"):
+        return None
+    existing = _task_lookup_for_sample(db, sample.id)
+    if existing is not None:
+        return existing
+    task = model(
+        task_no=f"SMP-{sample.id}",
+        order_fk=sample.order_fk,
+        article_id=sample.article_id,
+        sample_fk=sample.id,
+        sample_version=int(getattr(sample, "sample_version", None) or 1),
+        stage="OPEN",
+        status="OPEN",
+        priority="HIGH" if (order is not None and order.buyer_deadline is not None
+                            and order.buyer_deadline < date.today()) else "NORMAL",
+        assigned_to_id=None,
+        due_date=(order.buyer_deadline if order is not None else None),
+        sla_source="Master (buyer_deadline order)",
+        next_action="Mulai kerjakan sample (START)",
+        handoff=_HANDOFF,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    _seed_task_prerequisites(db, task)
+    return task
+
+
+def _seed_task_prerequisites(db, task):
+    """Baris prasyarat untuk satu task; `satisfied_at` diisi saat terpenuhi."""
+    model = getattr(m, "SampleTaskPrerequisite", None)
+    if model is None or not _table_present(db, "sample_task_prerequisites"):
+        return []
+    rows = []
+    for key, label in STEP_REQUIREMENTS["DONE"]:
+        row = (db.query(model).filter(model.task_id == task.id,
+                                      model.requirement_key == key).first())
+        if row is None:
+            row = model(task_id=task.id, requirement_key=key, label=label, satisfied=False)
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+        rows.append(row)
+    return rows
+
+
+def _sync_prerequisites(db, task, state, evidence_ids):
+    """Tandai prasyarat terpenuhi + simpan kapan & bukti mana yang memenuhi."""
+    model = getattr(m, "SampleTaskPrerequisite", None)
+    if model is None or not _table_present(db, "sample_task_prerequisites"):
+        return []
+    evidence_for = {
+        "evidence_progress": evidence_ids.get("PROGRESS"),
+        "evidence_inspection": evidence_ids.get("INSPECTION"),
+        "evidence_result": evidence_ids.get("RESULT"),
+    }
+    out = []
+    for key, label in STEP_REQUIREMENTS["DONE"]:
+        row = (db.query(model).filter(model.task_id == task.id,
+                                      model.requirement_key == key).first())
+        if row is None:
+            row = model(task_id=task.id, requirement_key=key, label=label, satisfied=False)
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+        ok = bool(state.get(key))
+        if ok and not row.satisfied:
+            row.satisfied = True
+            row.satisfied_at = datetime.utcnow()
+            row.evidence_fk = evidence_for.get(key)
+        elif not ok and row.satisfied:
+            # Bukti bisa dicabut/diganti; jangan biarkan prasyarat "terpenuhi"
+            # padahal buktinya sudah tidak ada.
+            row.satisfied = False
+            row.satisfied_at = None
+            row.evidence_fk = None
+        out.append(row)
+    db.commit()
+    return out
+
+
+def _sample_task_state(db, sample, articles_by_id=None):
+    """Kondisi nyata satu sample: bukti per jenis, versi PPM, submission."""
+    ppm_version = _ppm_versions(sample.notes)
+    # Bukti dibaca ULANG dari DB: `sample.evidence` bisa sudah ter-cache sebelum
+    # baris baru ditambahkan di request yang sama, dan state basi akan membuat
+    # prasyarat yang sebenarnya sudah terpenuhi tetap diblokir.
+    evidence = (db.query(m.SampleEvidence)
+                .filter(m.SampleEvidence.sample_fk == sample.id)
+                .order_by(m.SampleEvidence.id.asc()).all())
+    kinds, fallback_used, guessed, unclassified = _evidence_kinds(db, evidence)
+    evidence_ids = {}
+    for row in evidence:
+        kind = kinds.get(row.id)
+        if kind and kind not in evidence_ids:
+            evidence_ids[kind] = row.id
+    kind_set = set(kinds.values())
+    # `evidence_progress` = ADA bukti berjenis PROGRESS. Bukti yang tidak
+    # terklasifikasi (nama file polos + `evidence_kind` kosong) TIDAK dihitung
+    # sebagai progres — dulu `len(evidence) > 0` membuat bukti tak dikenal lolos
+    # sebagai "progres" sambil tetap muncul di `evidence_unclassified`, dan itu
+    # dua klaim yang bertentangan di satu payload.
+    state = {
+        "sample_request": True,
+        "ppm_version": bool(ppm_version),
+        "evidence_progress": "PROGRESS" in kind_set,
+        "evidence_inspection": "INSPECTION" in kind_set,
+        "evidence_result": "RESULT" in kind_set,
+        "version_submitted": bool(ppm_version and ppm_version.get("submitted")),
+    }
+    if unclassified:
+        # Terbuka: bukti ini ada tapi tidak bisa dihitung karena jenisnya tidak
+        # diketahui. Pemanggil bisa memakai `unclassified_evidence`.
+        state["evidence_unclassified"] = True
+    return state, evidence_ids, {"guessed": guessed, "unclassified": unclassified,
+                                 "source": ("sample_evidence.evidence_kind"
+                                            if not fallback_used
+                                            else "LEGACY_SUBSTRING_HEURISTIC")}
+
+
+def _blocked_by_prerequisites(db, task, action):
+    """Prasyarat yang belum terpenuhi untuk sebuah transisi (server-side)."""
+    model = getattr(m, "SampleTaskPrerequisite", None)
+    if model is None or not _table_present(db, "sample_task_prerequisites"):
+        return []
+    wanted = {key for key, _label in _transition_requirements(action)}
+    if not wanted:
+        return []
+    rows = (db.query(model).filter(model.task_id == task.id,
+                                   model.requirement_key.in_(sorted(wanted))).all())
+    return [{"requirement_key": row.requirement_key, "label": row.label}
+            for row in rows if not row.satisfied]
+
+
+@router.post("/tasks/{task_id}/actions")
+def act_on_sample_task(task_id: int, data: SampleTaskAction,
+                       db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Jalankan transisi pekerjaan sample (SMP-F-005 / revisi #35).
+
+    Hanya peran pekerja sample (`SAMPLE_PIC`) yang boleh. Keputusan buyer,
+    release SPK, dan resolve exception tetap ditolak di sini — bukan karena UI
+    tidak menampilkannya, tapi karena server menolak.
+    """
+    if _role(user) not in WORK_ROLES:
+        raise HTTPException(403, "Pekerjaan sample hanya untuk Sample PIC.")
+    action = (data.action or "").strip().upper()
+    if action in BUYER_DECISION_ACTIONS:
+        # Pagar eksplisit: keputusan buyer bukan aksi pekerja sample.
+        raise HTTPException(403, "Keputusan buyer bukan pekerjaan Sample PIC; "
+                                 "gunakan aksi customer-decision CMO Manager.")
+    if action in {"RELEASE_SPK", "PRODUCTION_BULK", "PURCHASE_ORDER", "GOODS_RECEIPT",
+                  "EXCEPTION_RESOLVE", "EXCEPTION_OVERRIDE", "CLOSE_ORDER"}:
+        raise HTTPException(403, "Aksi ini bukan milik Sample PIC.")
+    if action not in TASK_TRANSITIONS:
+        raise HTTPException(422, f"Action must be one of {sorted(TASK_TRANSITIONS)}")
+
+    task = _task_or_404(db, task_id)
+    sample = db.get(m.SampleRecord, task.sample_fk) if task.sample_fk else None
+    if sample is None:
+        raise HTTPException(409, "Sample task has no sample version yet; start from the sample")
+    if sample.status in BUYER_DECISION_STATUSES:
+        raise HTTPException(409, "Buyer already decided this version; create a new version "
+                                 "instead of continuing the task")
+
+    state, evidence_ids, kind_info = _sample_task_state(db, sample)
+    _seed_task_prerequisites(db, task)
+    _sync_prerequisites(db, task, state, evidence_ids)
+
+    blocked = _blocked_by_prerequisites(db, task, action)
+    if blocked:
+        raise HTTPException(409, {
+            "detail": "Prasyarat task belum terpenuhi; pekerjaan tidak boleh dilewati.",
+            "blocked_by": blocked,
+            "stage": task.stage,
+        })
+
+    before_stage, before_status = task.stage, task.status
+    stage, status = TASK_TRANSITIONS[action]
+    if action == "WORK_REVISION" and not (data.reason or "").strip():
+        raise HTTPException(422, "WORK_REVISION requires a reason")
+
+    task.stage = stage
+    task.status = status
+    task.priority = "HIGH" if (task.due_date is not None and task.due_date < date.today()) \
+        else (task.priority or "NORMAL")
+    task.next_action = _next_action(stage, state, False)
+    if action == "START" and task.started_at is None:
+        task.started_at = datetime.utcnow()
+    if action == "SUBMIT_RESULT" and task.submitted_at is None:
+        task.submitted_at = datetime.utcnow()
+    # Jejak alasan revisi tersimpan di task DAN di sample (revisi #34), bukan
+    # hanya di audit log.
+    if action == "WORK_REVISION":
+        task.bottleneck_reason = data.reason.strip()
+        if _column_present(db, "sample_records", "revision_reason"):
+            sample.revision_reason = data.reason.strip()
+    if data.note:
+        task.handoff = data.note.strip()[:2000]
+    db.add(task)
+    log_audit(db, user, f"TASK_{action}", "SampleTask", task.id,
+              detail=f"{before_stage}->{stage}", source_module="SampleTask",
+              previous_status=before_stage, new_status=stage,
+              reason=(data.reason or "").strip() or None)
+    db.commit()
+    db.refresh(task)
+    return _task_payload(db, task, sample, state, evidence_ids, kind_info)
+
+
+@router.get("/tasks/{task_id}")
+def get_sample_task(task_id: int, db: Session = Depends(get_db),
+                    user=Depends(get_current_user)):
+    """Detail satu task pekerjaan sample (read-only)."""
+    _require_view(user)
+    task = _task_or_404(db, task_id)
+    sample = db.get(m.SampleRecord, task.sample_fk) if task.sample_fk else None
+    if sample is None:
+        return _task_payload(db, task, None, {}, {}, {})
+    state, evidence_ids, kind_info = _sample_task_state(db, sample)
+    return _task_payload(db, task, sample, state, evidence_ids, kind_info)
+
+
+@router.get("/tasks")
+def list_sample_task_rows(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Task yang BENAR-BENAR tersimpan di `sample_tasks` (revisi #35).
+
+    Bedanya dengan `/my-tasks`: yang ini sumbernya TABEL. Supaya tabelnya tidak
+    pernah kosong untuk sample yang sudah ada (mis. dibuat lewat form CMO, bukan
+    lewat halaman Sample Today), baris task yang belum ada disiapkan dulu di sini
+    — dengan cara yang sama seperti `/my-tasks`, jadi hasilnya tidak berbeda.
+    """
+    _require_view(user)
+    model = getattr(m, "SampleTask", None)
+    if model is None or not _table_present(db, "sample_tasks"):
+        return {"store": "BLOCKED_TABLE_ABSENT", "rows": [], "totals": {"tasks": 0}}
+    _build_rows(db, user)  # siapkan task yang belum ada (idempoten)
+    rows = db.query(model).order_by(model.id.asc()).all()
+    out = []
+    for task in rows:
+        sample = db.get(m.SampleRecord, task.sample_fk) if task.sample_fk else None
+        order = db.get(m.Order, task.order_fk) if task.order_fk else None
+        article = db.get(m.Article, task.article_id) if task.article_id else None
+        out.append({
+            "task_db_id": task.id,
+            "task_no": task.task_no,
+            "order_id": order.order_id if order is not None else None,
+            "order_fk": task.order_fk,
+            "article_id": task.article_id,
+            "article_code": (article.article_code if article is not None
+                             else (sample.article_code if sample is not None else None)),
+            "sample_fk": task.sample_fk,
+            "sample_version": task.sample_version,
+            "stage": task.stage,
+            "status": task.status,
+            "priority": task.priority,
+            "required_action": task.required_action,
+            "next_action": task.next_action,
+            "blocker_owner": task.blocker_owner,
+            "bottleneck_reason": task.bottleneck_reason,
+            "sla_source": task.sla_source,
+            "due_date": _iso(task.due_date),
+            "started_at": _iso(task.started_at),
+            "submitted_at": _iso(task.submitted_at),
+            "done_at": _iso(task.done_at),
+            "created_at": _iso(task.created_at),
+            "updated_at": _iso(task.updated_at),
+        })
+    return {"store": "sample_tasks", "rows": out, "totals": {
+        "tasks": len(out),
+        "by_stage": {stage: sum(1 for r in out if r["stage"] == stage)
+                     for stage in sorted({r["stage"] for r in out})},
+    }}
+
+
+def _task_payload(db, task, sample, state, evidence_ids, kind_info):
+    """Payload satu task: jejak waktu, prasyarat, dan pagar aksi."""
+    model = getattr(m, "SampleTaskPrerequisite", None)
+    prereqs = []
+    if model is not None and _table_present(db, "sample_task_prerequisites"):
+        rows = (db.query(model).filter(model.task_id == task.id)
+                .order_by(model.id.asc()).all())
+        prereqs = [{"requirement_key": r.requirement_key, "label": r.label,
+                    "satisfied": bool(r.satisfied), "satisfied_at": _iso(r.satisfied_at),
+                    "evidence_fk": r.evidence_fk} for r in rows]
+    allowed = []
+    blocked = {}
+    for action in TASK_TRANSITIONS:
+        if action == "WORK_REVISION":
+            allowed.append(action)
+            continue
+        missing = [p["requirement_key"] for p in prereqs
+                   if not p["satisfied"] and p["requirement_key"] in
+                   {k for k, _l in _transition_requirements(action)}]
+        if missing:
+            blocked[action] = missing
+        else:
+            allowed.append(action)
+    return {
+        "task_db_id": task.id,
+        "task_no": task.task_no,
+        "order_fk": task.order_fk,
+        "article_id": task.article_id,
+        "sample_fk": task.sample_fk,
+        "sample_version": task.sample_version,
+        "stage": task.stage,
+        "status": task.status,
+        "priority": task.priority,
+        "next_action": task.next_action,
+        "handoff": task.handoff,
+        "blocker_owner": task.blocker_owner,
+        "bottleneck_reason": task.bottleneck_reason,
+        "sla_source": task.sla_source,
+        "due_date": _iso(task.due_date),
+        "started_at": _iso(task.started_at),
+        "submitted_at": _iso(task.submitted_at),
+        "done_at": _iso(task.done_at),
+        "created_at": _iso(task.created_at),
+        "updated_at": _iso(task.updated_at),
+        "prerequisites": prereqs,
+        "requirements_state": {key: bool(state.get(key))
+                               for key, _label in STEP_REQUIREMENTS["DONE"]},
+        "evidence_kind_source": kind_info.get("source"),
+        "unclassified_evidence": kind_info.get("unclassified", []),
+        # Pagar: aksi yang boleh dan alasan kenapa yang lain diblokir.
+        "allowed_actions": allowed,
+        "blocked_actions": blocked,
+        "denied_actions": list(BUYER_DECISION_ACTIONS),
+        # `DONE` tidak pernah otomatis: keputusan buyer bukan milik Sample PIC.
+        "done_requires_buyer_decision": True,
+        "done_owner": "CMO_MANAGER",
+    }
+
+
 def _access_contract():
-    """Batas akses yang berlaku untuk Sample PIC (SMP-F-002 & SMP-F-007)."""
     return {
         "role": "SAMPLE_PIC",
         "can": list(SAMPLE_WORK_ACTIONS),

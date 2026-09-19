@@ -367,18 +367,30 @@ def test_create_sample_task_is_persisted_with_prerequisites(sample_client, db, h
 
 
 def test_create_sample_task_not_duplicated_when_sample_request_exists(sample_client, db, headers):
-    """Begitu Sample Request ada, task CREATE_SAMPLE berhenti ditawarkan."""
+    """Begitu Sample Request ada, task CREATE_SAMPLE berhenti ditawarkan.
+
+    Baris task yang sudah dipersist TIDAK dihapus (itu jejak audit), tapi
+    `required_action` hilang dan tidak ada task CREATE_SAMPLE baru yang dibuat.
+    """
     order = make_order(db, "SO-PERSIST-2")
     article = make_article(db, order, "ART-PERSIST-2")
     sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC"))
-    assert db.query(m.SampleTask).count() == 1
+    create_tasks = db.query(m.SampleTask).filter(
+        m.SampleTask.required_action == "CREATE_SAMPLE").all()
+    assert len(create_tasks) == 1
 
     make_sample(db, order, "ART-PERSIST-2", article_id=article.id)
     data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
     row = next(r for r in data["tasks"] if r["article_code"] == "ART-PERSIST-2")
-    assert row["required_action"] is None and row["persistence"] is None
+    assert row["required_action"] is None
     assert data["create_sample_tasks"] == 0
-    assert db.query(m.SampleTask).count() == 1
+    # Tidak ada task CREATE_SAMPLE baru; baris lama tetap ada sebagai audit.
+    assert db.query(m.SampleTask).filter(
+        m.SampleTask.required_action == "CREATE_SAMPLE").count() == 1
+    # Sample yang sudah ada tetap punya baris task sendiri (jejak tahap kerja).
+    assert row["persistence"] == "PERSISTED"
+    own = db.query(m.SampleTask).filter(m.SampleTask.sample_fk.isnot(None)).all()
+    assert len(own) == 1 and own[0].sample_fk == row["sample_id"]
 
 
 # ─────────────────── exception terikat ke sample & versinya (#37) ───────────────────
@@ -624,6 +636,192 @@ def test_my_tasks_filters(sample_client, db, headers):
     filtered = sample_client.get(f"/api{PREFIX}/my-tasks?order_id=SO-FL-1", headers=auth).json()
     assert {r["order_id"] for r in filtered["tasks"]} == {"SO-FL-1"}
     assert filtered["total_rows"] == 1
+
+
+# ─────────────────── task lifecycle write (revisi #35) ───────────────────
+
+
+def test_task_lifecycle_records_timestamps_and_prerequisites(sample_client, db, headers):
+    """START → UPDATE → INSPECTION → SUBMIT_RESULT tercatat, tidak bisa dilewati."""
+    order = make_order(db, "SO-WRITE-1")
+    article = make_article(db, order, "ART-WRITE-1")
+    sample = make_sample(db, order, "ART-WRITE-1", article_id=article.id,
+                         submitted=True, evidence=("foto-progres.pdf",),
+                         evidence_kind="PROGRESS")
+
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    row = next(r for r in data["tasks"] if r["sample_id"] == sample.id)
+    task_id = row["task_db_id"]
+    assert task_id is not None, "task harus dipersist"
+
+    # SUBMIT_RESULT belum boleh: bukti inspeksi belum ada.
+    # (`evidence_result` baru wajib untuk DONE, dan DONE milik keputusan buyer.)
+    blocked = sample_client.post(f"/api{PREFIX}/tasks/{task_id}/actions",
+                                headers=headers("SAMPLE_PIC"),
+                                json={"action": "SUBMIT_RESULT"})
+    assert blocked.status_code == 409, blocked.text
+    assert "Prasyarat" in blocked.json()["detail"]["detail"]
+    keys = {b["requirement_key"] for b in blocked.json()["detail"]["blocked_by"]}
+    assert keys == {"evidence_inspection"}
+    assert blocked.json()["detail"]["stage"] == "OPEN"
+
+    # START boleh, dan jejak waktunya tersimpan.
+    started = sample_client.post(f"/api{PREFIX}/tasks/{task_id}/actions",
+                                 headers=headers("SAMPLE_PIC"), json={"action": "START"})
+    assert started.status_code == 200, started.text
+    assert started.json()["stage"] == "IN_PROGRESS"
+    assert started.json()["started_at"] is not None
+    task = db.get(m.SampleTask, task_id)
+    assert task.started_at is not None and task.stage == "IN_PROGRESS"
+
+    # Tambah bukti inspeksi + hasil (kind eksplisit) → SUBMIT_RESULT boleh.
+    for name, kind in (("IMG_9001.pdf", "INSPECTION"), ("IMG_9002.pdf", "RESULT")):
+        db.add(m.SampleEvidence(sample_fk=sample.id, file_name=name,
+                                file_mime="application/pdf", file_data=b"%PDF-1.4",
+                                uploaded_by_id=1, evidence_kind=kind))
+    db.commit()
+
+    submitted = sample_client.post(f"/api{PREFIX}/tasks/{task_id}/actions",
+                                   headers=headers("SAMPLE_PIC"), json={"action": "SUBMIT_RESULT"})
+    assert submitted.status_code == 200, submitted.text
+    body = submitted.json()
+    assert body["stage"] == "SUBMIT_RESULT"
+    assert body["submitted_at"] is not None
+    # Prasyarat tercatat kapan terpenuhi + bukti mana yang memenuhi.
+    by_key = {p["requirement_key"]: p for p in body["prerequisites"]}
+    assert by_key["evidence_inspection"]["satisfied"] is True
+    assert by_key["evidence_inspection"]["satisfied_at"] is not None
+    assert by_key["evidence_inspection"]["evidence_fk"] is not None
+    assert by_key["evidence_result"]["satisfied"] is True
+    # DONE tetap bukan milik Sample PIC: keputusan buyer yang menentukan.
+    assert body["done_requires_buyer_decision"] is True
+    assert body["done_owner"] == "CMO_MANAGER"
+
+    # Jejak audit transisinya ada, dengan stage lama → baru.
+    logs = task_audit(db, task_id)
+    assert any(entry["action"] == "TASK_START" and entry["new_status"] == "IN_PROGRESS"
+               for entry in logs), logs
+    assert any(entry["action"] == "TASK_SUBMIT_RESULT" for entry in logs)
+
+
+def task_audit(db, task_id):
+    rows = (db.query(m.AuditLog)
+            .filter(m.AuditLog.entity == "SampleTask", m.AuditLog.entity_id == task_id)
+            .order_by(m.AuditLog.id.asc()).all())
+    return [{"action": r.action, "previous_status": r.previous_status,
+             "new_status": r.new_status, "reason": r.reason,
+             "source_module": r.source_module} for r in rows]
+
+
+def test_task_actions_deny_buyer_decision_and_other_roles(sample_client, db, headers):
+    """SMP-F-002/#37: keputusan buyer & aksi lintas divisi ditolak server-side."""
+    order = make_order(db, "SO-WRITE-2")
+    article = make_article(db, order, "ART-WRITE-2")
+    sample = make_sample(db, order, "ART-WRITE-2", article_id=article.id,
+                         evidence=("foto-progres.pdf",))
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    task_id = next(r for r in data["tasks"] if r["sample_id"] == sample.id)["task_db_id"]
+
+    # Keputusan buyer lewat endpoint task → 403, dan status sample tidak berubah.
+    for action in ("BUYER_APPROVE", "BUYER_REJECT", "APPROVE", "REJECT"):
+        r = sample_client.post(f"/api{PREFIX}/tasks/{task_id}/actions",
+                               headers=headers("SAMPLE_PIC"), json={"action": action})
+        assert r.status_code == 403, (action, r.status_code)
+    # Aksi lintas divisi juga ditolak.
+    for action in ("RELEASE_SPK", "PURCHASE_ORDER", "GOODS_RECEIPT",
+                   "PRODUCTION_BULK", "EXCEPTION_RESOLVE"):
+        r = sample_client.post(f"/api{PREFIX}/tasks/{task_id}/actions",
+                               headers=headers("SAMPLE_PIC"), json={"action": action})
+        assert r.status_code == 403, (action, r.status_code)
+    db.refresh(sample)
+    assert sample.status == "PROCESS" and sample.customer_approved_by_id is None
+
+    # Peran di luar pemilik pekerjaan sample tidak boleh menulis task.
+    for role in ("CEO", "CMO_MANAGER", "COO_MANAGER", "CFO_MANAGER", "PRODUCTION_PIC"):
+        r = sample_client.post(f"/api{PREFIX}/tasks/{task_id}/actions",
+                               headers=headers(role), json={"action": "START"})
+        assert r.status_code == 403, (role, r.status_code)
+
+    # Aksi tidak dikenal → 422, bukan diam-diam diterima.
+    assert sample_client.post(f"/api{PREFIX}/tasks/{task_id}/actions",
+                              headers=headers("SAMPLE_PIC"),
+                              json={"action": "TELEPORT"}).status_code == 422
+
+
+def test_task_action_refused_when_buyer_already_decided(sample_client, db, headers):
+    """Versi yang sudah diputuskan buyer tidak boleh dilanjutkan — buat versi baru."""
+    order = make_order(db, "SO-WRITE-3")
+    article = make_article(db, order, "ART-WRITE-3")
+    sample = make_sample(db, order, "ART-WRITE-3", article_id=article.id,
+                         status="REJECTED", evidence=("foto-progres.pdf",))
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    task_id = next(r for r in data["tasks"] if r["sample_id"] == sample.id)["task_db_id"]
+
+    r = sample_client.post(f"/api{PREFIX}/tasks/{task_id}/actions",
+                           headers=headers("SAMPLE_PIC"), json={"action": "START"})
+    assert r.status_code == 409
+    assert "new version" in r.json()["detail"]
+
+
+def test_work_revision_requires_and_stores_reason(sample_client, db, headers):
+    """Revisi #34: alasan revisi tersimpan di task DAN di sample, bukan cuma audit."""
+    order = make_order(db, "SO-WRITE-4")
+    article = make_article(db, order, "ART-WRITE-4")
+    sample = make_sample(db, order, "ART-WRITE-4", article_id=article.id,
+                         evidence=("foto-progres.pdf",))
+    data = sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC")).json()
+    task_id = next(r for r in data["tasks"] if r["sample_id"] == sample.id)["task_db_id"]
+
+    assert sample_client.post(f"/api{PREFIX}/tasks/{task_id}/actions",
+                              headers=headers("SAMPLE_PIC"),
+                              json={"action": "WORK_REVISION"}).status_code == 422
+
+    ok = sample_client.post(f"/api{PREFIX}/tasks/{task_id}/actions",
+                            headers=headers("SAMPLE_PIC"),
+                            json={"action": "WORK_REVISION",
+                                  "reason": "Jahitan bagian kerah tidak rapi"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["stage"] == "WORK_REVISION"
+    assert ok.json()["bottleneck_reason"] == "Jahitan bagian kerah tidak rapi"
+    db.refresh(sample)
+    assert sample.revision_reason == "Jahitan bagian kerah tidak rapi"
+    audit = task_audit(db, task_id)
+    assert any(e["action"] == "TASK_WORK_REVISION"
+               and e["reason"] == "Jahitan bagian kerah tidak rapi"
+               and e["new_status"] == "WORK_REVISION" for e in audit)
+
+
+def test_task_actions_are_role_scoped_and_readable(sample_client, db, headers):
+    """`/api/sample/tasks` membaca TABEL (bukti persistensi), bukan hitung ulang."""
+    order = make_order(db, "SO-WRITE-5")
+    article = make_article(db, order, "ART-WRITE-5")
+    sample = make_sample(db, order, "ART-WRITE-5", article_id=article.id,
+                         evidence=("foto-progres.pdf",))
+    sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers("SAMPLE_PIC"))
+
+    assert sample_client.get(f"/api{PREFIX}/tasks").status_code == 401
+    for role in ("SAMPLE_PIC", "CMO_MANAGER", "CEO", "COO_MANAGER"):
+        assert sample_client.get(f"/api{PREFIX}/tasks", headers=headers(role)).status_code == 200
+    for role in ("CFO_MANAGER", "FINANCE_SUPPORT", "CHRO_MANAGER", "PRODUCTION_PIC",
+                 "PRINTING_PIC", "SHIPMENT_ADMIN", "HR_SUPPORT"):
+        assert sample_client.get(f"/api{PREFIX}/tasks", headers=headers(role)).status_code == 403
+
+    body = sample_client.get(f"/api{PREFIX}/tasks", headers=headers("SAMPLE_PIC")).json()
+    assert body["store"] == "sample_tasks"
+    row = next(r for r in body["rows"] if r["sample_fk"] == sample.id)
+    assert row["order_id"] == "SO-WRITE-5"
+    assert row["article_code"] == "ART-WRITE-5"
+    assert row["stage"] == "OPEN" and row["status"] == "OPEN"
+    assert row["sla_source"].startswith("Master")
+
+    # Detail satu task: pagar aksi ikut dilaporkan.
+    detail = sample_client.get(f"/api{PREFIX}/tasks/{row['task_db_id']}",
+                               headers=headers("SAMPLE_PIC")).json()
+    assert detail["task_db_id"] == row["task_db_id"]
+    assert set(detail["denied_actions"]) >= {"BUYER_APPROVE", "BUYER_REJECT"}
+    assert "SUBMIT_RESULT" in detail["blocked_actions"]
+    assert sample_client.get(f"/api{PREFIX}/tasks/999999",
+                             headers=headers("SAMPLE_PIC")).status_code == 404
 
 
 def test_summary_counts_match_rows(sample_client, db, headers):
