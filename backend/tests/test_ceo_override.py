@@ -13,6 +13,7 @@ dimigrasi (spesifikasi di REQUESTS/ceo_batch2.md). Karena itu tes ini:
 from datetime import date, timedelta
 
 import pytest
+from sqlalchemy import text as sa_text
 
 from app import models as m
 
@@ -112,13 +113,43 @@ def test_governance_contract_matches_blueprint(db, client, headers):
 
 
 def test_without_table_override_is_refused_not_silently_allowed(db, client, headers):
-    """Override tanpa jejak audit harus gagal keras (503), bukan lolos."""
-    response = client.post("/api/ceo/overrides", headers=headers("CEO"), json=PAYLOAD)
-    assert response.status_code == 503
-    assert "ceo_overrides" in response.json()["detail"]
+    """Override tanpa jejak audit harus gagal keras (503), bukan lolos.
+
+    Sejak migration `0025_ceo_overrides` mendarat, tabelnya ADA di skema normal —
+    jadi jalur 503 ini tidak lagi terjadi "karena belum migrasi". Supaya
+    perilaku pentingnya tetap terjaga, tabelnya dilepas dulu di tes ini dan
+    harus dikembalikan setelahnya; kalau tidak, tes ini akan lulus palsu.
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    present = "ceo_overrides" in sa_inspect(db.get_bind()).get_table_names()
+    if not present:
+        # Belum dimigrasi (mis. DB bersih tanpa migration): jalur 503 asli.
+        response = client.post("/api/ceo/overrides", headers=headers("CEO"), json=PAYLOAD)
+        assert response.status_code == 503
+        assert "ceo_overrides" in response.json()["detail"]
+        listing = client.get("/api/ceo/overrides", headers=headers("CEO")).json()
+        assert listing["migration_pending"] is True
+        return
+
+    # Tabel ada: buktikan dulu override BOLEH dibuat (bukan diblokir selamanya)...
+    created = client.post("/api/ceo/overrides", headers=headers("CEO"), json=PAYLOAD)
+    assert created.status_code == 201, created.text
     listing = client.get("/api/ceo/overrides", headers=headers("CEO")).json()
-    assert listing["items"] == []
-    assert listing["migration_pending"] is True
+    assert listing["migration_pending"] is False
+    assert len(listing["items"]) == 1
+
+    # ...lalu buktikan jalur "tabel hilang" tetap menolak keras, bukan meloloskan.
+    db.query(m.CEOOverride).delete()
+    db.commit()
+    db.execute(sa_text("DROP TABLE ceo_overrides"))
+    db.commit()
+    try:
+        blocked = client.post("/api/ceo/overrides", headers=headers("CEO"), json=PAYLOAD)
+        assert blocked.status_code == 503, blocked.text
+        assert "ceo_overrides" in blocked.json()["detail"]
+    finally:
+        m.CEOOverride.__table__.create(db.get_bind(), checkfirst=True)
 
 
 def test_full_lifecycle_request_decide_acknowledge_rollback(db, client, headers):

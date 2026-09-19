@@ -456,6 +456,51 @@ class PrintingDefectDisposition(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+class CEOOverride(Base):
+    """Registry override CEO yang terkontrol (revisi #74).
+
+    Sebelumnya override hanya "izin lisan": tidak ada jejak siapa meminta, apa
+    nilai asal vs usulannya, dan bagaimana membatalkannya. Baris di sini adalah
+    satu permintaan override lengkap dengan keputusan CEO, pengakuan penerima,
+    dan alasan rollback — bukan sekadar status.
+
+    Nilai `original_value`/`proposed_value` disimpan sebagai teks apa adanya
+    supaya bisa menampung tipe berbeda (angka, tanggal, string) tanpa menebak;
+    pembacanya yang menafsirkan sesuai `override_type`.
+    """
+    __tablename__ = "ceo_overrides"
+    id = Column(Integer, primary_key=True)
+    override_no = Column(String(40), unique=True, nullable=True)
+    # PRODUCTION_PRIORITY | PRICING_EXCEPTION | SHIPMENT_OUTSTANDING | PURCHASING_EXCEPTION
+    override_type = Column(String(40), nullable=False, index=True)
+    # REQUESTED | APPROVED | REJECTED | ROLLED_BACK
+    status = Column(String(24), default="REQUESTED", nullable=False, index=True)
+    source_module = Column(String(80), nullable=False)
+    source_entity = Column(String(80), nullable=False)
+    source_entity_id = Column(Integer, nullable=True, index=True)
+    affected_entity = Column(String(160), nullable=False)
+    original_value = Column(Text, nullable=False)
+    proposed_value = Column(Text, nullable=False)
+    requester_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reason = Column(Text, nullable=False)
+    impact = Column(Text, nullable=False)
+    evidence_ref = Column(Text, nullable=True)
+    scope = Column(String(300), nullable=False)
+    effective_from = Column(Date, nullable=False)
+    effective_to = Column(Date, nullable=True)
+    ceo_decision = Column(String(24), nullable=True)          # APPROVED | REJECTED
+    ceo_decision_reason = Column(Text, nullable=True)
+    ceo_decided_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    ceo_decided_at = Column(DateTime, nullable=True)
+    acknowledged_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    acknowledged_at = Column(DateTime, nullable=True)
+    rolled_back_at = Column(DateTime, nullable=True)
+    rollback_reason = Column(Text, nullable=True)
+    correction_note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class SPK(Base):
     __tablename__ = "spks"
     id = Column(Integer, primary_key=True)
