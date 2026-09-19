@@ -282,6 +282,11 @@ class Quotation(Base):
     currency = Column(String(8), default="IDR", nullable=False)
     sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Blueprint poin 3: halaman Pricing & Quotation punya kolom "Updated at".
+    # Tanpa kolom ini, UI hanya bisa menampilkan "—" (menggantinya dengan
+    # `created_at` akan menyesatkan karena labelnya "Updated").
+    updated_at = Column(DateTime, default=datetime.utcnow,
+                        onupdate=datetime.utcnow, nullable=False)
 
 class SampleRecord(Base):
     __tablename__ = "sample_records"

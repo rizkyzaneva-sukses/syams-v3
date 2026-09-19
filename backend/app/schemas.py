@@ -93,6 +93,10 @@ class OrderOut(BaseModel):
     articles: List[ArticleOut] = []
     created_by_id: Optional[int] = None
     created_at: Optional[datetime] = None
+    # Blueprint poin 3 mewajibkan `updated_at` di setiap baris antrean. Kolomnya
+    # sudah ada di DB (`orders.updated_at`, non-null) — sebelumnya hanya tidak
+    # ikut diserialisasi, sehingga kolom "Updated at" di OrderList selalu "—".
+    updated_at: Optional[datetime] = None
     class Config:
         from_attributes = True
 
