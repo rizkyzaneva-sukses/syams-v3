@@ -174,9 +174,12 @@ export default function RevisionPage(){
       </section>
 
       <section className="revision-feed" aria-labelledby="revision-feed-title">
-        <div className="revision-feed-head"><div><h2 id="revision-feed-title">Usulan dari semua user</h2><p>{items.length} usulan terbaru</p></div></div>
+        <div className="revision-feed-head"><div><h2 id="revision-feed-title">Usulan dari semua user</h2><p>{visible.length} usulan{statusFilter==='SEMUA'&&!query.trim()?' terbaru':` dari filter ${statusFilter==='SEMUA'?'Semua':statusLabels[statusFilter]}${query.trim()?' + pencarian':''}`}{hasMore&&statusFilter==='SEMUA'&&!query.trim()?` · ${items.length} dimuat`:''}</p></div></div>
         <div className="revision-status-filters" aria-label="Filter status revisi">
-          {statusFilters.map(status=><button type="button" key={status} className={statusFilter===status?'active':''} aria-pressed={statusFilter===status} onClick={()=>setStatusFilter(status)}>{status==='SEMUA'?'Semua':statusLabels[status]}</button>)}
+          {statusFilters.map(status=>{
+            const count=status==='SEMUA'?items.length:items.filter(item=>item.status===status).length;
+            return <button type="button" key={status} className={statusFilter===status?'active':''} aria-pressed={statusFilter===status} onClick={()=>setStatusFilter(status)}>{status==='SEMUA'?'Semua':statusLabels[status]} ({count})</button>;
+          })}
         </div>
         <div className="search-bar"><Search size={16}/><input aria-label="Cari usulan revisi" placeholder="Cari modul, bug, atau pelapor..." value={query} onChange={e=>setQuery(e.target.value)}/></div>
         {visible.map(item=><article key={item.id} className="revision-card">
