@@ -1001,27 +1001,187 @@ def delete_issue(iss_id:int, db:Session=Depends(get_db), user=Depends(require_ro
     x=get_or_404(db,models.EmployeeIssue,iss_id); info=x.issue_type; db.delete(x); commit_changes(db, user); return {"ok":True}
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CEO: DECISIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Revisi #72: keputusan CEO bertipe, bersumber jelas, dan melahirkan Action
+# Tracker yang bisa diverifikasi penyelesaiannya.
+DECISION_TYPES = {"OVERRIDE", "EXCEPTION_ESCALATION", "POLICY", "STRATEGIC", "COMMERCIAL"}
+DECISION_ACTIONS = {"APPROVE", "REJECT", "RETURN", "OVERRIDE"}
+
 class DecisionIn(BaseModel):
-    order_fk:Optional[int]=None; decision_type:str; subject:str; decision:Optional[str]=None; reason:Optional[str]=None; owner_name:Optional[str]=None; due_date:Optional[date]=None
+    order_fk:Optional[int]=None; decision_type:str; subject:str
+    decision:Optional[str]=None; reason:Optional[str]=None; owner_name:Optional[str]=None; due_date:Optional[date]=None
+    source_module:Optional[str]=None; source_entity:Optional[str]=None; source_entity_id:Optional[int]=None
+    requester_id:Optional[int]=None; context:Optional[str]=None; evidence_ref:Optional[str]=None
+    options:Optional[list[str]]=None; recommendation:Optional[str]=None
+    impact_financial:Optional[str]=None; impact_operational:Optional[str]=None
+    impact_customer:Optional[str]=None; impact_people:Optional[str]=None
+
+    @model_validator(mode="after")
+    def validate_type(self):
+        if self.decision_type not in DECISION_TYPES:
+            raise ValueError("Unknown decision type")
+        return self
 
 class DecisionUpdate(BaseModel):
-    decision_type:Optional[str]=None; subject:Optional[str]=None; decision:Optional[str]=None; reason:Optional[str]=None; owner_name:Optional[str]=None; due_date:Optional[date]=None; action_status:Optional[str]=None
+    decision_type:Optional[str]=None; subject:Optional[str]=None; decision:Optional[str]=None
+    reason:Optional[str]=None; owner_name:Optional[str]=None; due_date:Optional[date]=None
+    action_status:Optional[str]=None; decision_action:Optional[str]=None
+    context:Optional[str]=None; evidence_ref:Optional[str]=None
+    options:Optional[list[str]]=None; recommendation:Optional[str]=None
+    impact_financial:Optional[str]=None; impact_operational:Optional[str]=None
+    impact_customer:Optional[str]=None; impact_people:Optional[str]=None
+
+def decision_out(db, x):
+    owner = db.get(models.User, x.decision_owner_id) if x.decision_owner_id else None
+    requester = db.get(models.User, x.requester_id) if x.requester_id else None
+    actions = (db.query(models.CEOActionItem).filter_by(decision_fk=x.id)
+               .order_by(models.CEOActionItem.id).all())
+    return {
+        "id": x.id, "order_fk": x.order_fk, "decision_type": x.decision_type,
+        "subject": x.subject, "decision": x.decision, "reason": x.reason,
+        "owner_name": x.owner_name, "due_date": x.due_date,
+        "action_status": x.action_status,
+        "source_module": x.source_module, "source_entity": x.source_entity,
+        "source_entity_id": x.source_entity_id,
+        "requester": requester.name if requester else None,
+        "context": x.context, "evidence_ref": x.evidence_ref,
+        "options": json.loads(x.options_json or "[]"),
+        "recommendation": x.recommendation,
+        "impact_financial": x.impact_financial, "impact_operational": x.impact_operational,
+        "impact_customer": x.impact_customer, "impact_people": x.impact_people,
+        "decision_owner": owner.name if owner else None,
+        "decision_action": x.decision_action, "decided_at": x.decided_at,
+        "version": x.version, "created_at": x.created_at,
+        "actions": [action_out(db, a) for a in actions],
+    }
+
+def action_out(db, a):
+    owner = db.get(models.User, a.authorized_owner_id) if a.authorized_owner_id else None
+    return {
+        "id": a.id, "action_no": a.action_no, "decision_fk": a.decision_fk,
+        "title": a.title, "authorized_owner": owner.name if owner else None,
+        "authorized_owner_id": a.authorized_owner_id,
+        "due_date": a.due_date, "status": a.status, "next_follow_up": a.next_follow_up,
+        "completion_note": a.completion_note, "evidence_ref": a.evidence_ref,
+        "overdue_escalated": a.overdue_escalated, "escalated_at": a.escalated_at,
+        "completed_at": a.completed_at, "verified_at": a.verified_at,
+        "created_at": a.created_at,
+    }
 
 @router.get("/ceo/decisions")
 def decisions(db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CEO))):
-    return db.query(models.CEODecision).order_by(desc(models.CEODecision.id)).all()
+    rows = db.query(models.CEODecision).order_by(desc(models.CEODecision.id)).all()
+    return [decision_out(db, x) for x in rows]
 
 @router.post("/ceo/decisions")
 def create_decision(data:DecisionIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CEO))):
-    x=models.CEODecision(**data.model_dump()); db.add(x); commit_changes(db, user); db.refresh(x); return x
+    values = data.model_dump(exclude={"options"})
+    values["options_json"] = json.dumps(data.options or [], ensure_ascii=False)
+    # Keputusan tidak lagi dibuat manual tanpa sumber: harus ada entity asal.
+    if not (data.source_entity or "").strip():
+        raise HTTPException(400, "Decision requires a source entity to trace it back")
+    x=models.CEODecision(**values, decision_owner_id=user.id)
+    db.add(x)
+    log_audit(db, user, "CEO_DECISION_CREATE", "CEODecision", None, data.subject,
+              obj=x, source_module=data.source_module, new_status="OPEN",
+              reason=data.reason)
+    commit_changes(db, user); db.refresh(x); return decision_out(db, x)
 
 @router.patch("/ceo/decisions/{dec_id}")
 def update_decision(dec_id:int, data:DecisionUpdate, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CEO))):
-    return apply_update(get_or_404(db,models.CEODecision,dec_id,"Decision not found"), data, db, user)
+    x = get_or_404(db, models.CEODecision, dec_id, "Decision not found")
+    payload = data.model_dump(exclude_unset=True, exclude={"options"})
+    # Menjalankan keputusan wajib bertipe dan punya alasan yang dikirim BARENG
+    # aksinya. Alasan lama tidak boleh dipakai ulang: itu menjelaskan kenapa
+    # keputusan dibuat, bukan kenapa aksi ini diambil.
+    if "decision_action" in payload:
+        if payload["decision_action"] not in DECISION_ACTIONS:
+            raise HTTPException(400, "Unknown decision action")
+        if not (payload.get("reason") or "").strip():
+            raise HTTPException(400, "A decision action requires a written reason in the same request")
+        # Versi naik HANYA kalau aksinya benar-benar berubah, supaya percobaan
+        # yang ditolak tidak menaikkan versi keputusan.
+        changed = payload["decision_action"] != x.decision_action
+        x.decision_action = payload["decision_action"]
+        x.decided_at = datetime.utcnow()
+        if changed:
+            x.version = (x.version or 1) + 1
+        x.action_status = "DECIDED"
+        payload.pop("decision_action", None)
+    for key, value in payload.items():
+        setattr(x, key, value)
+    if data.options is not None:
+        x.options_json = json.dumps(data.options, ensure_ascii=False)
+    log_audit(db, user, "CEO_DECISION_UPDATE", "CEODecision", x.id, ", ".join(sorted(payload)) or None,
+              obj=x, new_status=x.action_status, reason=data.reason)
+    commit_changes(db, user); db.refresh(x); return decision_out(db, x)
+
+
+class ActionIn(BaseModel):
+    title: str = Field(min_length=3, max_length=300)
+    authorized_owner_id: int
+    due_date: Optional[date] = None
+
+class ActionUpdate(BaseModel):
+    title: Optional[str] = None
+    authorized_owner_id: Optional[int] = None
+    due_date: Optional[date] = None
+    next_follow_up: Optional[date] = None
+    status: Optional[str] = None
+    completion_note: Optional[str] = None
+    evidence_ref: Optional[str] = None
+
+@router.post("/ceo/decisions/{dec_id}/actions", status_code=201)
+def create_action(dec_id:int, data:ActionIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CEO))):
+    decision = get_or_404(db, models.CEODecision, dec_id, "Decision not found")
+    if db.get(models.User, data.authorized_owner_id) is None:
+        raise HTTPException(404, "Authorized owner not found")
+    x = models.CEOActionItem(decision_fk=decision.id, title=data.title.strip(),
+        authorized_owner_id=data.authorized_owner_id, due_date=data.due_date,
+        created_by_id=user.id)
+    db.add(x); db.flush()
+    x.action_no = f"ACT-{x.id:05d}"
+    log_audit(db, user, "CEO_ACTION_CREATE", "CEOActionItem", x.id, x.action_no,
+              obj=x, source_module="CEODecision", new_status="OPEN")
+    commit_changes(db, user); db.refresh(x); return action_out(db, x)
+
+@router.patch("/ceo/actions/{action_id}")
+def update_action(action_id:int, data:ActionUpdate, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CEO))):
+    x = get_or_404(db, models.CEOActionItem, action_id, "Action not found")
+    payload = data.model_dump(exclude_unset=True)
+    before = x.status
+    # Penyelesaian ditentukan bukti pelaksanaan, bukan status dropdown bebas.
+    if payload.get("status") == "DONE":
+        note = (payload.get("completion_note") or x.completion_note or "").strip()
+        if not note:
+            raise HTTPException(400, "Completing an action requires a completion note")
+        x.completion_note = note
+        x.completed_at = datetime.utcnow()
+        x.verified_by_id = user.id
+        x.verified_at = datetime.utcnow()
+    for key, value in payload.items():
+        setattr(x, key, value)
+    log_audit(db, user, "CEO_ACTION_UPDATE", "CEOActionItem", x.id, x.action_no,
+              obj=x, previous_status=before, new_status=x.status,
+              reason=data.completion_note)
+    commit_changes(db, user); db.refresh(x); return action_out(db, x)
+
+@router.get("/ceo/actions")
+def list_actions(db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CEO))):
+    """Action Tracker: keputusan yang belum dijalankan dan yang sudah lewat due."""
+    rows = db.query(models.CEOActionItem).order_by(models.CEOActionItem.due_date.asc().nullslast(),
+                                                  models.CEOActionItem.id).all()
+    today = date.today()
+    out = []
+    for a in rows:
+        item = action_out(db, a)
+        item["overdue"] = bool(a.due_date and a.due_date < today and a.status != "DONE")
+        out.append(item)
+    return out
 
 @router.delete("/ceo/decisions/{dec_id}")
 def delete_decision(dec_id:int, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CEO))):
-    x=get_or_404(db,models.CEODecision,dec_id); info=x.subject; db.delete(x); commit_changes(db, user); return {"ok":True}
+    # Revisi #72: tanpa hard delete — keputusan CEO adalah jejak governance.
+    raise HTTPException(405, "CEO decisions are never hard-deleted; return or reverse them explicitly")
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ EXCEPTIONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Revisi #73: exception bertipe dengan sumber, dampak, rekomendasi, dan alasan

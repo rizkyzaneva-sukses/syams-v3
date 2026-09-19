@@ -499,6 +499,54 @@ class CEODecision(Base):
     owner_name = Column(String(120), nullable=True)
     due_date = Column(Date, nullable=True)
     action_status = Column(String(32), default="OPEN", nullable=False)
+    # Revisi #72: keputusan harus bisa ditelusuri asalnya dan dijalankan.
+    # `decision_type`/`action_status`/`owner_name` tetap ada untuk kompatibilitas,
+    # tapi sekarang divalidasi terhadap daftar bertipe dan owner diambil dari user.
+    source_module = Column(String(80), nullable=True)
+    source_entity = Column(String(80), nullable=True)
+    source_entity_id = Column(Integer, nullable=True)
+    requester_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    context = Column(Text, nullable=True)
+    evidence_ref = Column(Text, nullable=True)
+    options_json = Column(Text, default="[]", nullable=False)
+    recommendation = Column(Text, nullable=True)
+    impact_financial = Column(Text, nullable=True)
+    impact_operational = Column(Text, nullable=True)
+    impact_customer = Column(Text, nullable=True)
+    impact_people = Column(Text, nullable=True)
+    decision_owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    decision_action = Column(String(32), nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    version = Column(Integer, default=1, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CEOActionItem(Base):
+    """Action Tracker (revisi #72).
+
+    Keputusan yang butuh pelaksanaan membuat Action ID tersendiri. Penyelesaian
+    ditentukan bukti pelaksanaan (`completion_note` + `verified_by`), bukan
+    sekadar mengganti dropdown status.
+    """
+    __tablename__ = "ceo_action_items"
+    id = Column(Integer, primary_key=True)
+    action_no = Column(String(40), nullable=True)
+    decision_fk = Column(Integer, ForeignKey("ceo_decisions.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(300), nullable=False)
+    authorized_owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    due_date = Column(Date, nullable=True)
+    status = Column(String(32), default="OPEN", nullable=False)
+    next_follow_up = Column(Date, nullable=True)
+    completion_note = Column(Text, nullable=True)
+    evidence_ref = Column(Text, nullable=True)
+    escalated_at = Column(DateTime, nullable=True)
+    overdue_escalated = Column(Boolean, default=False, nullable=False)
+    verified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    verified_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class SystemConfig(Base):
