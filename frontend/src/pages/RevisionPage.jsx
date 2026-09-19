@@ -20,7 +20,11 @@ export default function RevisionPage(){
   const [query,setQuery]=useState(''),[statusFilter,setStatusFilter]=useState('SEMUA');
   const [detail,setDetail]=useState(null),[detailImage,setDetailImage]=useState('');
   const [history,setHistory]=useState([]),[statusNote,setStatusNote]=useState(''),[actionError,setActionError]=useState(''),[updatingStatus,setUpdatingStatus]=useState(false);
+  const [operatorEdit,setOperatorEdit]=useState(null),[savingOperator,setSavingOperator]=useState(false);
   const [error,setError]=useState(''),[success,setSuccess]=useState(''),[saving,setSaving]=useState(false);
+  /* Hanya CEO yang boleh menetapkan operator; backend menegakkan hal yang sama. */
+  const [isCEO,setIsCEO]=useState(false);
+  useEffect(()=>{api('/auth/me').then(me=>setIsCEO(me?.role==='CEO')).catch(()=>setIsCEO(false))},[]);
 
   useEffect(()=>{
     let active=true;
@@ -86,7 +90,23 @@ export default function RevisionPage(){
     finally{setLoading(false)}
   }
 
-  function openDetail(item){setDetail(item);setHistory([]);setStatusNote('');setActionError('');}
+  function openDetail(item){setDetail(item);setHistory([]);setStatusNote('');setActionError('');setOperatorEdit(null);}
+
+  async function saveOperator(event){
+    event.preventDefault();
+    if(!detail)return;
+    setSavingOperator(true);setActionError('');
+    try{
+      const updated=await api(`/revisions/${detail.id}/operator`,{method:'PATCH',body:JSON.stringify({
+        operator:operatorEdit.trim()||null,expected_operator:detail.operator||null})});
+      setItems(current=>current.map(item=>item.id===updated.id?updated:item));
+      setDetail(updated);setOperatorEdit(null);
+      setSuccess(`Operator untuk usulan #${updated.id} disimpan: ${updated.operator||'dikosongkan'}.`);
+      try{setHistory(await api(`/revisions/${updated.id}/history`))}
+      catch(e){setActionError(`Operator tersimpan, tetapi riwayat gagal dimuat: ${e.message}`)}
+    }catch(e){setActionError(e.message)}
+    finally{setSavingOperator(false)}
+  }
 
   async function changeStatus(next){
     setActionError('');
@@ -183,7 +203,19 @@ export default function RevisionPage(){
         <div className="revision-card-operator">
           <span className="revision-operator-label">Operator</span>
           <span className={'revision-operator-value'+(detail.operator?'':' revision-operator-empty')}>{detail.operator||'Belum dicatat'}</span>
+          {isCEO&&<button type="button" className="btn sm revision-operator-edit" onClick={()=>{setOperatorEdit(detail.operator||'');setActionError('')}}>Ubah</button>}
         </div>
+        {operatorEdit!==null&&<form className="revision-operator-form" onSubmit={saveOperator}>
+          <label><span>Siapa yang mengerjakan revisi ini?</span>
+            <input list="revision-operator-options" maxLength={64} value={operatorEdit}
+              onChange={e=>setOperatorEdit(e.target.value)} placeholder="Contoh: Hermes, GPT, Claude"/>
+          </label>
+          <small className="revision-field-hint">Isi setelah perbaikan benar-benar dikerjakan, supaya jelas siapa yang bertanggung jawab.</small>
+          <div className="revision-status-buttons">
+            <button type="submit" className="btn primary" disabled={savingOperator}>{savingOperator?'Menyimpan...':'Simpan operator'}</button>
+            <button type="button" className="btn" disabled={savingOperator} onClick={()=>{setOperatorEdit(null);setActionError('')}}>Batal</button>
+          </div>
+        </form>}
         <h3>Bug</h3><p>{detail.bug_description}</p><h3>Harusnya seperti apa</h3><p>{detail.expected_behavior}</p>{detail.has_image&&<><h3>Gambar pendukung</h3>{detailImage?<img className="revision-detail-image" src={detailImage} alt={`Gambar pendukung untuk ${detail.module_name}`}/>:<p>Memuat gambar...</p>}</>}
         <h3>Riwayat status</h3>
         <div className="revision-history"><div><b>Revisi</b><small>Usulan dibuat · {formatDate(detail.created_at)}</small>{detail.operator&&<p>Operator: {detail.operator}</p>}</div>{history.map((event,index)=><div key={index}><b>{statusLabels[event.to_status]}</b><small>{event.changed_by_name} · {formatDate(event.created_at)}</small>{event.operator&&<small>Operator: {event.operator}</small>}{event.note&&<p>{event.note}</p>}</div>)}</div>
