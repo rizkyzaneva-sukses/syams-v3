@@ -165,23 +165,25 @@ print("  + Material Request: Kain Katun Drill Nagata 1200 meter")
 # 7. CEO — IYAN (Decisions & Action Tracker)
 print("\n[7/7] CEO — Iyan")
 s, dec = call("ceo", "POST", "/ceo/decisions", {
-    "title": "Persetujuan Penambahan Shift Lembur Produksi",
-    "decision_type": "CAPACITY_OVERRIDE",
-    "order_fk": 1,
-    "severity": "MEDIUM",
-    "notes": "Penambahan shift malam 4 jam untuk mengejar target shipment Sakura Garment",
-    "status": "PENDING"
+    "subject": "Persetujuan Penambahan Shift Lembur Produksi",
+    "decision_type": "OVERRIDE",
+    "order_fk": 2,
+    "source_entity": "Order",
+    "source_entity_id": 2,
+    "source_module": "PRODUKSI",
+    "reason": "Penambahan shift malam 4 jam untuk mengejar target shipment Sakura Garment",
+    "recommendation": "Lembur disetujui untuk 2 hari kerja"
 })
-print("  + Decision Needed: Lembur Produksi Sakura Garment")
-
-s, exc = call("ceo", "POST", "/exceptions", {
-    "title": "Keterlambatan Pengiriman Kancing dari Supplier",
-    "domain": "MATERIAL",
-    "severity": "HIGH",
-    "status": "OPEN",
-    "order_fk": 1,
-    "description": "Supplier bahan kancing terlambat 2 hari, perlu alternatif lokal"
-})
-print("  + Exception Center: Keterlambatan Kancing Supplier")
+if s in (200, 201) and isinstance(dec, dict) and "id" in dec:
+    print("  + Decision Needed: Lembur Produksi Sakura Garment")
+    s2, act = call("ceo", "POST", f"/ceo/decisions/{dec['id']}/actions", {
+        "title": "Koordinasi Jadwal Shift Lembur dengan Supervisor Sewing",
+        "authorized_owner_id": 3,
+        "due_date": str(today + timedelta(days=5))
+    })
+    if s2 in (200, 201):
+        print(f"  + CEO Action Item: {act.get('action_no')}")
+else:
+    print(f"  = Decision: {dec}")
 
 print("\n=== SEMUA DUMMY DATA LENGKAP TELAH TERSIMPAN DI 7 PERAN! ===")

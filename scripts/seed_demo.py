@@ -10,6 +10,7 @@ import sys
 import os
 import urllib.error
 import urllib.request
+from uuid import uuid4
 from datetime import date, timedelta
 
 BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
@@ -65,6 +66,25 @@ def ensure(label, account, path, payload, key, existing_path=None):
     return None
 
 
+def upload_po_doc(account, po_id, filename, document=b"%PDF-1.4\nPO Demo Intake\n"):
+    boundary = "----BOSSYAMS" + uuid4().hex
+    body = (f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="document"; filename="{filename}"\r\n'
+            "Content-Type: application/pdf\r\n\r\n").encode() + document + f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(f"{BASE}/api/cmo/po-intake/{po_id}/document", data=body, method="POST",
+                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
+                                          "Authorization": f"Bearer {login(account)}"})
+    try:
+        with urllib.request.urlopen(req, context=CTX) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        try:
+            return exc.code, json.loads(raw)
+        except Exception:
+            return exc.code, raw.decode()[:200]
+
+
 today = date.today()
 
 CUSTOMERS = [
@@ -84,30 +104,35 @@ ORDERS = [
      "notes": "Koleksi kemeja formal musim kantor.",
      "articles": [
          {"article_code": "NA-SHIRT-01", "garment_type": "Kemeja Formal", "qty": 1200,
-          "size_breakdown": "S:200, M:400, L:400, XL:200", "sample_required": True},
+          "size_breakdown": "S:200, M:400, L:400, XL:200", "sample_required": True,
+          "production_route": "Cutting > Sewing > Finishing > QC"},
          {"article_code": "NA-SHIRT-02", "garment_type": "Kemeja Casual", "qty": 800,
-          "size_breakdown": "M:300, L:300, XL:200", "sample_required": True},
+          "size_breakdown": "M:300, L:300, XL:200", "sample_required": True,
+          "production_route": "Cutting > Sewing > QC"},
      ]},
     {"buyer": "Sakura Garment Co.", "order_type": "SAMPLE_ONLY",
      "buyer_deadline": str(today + timedelta(days=30)),
      "notes": "Sample approval dulu sebelum bulk.",
      "articles": [
          {"article_code": "SK-JKT-01", "garment_type": "Jaket Bomber", "qty": 50,
-          "size_breakdown": "M:20, L:20, XL:10", "sample_required": True},
+          "size_breakdown": "M:20, L:20, XL:10", "sample_required": True,
+          "production_route": "Cutting > Embroidery > Sewing > QC"},
      ]},
     {"buyer": "Lembah Hijau Uniform", "order_type": "REPEAT_PRODUCTION",
      "buyer_deadline": str(today + timedelta(days=60)),
      "notes": "Repeat seragam, pola sama seperti batch sebelumnya.",
      "articles": [
          {"article_code": "LH-UNI-01", "garment_type": "Seragam Kerja", "qty": 2000,
-          "size_breakdown": "S:400, M:700, L:600, XL:300", "sample_required": False},
+          "size_breakdown": "S:400, M:700, L:600, XL:300", "sample_required": False,
+          "production_route": "Cutting > Printing > Sewing > QC"},
      ]},
     {"buyer": "Atlas Sportswear Ltd", "order_type": "REPEAT_PRODUCTION",
      "buyer_deadline": str(today + timedelta(days=75)),
      "notes": "Kaos olahraga, bahan dryfit.",
      "articles": [
          {"article_code": "AT-TEE-01", "garment_type": "Kaos Olahraga", "qty": 3000,
-          "size_breakdown": "S:600, M:1000, L:900, XL:500", "sample_required": False},
+          "size_breakdown": "S:600, M:1000, L:900, XL:500", "sample_required": False,
+          "production_route": "Cutting > Printing > Sewing > QC"},
      ]},
 ]
 
@@ -120,21 +145,41 @@ def main():
     status, customers = call("cmo.manager", "GET", "/cmo/customers")
     by_name = {c["name"]: c["id"] for c in customers} if status == 200 else {}
 
-    print("\n2) Orders + Articles (CMO Manager)")
+    print("\n2) Orders + Articles (PO Intake Deby -> Review Cecep)")
     status, existing = call("cmo.manager", "GET", "/orders")
     existing_buyers = {o["buyer"] for o in existing} if status == 200 else set()
-    for o in ORDERS:
+    for idx, o in enumerate(ORDERS, start=1):
         if o["buyer"] in existing_buyers:
             print(f"  = Order: {o['buyer']} (sudah ada)")
             continue
-        payload = dict(o)
+        
+        po_num = f"PO-{o['buyer'][:6].upper().replace(' ', '')}-{today.strftime('%m%d')}-{idx:02d}"
+        po_payload = {
+            "po_number": po_num,
+            "buyer": o["buyer"],
+            "order_type": o["order_type"],
+            "buyer_deadline": o["buyer_deadline"],
+            "notes": o["notes"],
+            "articles": o["articles"]
+        }
         if o["buyer"] in by_name:
-            payload["customer_id"] = by_name[o["buyer"]]
-        status, body = call("cmo.manager", "POST", "/orders", payload)
-        if status in (200, 201):
-            print(f"  + Order: {body.get('order_id')} — {o['buyer']} ({o['order_type']})")
+            po_payload["customer_id"] = by_name[o["buyer"]]
+
+        s, po_resp = call("cmo.support", "POST", "/cmo/po-intake", po_payload)
+        if s in (200, 201) and isinstance(po_resp, dict) and "id" in po_resp:
+            poid = po_resp["id"]
+            upload_po_doc("cmo.support", poid, f"{po_num}.pdf")
+            call("cmo.support", "POST", f"/cmo/po-intake/{poid}/check")
+            call("cmo.support", "POST", f"/cmo/po-intake/{poid}/submit")
+            s_rev, accepted = call("cmo.manager", "POST", f"/cmo/po-intake/{poid}/review",
+                                   {"action": "ACCEPT", "note": "PO demo disetujui untuk penjadwalan"})
+            if s_rev in (200, 201):
+                order_code = accepted.get("order_id", f"ID-{accepted.get('order_pk')}") if isinstance(accepted, dict) else "OK"
+                print(f"  + Order Aktif: {order_code} — {o['buyer']} ({o['order_type']})")
+            else:
+                print(f"  ! Review PO: {po_num} -> HTTP {s_rev} {accepted}")
         else:
-            print(f"  ! Order: {o['buyer']} -> HTTP {status} {body}")
+            print(f"  ! PO Intake: {o['buyer']} -> HTTP {s} {po_resp}")
 
     print("\n3) Employees (CHRO Manager)")
     employees = [
@@ -146,6 +191,10 @@ def main():
          "position": "QC Inspector", "employment_status": "ACTIVE"},
         {"employee_no": "EMP-004", "name": "Dewi Lestari", "division": "Logistik",
          "position": "Admin Gudang", "employment_status": "ACTIVE"},
+        {"employee_no": "EMP-005", "name": "Iman Sulaiman", "division": "Printing",
+         "position": "Operator Sablon", "employment_status": "ACTIVE"},
+        {"employee_no": "EMP-006", "name": "Fahrul Rozi", "division": "Sample",
+         "position": "Sample Maker", "employment_status": "ACTIVE"},
     ]
     for e in employees:
         ensure("Employee", "chro.manager", "/chro/employees", e, "employee_no")

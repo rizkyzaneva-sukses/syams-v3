@@ -1,10 +1,15 @@
 import sys
+import os
+import ssl
 import json
 import urllib.request
 import urllib.error
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 PASSWORD = "demo123456789"
+CTX = ssl.create_default_context()
+CTX.check_hostname = False
+CTX.verify_mode = ssl.CERT_NONE
 
 ROLES = [
     ("CEO", "ceo@syams.local"),
@@ -30,7 +35,7 @@ def req(path, method="GET", body=None, token=None):
     data = json.dumps(body).encode() if body else None
     r = urllib.request.Request(f"{BASE}{path}", data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(r) as resp:
+        with urllib.request.urlopen(r, context=CTX) as resp:
             content = resp.read()
             return resp.status, json.loads(content) if content else {}
     except urllib.error.HTTPError as e:

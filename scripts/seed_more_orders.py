@@ -1,9 +1,10 @@
+import os
 import urllib.request
 import json
 from uuid import uuid4
 from datetime import date, timedelta
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 today = date.today()
 
 def login(acc):
