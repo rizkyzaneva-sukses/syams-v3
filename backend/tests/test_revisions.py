@@ -116,3 +116,32 @@ def test_only_reporter_or_ceo_can_review_check_result(client, headers):
     solved = client.patch(path, headers=headers("CEO"), json={
         "expected_status": "CHECK", "status": "SOLVED", "note": "Sesuai."})
     assert solved.status_code == 200
+
+
+def test_title_update_and_recheck_title_on_status_change(client, headers):
+    created = client.post("/api/revisions", headers=headers("CMO_SUPPORT"), data={
+        "module_name": "CMO Support - Test",
+        "bug_description": "Bug description",
+        "expected_behavior": "Expected behavior",
+        "owner_role": "CMO_SUPPORT",
+    })
+    assert created.status_code == 201
+    prop_id = created.json()["id"]
+
+    # 1. Update title directly
+    title_res = client.patch(f"/api/revisions/{prop_id}/title", headers=headers("CMO_SUPPORT"), json={
+        "module_name": "#RECHECK1 CMO Support - Test"
+    })
+    assert title_res.status_code == 200
+    assert title_res.json()["module_name"] == "#RECHECK1 CMO Support - Test"
+
+    # 2. Update status to CHECK with module_name
+    status_res = client.patch(f"/api/revisions/{prop_id}/status", headers=headers("CMO_SUPPORT"), json={
+        "expected_status": "REVISI",
+        "status": "CHECK",
+        "note": "Perbaikan selesai",
+        "module_name": "#RECHECK12 CMO Support - Test"
+    })
+    assert status_res.status_code == 200
+    assert status_res.json()["status"] == "CHECK"
+    assert status_res.json()["module_name"] == "#RECHECK12 CMO Support - Test"

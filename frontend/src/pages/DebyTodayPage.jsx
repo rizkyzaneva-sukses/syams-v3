@@ -24,7 +24,7 @@ function Section({queue}){
       </tr></thead>
       <tbody>{rows.map(r=><tr key={r.task_id}>
         <td><b>{r.task_id}</b></td>
-        <td>{r.buyer||'—'}</td>
+        <td>{r.buyer?<Link to="/cmo/buyer-crm">{r.buyer}</Link>:'—'}</td>
         <td>{r.order_id?<Link to={'/orders/'+r.order_id}>{r.order_id}</Link>:'—'}</td>
         <td>{r.article_code||'—'}</td>
         <td><span className="badge blue">{r.decision_type}</span></td>

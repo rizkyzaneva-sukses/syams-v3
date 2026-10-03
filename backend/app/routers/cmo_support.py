@@ -145,7 +145,7 @@ def deby_today(db: Session = Depends(get_db), user=Depends(get_current_user)):
             action=("Unggah foto/PDF bukti Sample/PPM" if not evidence
                     else "Menunggu keputusan Cecep"),
             owner="CMO_SUPPORT" if not evidence else "CMO_MANAGER",
-            due=sample.completed_date, source="Bukti Sample/PPM",
+            due=(sample.requested_date or (order.buyer_deadline if order else None) or (order.projected_shipment if order else None) or sample.completed_date), source="Bukti Sample/PPM",
             handoff="Cecep catat keputusan buyer → SPK",
             updated=sample.created_at))
     queues.append({"key": "SAMPLE_EVIDENCE", "label": "Bukti Sample/PPM belum lengkap",

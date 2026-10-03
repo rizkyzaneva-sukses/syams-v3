@@ -12,7 +12,7 @@ export default function TaskPage(){
   const [q,setQ]=useState(''),[filterStatus,setFilterStatus]=useState('');
   const [form,setForm]=useState(null),[saving,setSaving]=useState(false);
 
-  const isPIC=me && ['SAMPLE_PIC','PRINTING_PIC','PRODUCTION_PIC','SHIPMENT_ADMIN'].includes(me.role);
+  const isPIC=me && ['CMO_SUPPORT','SAMPLE_PIC','PRINTING_PIC','PRODUCTION_PIC','SHIPMENT_ADMIN'].includes(me.role);
 
   function load(){
     // PIC-level roles are not allowed to read the user directory, and HR roles
@@ -67,7 +67,7 @@ export default function TaskPage(){
   function orderLabel(id){const o=orders.find(o=>o.id===id);return o?.order_id||''}
 
   return <div className="page">
-    <div className="page-title"><div><h1>{isPIC?'My Tasks':'Task Management'}</h1><p>{openCount} open • {progressCount} in progress{isPIC?' (tugas saya saja)':''}</p></div>
+    <div className="page-title"><div><h1>{me?.role==='CMO_SUPPORT'?'Tugas Saya':isPIC?'My Tasks':'Task Management'}</h1><p>{openCount} open • {progressCount} in progress{isPIC?' (tugas saya saja)':''}</p></div>
       {!isPIC && <button className="btn primary" onClick={()=>setForm({...empty})}><Plus size={16}/> Tambah Task</button>}</div>
     {err&&<div className="notice danger">{err}</div>}
 

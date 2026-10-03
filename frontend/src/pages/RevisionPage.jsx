@@ -21,6 +21,7 @@ export default function RevisionPage(){
   const [detail,setDetail]=useState(null),[detailImage,setDetailImage]=useState('');
   const [history,setHistory]=useState([]),[statusNote,setStatusNote]=useState(''),[actionError,setActionError]=useState(''),[updatingStatus,setUpdatingStatus]=useState(false);
   const [operatorEdit,setOperatorEdit]=useState(null),[savingOperator,setSavingOperator]=useState(false);
+  const [titleEdit,setTitleEdit]=useState(null),[savingTitle,setSavingTitle]=useState(false);
   const [error,setError]=useState(''),[success,setSuccess]=useState(''),[saving,setSaving]=useState(false);
   /* Hanya CEO yang boleh menetapkan operator; backend menegakkan hal yang sama. */
   const [isCEO,setIsCEO]=useState(false);
@@ -90,7 +91,7 @@ export default function RevisionPage(){
     finally{setLoading(false)}
   }
 
-  function openDetail(item){setDetail(item);setHistory([]);setStatusNote('');setActionError('');setOperatorEdit(null);}
+  function openDetail(item){setDetail(item);setHistory([]);setStatusNote('');setActionError('');setOperatorEdit(null);setTitleEdit(null);}
 
   async function saveOperator(event){
     event.preventDefault();
@@ -108,14 +109,42 @@ export default function RevisionPage(){
     finally{setSavingOperator(false)}
   }
 
+  function computeRecheckTitle(title) {
+    const match = (title||'').match(/^#RECHECK(\d+)\s*(.*)$/);
+    if (match) {
+      const digits = match[1];
+      const rest = match[2];
+      const nextDigits = digits + (digits.length + 1);
+      return `#RECHECK${nextDigits} ${rest}`;
+    }
+    return `#RECHECK1 ${title}`;
+  }
+
+  async function saveTitle(event){
+    event.preventDefault();
+    if(!detail||!titleEdit?.trim()) return;
+    setSavingTitle(true);setActionError('');
+    try{
+      const updated=await api(`/revisions/${detail.id}/title`,{method:'PATCH',body:JSON.stringify({module_name:titleEdit.trim()})});
+      setItems(current=>current.map(item=>item.id===updated.id?updated:item));
+      setDetail(updated);setTitleEdit(null);
+      setSuccess(`Judul usulan #${updated.id} berhasil diperbarui.`);
+      try{setHistory(await api(`/revisions/${updated.id}/history`))}catch{}
+    }catch(e){setActionError(e.message)}
+    finally{setSavingTitle(false)}
+  }
+
   async function changeStatus(next){
     setActionError('');
     if(['CHECK','TINJAU_ULANG'].includes(next)&&!statusNote.trim()){
       setActionError(next==='CHECK'?'Tuliskan perbaikan yang perlu diperiksa tim.':'Tuliskan hal yang masih perlu diperbaiki.');return;
     }
     setUpdatingStatus(true);
+    const updatedTitle = (next === 'CHECK' && ['TINJAU_ULANG', 'REVISI'].includes(detail.status))
+      ? computeRecheckTitle(detail.module_name)
+      : undefined;
     try{
-      const updated=await api(`/revisions/${detail.id}/status`,{method:'PATCH',body:JSON.stringify({expected_status:detail.status,status:next,note:statusNote.trim()})});
+      const updated=await api(`/revisions/${detail.id}/status`,{method:'PATCH',body:JSON.stringify({expected_status:detail.status,status:next,note:statusNote.trim(),module_name:updatedTitle})});
       setItems(current=>current.map(item=>item.id===updated.id?updated:item));
       setDetail(updated);setStatusNote('');
       try{setHistory(await api(`/revisions/${updated.id}/history`));}
@@ -200,7 +229,21 @@ export default function RevisionPage(){
     </div>
 
     {detail&&<div className="modal-bg" onClick={()=>setDetail(null)}><div className="modal revision-modal" role="dialog" aria-modal="true" aria-labelledby="revision-detail-title" onClick={e=>e.stopPropagation()}>
-      <div className="modal-head"><h2 id="revision-detail-title">{detail.module_name}</h2><button className="icon-btn" type="button" aria-label="Tutup detail" onClick={()=>setDetail(null)}><X size={18}/></button></div>
+      <div className="modal-head">
+        {titleEdit!==null?(
+          <form className="revision-title-form" style={{display:'flex',gap:8,flex:1,marginRight:8}} onSubmit={saveTitle}>
+            <input style={{flex:1,padding:'4px 8px'}} maxLength={120} value={titleEdit} onChange={e=>setTitleEdit(e.target.value)} required/>
+            <button type="submit" className="btn sm primary" disabled={savingTitle}>{savingTitle?'...':'Simpan'}</button>
+            <button type="button" className="btn sm" disabled={savingTitle} onClick={()=>setTitleEdit(null)}>Batal</button>
+          </form>
+        ):(
+          <div style={{display:'flex',alignItems:'center',gap:8,flex:1}}>
+            <h2 id="revision-detail-title" style={{margin:0}}>{detail.module_name}</h2>
+            <button type="button" className="btn sm" style={{padding:'2px 8px',fontSize:12}} onClick={()=>setTitleEdit(detail.module_name)}>Ubah Judul</button>
+          </div>
+        )}
+        <button className="icon-btn" type="button" aria-label="Tutup detail" onClick={()=>setDetail(null)}><X size={18}/></button>
+      </div>
       <div className="revision-modal-body"><p className="revision-card-meta">Dikirim oleh {detail.reported_by_name} · {formatDate(detail.created_at)} · Owner: {ownerLabels[detail.owner_role]||detail.owner_role||'Belum ditentukan'}</p>
         <span className={`revision-status revision-status-${detail.status?.toLowerCase()}`}>{statusLabels[detail.status]||detail.status}</span>
         <div className="revision-card-operator">

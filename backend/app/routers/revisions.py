@@ -19,6 +19,7 @@ class StatusChange(BaseModel):
     note: str = ""
     # Who or what is making this change — "Hermes", "GPT", "Claude", a human name.
     operator: str | None = None
+    module_name: str | None = None
 
 
 class OperatorAssign(BaseModel):
@@ -154,6 +155,10 @@ def change_revision_status(proposal_id: int, payload: StatusChange,
         raise HTTPException(422, "Catatan wajib diisi untuk tahap ini.")
     previous = proposal.status
     proposal.status = payload.status
+    if payload.module_name:
+        mod_name = payload.module_name.strip()[:120]
+        if mod_name:
+            proposal.module_name = mod_name
     proposal.status_note = note or None
     proposal.status_updated_at = datetime.utcnow()
     proposal.status_updated_by_id = user.id
@@ -163,6 +168,34 @@ def change_revision_status(proposal_id: int, payload: StatusChange,
                                changed_by_id=user.id, operator=event_operator))
     log_audit(db, user, "STATUS_CHANGE", "RevisionProposal", proposal.id,
               f"{previous} -> {proposal.status}: {note} | operator={event_operator or '-'}")
+    db.commit()
+    db.refresh(proposal)
+    reporter = db.get(User, proposal.reported_by_id)
+    return proposal_out(proposal, reporter.name, user)
+
+
+class TitleUpdate(BaseModel):
+    module_name: str
+
+
+@router.patch("/{proposal_id}/title")
+def update_revision_title(proposal_id: int, payload: TitleUpdate,
+                          db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    proposal = (db.query(RevisionProposal).filter(RevisionProposal.id == proposal_id)
+                .with_for_update().one_or_none())
+    if proposal is None:
+        raise HTTPException(404, "Usulan revisi tidak ditemukan.")
+    name = payload.module_name.strip()[:120]
+    if not name:
+        raise HTTPException(422, "Judul modul wajib diisi.")
+    previous = proposal.module_name
+    proposal.module_name = name
+    db.add(RevisionStatusEvent(
+        proposal_id=proposal.id, from_status=proposal.status, to_status=proposal.status,
+        note=f"Judul diubah: {previous} -> {name}",
+        changed_by_id=user.id, operator=proposal.operator))
+    log_audit(db, user, "TITLE_UPDATE", "RevisionProposal", proposal.id,
+              f"title: {previous} -> {name}")
     db.commit()
     db.refresh(proposal)
     reporter = db.get(User, proposal.reported_by_id)
