@@ -11,7 +11,7 @@ const routeRoles={
   '/coo/qc':['COO_MANAGER','PRODUCTION_PIC'],'/coo/planning':['COO_MANAGER'],'/coo/deliveries':['CMO_MANAGER',...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN'],
   '/coo/closing':['CMO_MANAGER','CFO_MANAGER','COO_MANAGER'], '/chro':groups.hr,'/chro/employees':groups.hr,'/chro/training':groups.hr,
   '/chro/performance':['CHRO_MANAGER'],'/chro/issues':['CHRO_MANAGER'],'/ceo':['CEO'],'/ceo/decisions':['CEO'],'/ceo/business-policy':['CEO'],
-  '/ceo/company-performance':['CEO'],'/ceo/overrides':['CEO'],'/audit-log':['CEO'],
+  '/ceo/company-performance':['CEO','CFO_MANAGER'],'/ceo/overrides':['CEO'],'/audit-log':['CEO'],
   // Registrations added because an unlisted path used to fall through to
   // `return true` in canAccess, letting every role open these pages.
   '/panduan':['CEO',...groups.cmo,...groups.cfo,...groups.coo,...groups.hr,'SAMPLE_PIC','PRINTING_PIC','PRODUCTION_PIC'],

@@ -865,3 +865,4 @@ def operational_cost(
             {**row, "amount": _num(row["amount"])} for row in ledger
         ],
     }
+

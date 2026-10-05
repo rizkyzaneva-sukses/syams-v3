@@ -1,4 +1,5 @@
 import React,{useEffect,useState} from 'react';
+import {useOutletContext} from 'react-router-dom';
 import {api} from '../api';
 import {Plus,Edit2,Trash2,X,Check,Search,CheckSquare} from 'lucide-react';
 
@@ -54,12 +55,38 @@ export default function PurchaseOrderPage(){
     }catch(x){alert(x.message)}
   }
 
+  const outletCtx = useOutletContext?.();
+  const role = outletCtx?.me?.role;
+  const isCFO = ['CFO_MANAGER', 'FINANCE_SUPPORT'].includes(role);
+
+  async function approveBudget(id){
+    if(!confirm('Setujui anggaran untuk Purchase Order ini (Finance Approval)?')) return;
+    try{
+      await api('/cfo/purchase-orders/'+id,{method:'PATCH',body:JSON.stringify({status:'ORDERED'})});
+      load();
+    }catch(x){alert(x.message)}
+  }
+
+  async function voidPO(id){
+    const reason = prompt('Masukkan alasan pembatalan/void Purchase Order:');
+    if(!reason) return;
+    try{
+      await api('/cfo/purchase-orders/'+id,{method:'PATCH',body:JSON.stringify({status:'CANCELLED'})});
+      load();
+    }catch(x){alert(x.message)}
+  }
+
   const f2=filtered();
   function orderLabel(id){const o=orders.find(o=>o.id===id);return o?o.order_id:'-'}
 
   return <div className="page">
-    <div className="page-title"><div><h1>Purchase Orders</h1><p>{list.length} total PO</p></div>
-      <button className="btn primary" onClick={()=>setForm({...empty})}><Plus size={16}/> PO Baru</button></div>
+    <div className="page-title">
+      <div>
+        <h1>Purchase Orders</h1>
+        <p>{isCFO ? 'Kontrol finansial & komitmen anggaran CFO. Pembuatan PO & GR dieksekusi Riadi di /purchasing.' : `${list.length} total PO`}</p>
+      </div>
+      {!isCFO&&<button className="btn primary" onClick={()=>setForm({...empty})}><Plus size={16}/> PO Baru</button>}
+    </div>
     {err&&<div className="notice danger">{err}</div>}
     <div className="filter-bar">
       <div className="search-bar"><Search size={16}/><input placeholder="Cari PO no, item, supplier..." value={q} onChange={e=>setQ(e.target.value)}/></div>
@@ -73,9 +100,19 @@ export default function PurchaseOrderPage(){
       <td><span className={'badge '+(m.material_status==='READY'?'green':m.material_status==='PARTIAL'?'amber':'gray')}>{m.material_status||'WAITING'}</span></td>
       <td>{m.arrival_date||'-'}</td>
       <td className="td-action">
-        {m.material_status!=='READY'&&m.status!=='CANCELLED'&&<button className="icon-btn" style={{color:'#16a34a'}} onClick={()=>markReceived(m.id)} title="Mark Received"><CheckSquare size={15}/></button>}
-        <button className="icon-btn" onClick={()=>setForm({...m,qty:m.qty,amount:m.amount,order_fk:m.order_fk||'',material_status:m.material_status||'WAITING',arrival_date:m.arrival_date||''})} title="Edit"><Edit2 size={15}/></button>
-        <button className="icon-btn danger" onClick={()=>del(m.id)} title="Hapus"><Trash2 size={15}/></button>
+        {isCFO ? (
+          <>
+            {m.status==='PENDING'&&<button className="btn sm primary" onClick={()=>approveBudget(m.id)}>Setujui Anggaran</button>}
+            {m.status==='PENDING'&&<button className="btn sm danger" onClick={()=>voidPO(m.id)}>Void / Batal</button>}
+            {m.status!=='PENDING'&&<span className="badge muted">Terkunci</span>}
+          </>
+        ) : (
+          <>
+            {m.material_status!=='READY'&&m.status!=='CANCELLED'&&<button className="icon-btn" style={{color:'#16a34a'}} onClick={()=>markReceived(m.id)} title="Mark Received"><CheckSquare size={15}/></button>}
+            <button className="icon-btn" onClick={()=>setForm({...m,qty:m.qty,amount:m.amount,order_fk:m.order_fk||'',material_status:m.material_status||'WAITING',arrival_date:m.arrival_date||''})} title="Edit"><Edit2 size={15}/></button>
+            {m.status==='PENDING'&&<button className="icon-btn danger" onClick={()=>del(m.id)} title="Hapus"><Trash2 size={15}/></button>}
+          </>
+        )}
       </td>
     </tr>)}
     {f2.length===0&&<tr><td colSpan={11} className="empty">Tidak ada purchase order</td></tr>}</tbody></table></div>

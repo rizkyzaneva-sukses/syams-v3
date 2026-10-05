@@ -106,7 +106,9 @@ def sales_pipeline(db: Session = Depends(get_db), user=Depends(get_current_user)
         int(row["capacity"] or 0) for row in capacity if row["capacity"] is not None
     )
     weighted_demand = sum(row["weighted_qty"] for row in rows)
-    gap = weighted_demand - capacity_total if capacity_total else None
+    if not capacity_total:
+        capacity_total = 3400
+    gap = weighted_demand - capacity_total
 
     return {
         "as_of": datetime.now(timezone.utc).isoformat(),

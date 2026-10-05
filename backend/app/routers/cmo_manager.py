@@ -349,7 +349,13 @@ def manager_priority(db: Session = Depends(get_db), user=Depends(get_current_use
         order = db.get(m.Order, sample.order_fk)
         evidence = _evidence_list(db, sample)
         decided = sample.customer_approved_by_id is not None or sample.customer_decision_at is not None
-        sla, days = _sla(sample.completed_date or sample.requested_date, today)
+        sample_target_due = (
+            sample.completed_date or
+            sample.requested_date or
+            (order.buyer_deadline if order else None) or
+            (sample.created_at.date() if hasattr(sample.created_at, 'date') else None)
+        )
+        sla, days = _sla(sample_target_due, today)
         sample_rows.append(_row(
             task_id=f"SMP-{sample.id}", decision_type="SAMPLE_DECISION", priority_rank=3,
             order=order, buyer=order.buyer if order else None,
@@ -359,7 +365,7 @@ def manager_priority(db: Session = Depends(get_db), user=Depends(get_current_use
             evidence=("; ".join(e["file_name"] for e in evidence) if evidence else None),
             next_action=("Catat keputusan buyer (approve/reject) sesuai bukti" if not decided
                          else "Sudah diputuskan — lanjut ke SPK Generate"),
-            due=sample.completed_date or sample.requested_date, sla=sla, sla_days=days,
+            due=sample_target_due, sla=sla, sla_days=days,
             handoff="Keputusan buyer → SPK Generate (Deby) → CMO SPK Release",
             updated=sample.customer_decision_at or sample.created_at,
             severity=_severity_for(sla) if not decided else "GREEN",
@@ -384,7 +390,13 @@ def manager_priority(db: Session = Depends(get_db), user=Depends(get_current_use
         if spk.status == "VOID" and not spk.released_at:
             # SPK batal sebelum release: bukan antrean keputusan Cecep.
             continue
-        sla, days = _sla(order.buyer_deadline, today)
+        from datetime import timedelta
+        spk_target_due = (
+            order.buyer_deadline or
+            order.projected_shipment or
+            (spk.created_at.date() + timedelta(days=7) if hasattr(spk.created_at, 'date') else None)
+        )
+        sla, days = _sla(spk_target_due, today)
         prerequisites = []
         if order.finance_gate_status not in ("VERIFIED", "APPROVED", "PAID"):
             prerequisites.append(f"finance gate {order.finance_gate_status}")
@@ -412,7 +424,7 @@ def manager_priority(db: Session = Depends(get_db), user=Depends(get_current_use
                       f"released_by {spk.released_by or '-'} @ {_iso(spk.released_at) or '-'}"),
             next_action=("Periksa prasyarat lalu CMO SPK Release (handoff ke COO)" if ready
                          else "Pantau Batch Release & eksekusi COO"),
-            due=order.buyer_deadline, sla=sla, sla_days=days,
+            due=spk_target_due, sla=sla, sla_days=days,
             handoff=("Release to COO → Siti/COO Batch Release" if ready
                      else "COO Batch Release → produksi → delivery execution"),
             updated=spk.released_at or spk.created_at,

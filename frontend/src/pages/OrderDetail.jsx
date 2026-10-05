@@ -4,7 +4,7 @@ import {flowGates} from '../business';
 import {api} from '../api';
 import FlowProgress from '../components/FlowProgress';
 import FlowGate from '../components/FlowGate';
-import {customerStatus,customerVisibleFields,customerHiddenFields,assertCustomerSafe} from '../customerStatus';
+import {customerStatus,customerVisibleFields,customerHiddenFields,assertCustomerSafe,simplePaymentStatus,simpleShipmentStatus} from '../customerStatus';
 
 export default function OrderDetail(){
   const {orderId}=useParams();
@@ -178,8 +178,8 @@ export default function OrderDetail(){
               <div><small>Article &amp; qty</small><br/><b>{(o.articles||[]).map(a=>`${a.article_code} ${a.qty}`).join(', ')||'—'}</b></div>
               <div><small>Tahap</small><br/><b>{status.label}</b></div>
               <div><small>ETA / proyeksi shipment</small><br/><b>{o.projected_shipment||'belum ada'}</b></div>
-              <div><small>Status pembayaran</small><br/><b>{o.finance_status||'—'}</b></div>
-              <div><small>Shipment</small><br/><b>{o.shipment_status||'—'}</b></div>
+              <div><small>Status pembayaran</small><br/><b>{simplePaymentStatus(o)}</b></div>
+              <div><small>Shipment</small><br/><b>{simpleShipmentStatus(o)}</b></div>
               <div><small>Updated at</small><br/><b>{o.updated_at||o.created_at||'—'}</b></div>
             </div>
             <details style={{marginTop:10}}>

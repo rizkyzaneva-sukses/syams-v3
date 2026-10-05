@@ -157,7 +157,7 @@ export const MENUS_BY_ROLE={
    tetap tombol terpisah di Layout.jsx. */
 export const FOOTER_BY_ROLE={
   CEO:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus'],['Task','/tasks','ClipboardList'],['Exception','/exceptions','AlertTriangle']],
-  CMO_MANAGER:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus'],['Task','/tasks','ClipboardList'],['Exception','/exceptions','AlertTriangle']],
+  CMO_MANAGER:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus']],
   CMO_SUPPORT:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus'],['Task','/tasks','ClipboardList']],
   CFO_MANAGER:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus'],['Exception','/exceptions','AlertTriangle']],
   FINANCE_SUPPORT:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus']],

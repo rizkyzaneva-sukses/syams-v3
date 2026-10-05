@@ -62,7 +62,7 @@ function generatedLine(spk){
 export default function SPKPage(){
   const role=useOutletContext()?.me?.role;
   const manager=role==='CMO_MANAGER';
-  const preparer=manager||role==='CMO_SUPPORT';
+  const preparer=role==='CMO_SUPPORT';
   const [list,setList]=useState([]),[orders,setOrders]=useState([]),[ships,setShips]=useState([]);
   const [err,setErr]=useState(''),[q,setQ]=useState(''),[filterStatus,setFilterStatus]=useState('');
   const [form,setForm]=useState(null),[busy,setBusy]=useState(false),[preview,setPreview]=useState('');
@@ -321,8 +321,8 @@ export default function SPKPage(){
             {preparer&&['GENERATED','PRINTED','RELEASED'].includes(s.status)&&<button className="btn sm" disabled={busy} onClick={()=>showPdf(s)}><Eye size={14}/> Preview PDF</button>}
             {preparer&&['GENERATED','PRINTED'].includes(s.status)&&<button className="btn sm" disabled={busy} onClick={()=>showPdf(s,true)}><Printer size={14}/> Print</button>}
             {manager&&s.status==='PRINTED'&&<button className="btn sm primary" disabled={busy} onClick={()=>openRelease(s)}><Check size={14}/> Release</button>}
-            {manager&&['DRAFT','GENERATED','PRINTED'].includes(s.status)&&<button className="btn sm" disabled={busy} onClick={()=>act(s,'void')}><Ban size={14}/> Void</button>}
-            {manager&&s.status==='DRAFT'&&<button className="icon-btn danger" disabled={busy} onClick={()=>act(s,'delete')} title="Hapus draft"><Trash2 size={15}/></button>}
+            {preparer&&['DRAFT','GENERATED','PRINTED'].includes(s.status)&&<button className="btn sm" disabled={busy} onClick={()=>act(s,'void')}><Ban size={14}/> Void</button>}
+            {preparer&&s.status==='DRAFT'&&<button className="icon-btn danger" disabled={busy} onClick={()=>act(s,'delete')} title="Hapus draft"><Trash2 size={15}/></button>}
           </td>
         </tr>})}
         {filtered.length===0&&<tr><td colSpan={12} className="empty">Tidak ada SPK yang cocok dengan filter.</td></tr>}

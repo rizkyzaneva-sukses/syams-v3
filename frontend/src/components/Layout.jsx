@@ -18,8 +18,23 @@ const roleMenus={
   CEO:[['Morning CEO View','/ceo',Crown],['Company Performance','/ceo/company-performance',BarChart3],['Decision Needed','/ceo/decisions',ClipboardList],['CEO Action Tracker','/ceo/decisions',CheckSquare],['Exception Center','/exceptions',AlertTriangle],['Policy & Override','/ceo/business-policy',DollarSign],['Override Register','/ceo/overrides',AlertTriangle],['Master Control — Lihat Saja','/master',Database],['Audit Trail','/audit-log',ClipboardList],['Usulan Revisi','/revisions',MessageSquarePlus]],
   CMO_MANAGER:[['Morning Priority','/cmo/priority',Target],['Orders','/cmo/orders',ShoppingCart],['PPM','/cmo/samples',ClipboardList],['Sample Approval Feed','/cmo/sample-approval',ClipboardList],['SPK','/cmo/spk',CheckSquare],['Release to COO','/cmo/release-to-coo',CheckSquare],['Buyer CRM','/cmo/buyer-crm',Users],['Sales Pipeline','/cmo/sales-pipeline',TrendingUp],['Exception Center','/cmo/exception-center',AlertTriangle],['Reports','/cmo/reports',BarChart3],['Usulan Revisi','/revisions',MessageSquarePlus]],
   CMO_SUPPORT:[['Hari Ini','/cmo/today',Target],['PO Masuk','/cmo/po-inbox',ShoppingCart],['Buyer & Follow-up','/cmo/buyer-crm',Users],['Draft Order','/cmo/orders',ShoppingCart],['Quotation','/cmo/quotations',FileText],['Sample/PPM','/cmo/samples',ClipboardList],['SPK — Generate & Print','/cmo/spk',CheckSquare],['After Sales','/cmo/after-sales',Truck],['Tugas Saya','/tasks',ClipboardList],['Master Control — Lihat Saja','/master',Database],['Usulan Revisi','/revisions',MessageSquarePlus]],
-  CFO_MANAGER:[['CFO Home','/cfo',Home],['Invoices','/cfo/invoices',DollarSign],['Purchase Orders','/cfo/purchase-orders',Package],['Purchasing — Riadi','/purchasing',Package],['Shipments Gate','/cfo/shipments',Truck],['Master Control','/master',Database],['Deliveries','/coo/deliveries',Truck],['Closing Keuangan','/coo/closing',CheckSquare]],
-  FINANCE_SUPPORT:[['CFO Home','/cfo',Home],['Invoices','/cfo/invoices',DollarSign],['Master Control','/master',Database]],
+  CFO_MANAGER:[
+    ['Morning Finance','/cfo',Home],
+    ['Purchase Orders','/cfo/purchase-orders',Package],
+    ['Material Gate','/purchasing',Package],
+    ['Operational Cost','/cfo/costing?tab=operational',BarChart3],
+    ['HPP & Pricing','/cfo/costing?tab=variance',DollarSign],
+    ['Invoice & AR','/cfo/invoices',FileText],
+    ['AP','/cfo/receivables',DollarSign],
+    ['Payroll','/cfo/costing?tab=payroll',Users],
+    ['Team Bonus','/cfo/costing?tab=bonus',DollarSign],
+    ['Attendance','/cfo/costing?tab=attendance',ClipboardList],
+    ['Financial Statements','/cfo/costing?tab=statements',BarChart3],
+    ['Budget Forecast & Cash Planning','/cfo/costing?tab=budget',TrendingUp],
+    ['Shipment Finance Gate','/cfo/shipments',Truck],
+    ['Financial Closing','/coo/closing',CheckSquare],
+  ],
+  FINANCE_SUPPORT:[['Morning Finance','/cfo',Home],['Invoice & AR','/cfo/invoices',FileText],['AP','/cfo/receivables',DollarSign]],
   COO_MANAGER:[['COO Home','/coo',Home],['Material Requests','/coo/material-requests',Package],['Production Queue','/coo/production',Factory],['WIP Tracking','/coo/wip',Package],['QC Records','/coo/qc',CheckSquare],['Shipments & Serah Terima','/cfo/shipments',Truck],['Master Control','/master',Database],['Production Plan','/coo/planning',Factory],['Konfirmasi Customer (Lihat)','/coo/deliveries',Truck],['Closing Operasional','/coo/closing',CheckSquare]],
   SAMPLE_PIC:[['My Sample Tasks','/tasks',ClipboardList],['Samples','/cmo/samples',ClipboardList],['Master Control','/master',Database]],
   PRINTING_PIC:[['Printing Hari Ini','/printing/today',Target],['My Tasks','/tasks',ClipboardList],['Production Queue','/coo/production',Factory],['Master Control','/master',Database]],
@@ -28,8 +43,7 @@ const roleMenus={
   HR_SUPPORT:[['CHRO Home','/chro',Home],['Employees','/chro/employees',Users],['Training','/chro/training',BookOpen]],
   SHIPMENT_ADMIN:[['Shipments','/cfo/shipments',Truck],['Master Control','/master',Database],['Deliveries','/coo/deliveries',Truck]]
 };
-roleMenus.CFO_MANAGER.splice(3,0,['Quotation Approval','/cmo/quotations',FileText]);
-for(const role of ['CFO_MANAGER','COO_MANAGER','PRODUCTION_PIC']) roleMenus[role].push(['BOM & Actual Cost','/coo/bom-cost',Package]);
+for(const role of ['COO_MANAGER','PRODUCTION_PIC']) roleMenus[role].push(['BOM & Actual Cost','/coo/bom-cost',Package]);
 
 /* Footer links are role-scoped. Previously Panduan / Usulan Revisi / Task /
    Exception were rendered unconditionally, which leaked CMO Manager menus to
@@ -37,15 +51,16 @@ for(const role of ['CFO_MANAGER','COO_MANAGER','PRODUCTION_PIC']) roleMenus[role
    (revisi #9 poin 1 & 12, #14 poin 9). */
 const footerLinks=role=>{
   const links=[['Panduan','/panduan',BookOpen]];
+  if(role==='CFO_MANAGER') links.push(['Reports','/ceo/company-performance',BarChart3]);
   if(role) links.push(['Usulan Revisi','/revisions',MessageSquarePlus]);
-  if(role&&['CEO','CMO_MANAGER','CMO_SUPPORT','COO_MANAGER','PRODUCTION_PIC','PRINTING_PIC','SAMPLE_PIC'].includes(role)) links.push(['Task','/tasks',ClipboardList]);
-  if(role&&['CEO','CMO_MANAGER','COO_MANAGER','CFO_MANAGER','CHRO_MANAGER'].includes(role)) links.push(['Exception','/exceptions',AlertTriangle]);
-  return links.filter(([,path])=>canAccess(role,path));
+  if(role&&['CEO','CMO_SUPPORT','COO_MANAGER','PRODUCTION_PIC','PRINTING_PIC','SAMPLE_PIC'].includes(role)) links.push(['Task','/tasks',ClipboardList]);
+  if(role&&['CEO','COO_MANAGER','CFO_MANAGER','CHRO_MANAGER'].includes(role)) links.push(['Exception','/exceptions',AlertTriangle]);
+  return links.filter(([,path])=>canAccess(role,path.split('?')[0]));
 };
 const visibleMenus=role=>{
   const seen=new Set();
   return (roleMenus[role]||[['Master Control','/master',Database]])
-    .filter(([,path])=>!role||canAccess(role,path))
+    .filter(([,path])=>!role||canAccess(role,path.split('?')[0]))
     /* Two blueprint entries can point at the same page (PPM feed, Release to COO).
        Keep the first occurrence so the sidebar never shows a duplicate target. */
     .filter(([label,path])=>{const key=label+'|'+path;if(seen.has(key))return false;seen.add(key);return true;});

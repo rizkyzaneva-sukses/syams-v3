@@ -31,20 +31,35 @@ export default function CFOHome() {
   const [data, setData] = useState(null);
   const [arData, setArData] = useState(null);
   const [apData, setApData] = useState(null);
+  const [paymentsQueue, setPaymentsQueue] = useState([]);
+  const [pendingPOs, setPendingPOs] = useState([]);
+  const [shipments, setShipments] = useState([]);
+  const [closings, setClosings] = useState([]);
+  const [variance, setVariance] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
 
   async function loadData() {
     setLoading(true);
     try {
-      const [dash, ar, ap] = await Promise.all([
+      const [dash, ar, ap, pq, pos, shs, cls, v] = await Promise.all([
         api('/dashboard/CFO').catch(() => null),
         api('/cfo/ar-aging').catch(() => null),
-        api('/cfo/ap-register').catch(() => null),
+        api('/cfo/ap-summary').catch(() => null),
+        api('/cfo/payments-queue').catch(() => []),
+        api('/cfo/purchase-orders').catch(() => []),
+        api('/coo/shipments').catch(() => []),
+        api('/coo/order-closing').catch(() => []),
+        api('/cfo/actual-cost-variance').catch(() => null),
       ]);
       setData(dash);
       setArData(ar);
       setApData(ap);
+      setPaymentsQueue(Array.isArray(pq) ? pq : []);
+      setPendingPOs(Array.isArray(pos) ? pos.filter(p => p.status === 'PENDING') : []);
+      setShipments(Array.isArray(shs) ? shs.filter(s => s.finance_gate === 'HOLD' || s.finance_gate === 'PENDING') : []);
+      setClosings(Array.isArray(cls) ? cls.filter(c => c.financial_close_status === 'OPEN' && c.operational_close_status === 'CLOSED') : []);
+      setVariance(v);
       setErr('');
     } catch (e) {
       setErr(e.message || 'Gagal memuat Morning Finance');
@@ -65,7 +80,7 @@ export default function CFOHome() {
     );
   }
 
-  if (loading && !data) {
+  if (loading && !data && !arData) {
     return (
       <div className="page">
         <div className="empty"><RefreshCw className="spin" size={20} /> Memuat Morning Finance...</div>
@@ -74,93 +89,72 @@ export default function CFOHome() {
   }
 
   // Ringkasan metrik tindakan hari ini
-  const paymentVerifCount = arData?.unverified_payments_count ?? 4;
-  const invoiceDueCount = arData?.overdue_count ?? 6;
-  const pricingReviewCount = 3;
-  const payableDueCount = apData?.summary?.due_soon_count ?? 5;
-  const closingCount = 2;
+  const paymentVerifCount = paymentsQueue.length || (arData?.summary?.invoices_with_unverified_payment?.length ?? 0);
+  const invoiceDueCount = arData?.summary?.overdue_count ?? 0;
+  const pricingReviewCount = variance?.totals?.over_count ?? 0;
+  const payableDueCount = apData?.summary?.due_soon_count ?? (apData?.rows?.filter(r => r.outstanding > 0).length ?? 0);
+  const closingCount = closings.length;
 
-  // Daftar prioritas tindakan hari ini (action items)
-  const priorityItems = [
-    {
-      id: 'P1',
-      priority: 'P1',
-      orderBuyer: 'SO-BO001 / Clover',
-      job: 'Verifikasi pembayaran DP 50%',
-      amount: rupiah(18500000),
-      evidence: 'Bukti transfer BCA valid',
-      due: '10:00',
-      handoff: 'Update invoice -> beri tahu CMO',
-      action: 'Verifikasi',
-      actionLink: '/cfo/receivables',
-    },
-    {
-      id: 'P2',
-      priority: 'P1',
-      orderBuyer: 'SO-BO017 / Anindita',
-      job: 'Review HPP & Minimum Pricing',
-      amount: 'HPP / Minimum Price',
-      evidence: 'Margin 28% (<30% standard)',
-      due: 'Hari ini',
-      handoff: 'CMO buat quotation baru',
-      action: 'Review',
-      actionLink: '/cfo/costing',
-    },
-    {
-      id: 'P3',
-      priority: 'P1',
-      orderBuyer: 'PO-107 / Kain Oxford',
-      job: 'Persetujuan Pembelian PO',
-      amount: rupiah(12400000),
-      evidence: 'PR Riadi ready + budget valid',
-      due: 'Hari ini',
-      handoff: 'Riadi proses PO & GR',
-      action: 'Setujui PO',
-      actionLink: '/cfo/purchase-orders',
-    },
-    {
-      id: 'P4',
-      priority: 'P2',
-      orderBuyer: 'SO-0144 / Nusa',
-      job: 'Shipment Finance Gate',
-      amount: 'Outstanding Rp 5.000.000',
-      evidence: 'Goods Ready + alamat valid',
-      due: 'Hari ini',
-      handoff: 'CEO exception bila perlu; COO eksekusi',
-      action: 'Review Gate',
-      actionLink: '/cfo/shipments',
-    },
-    {
-      id: 'P5',
-      priority: 'P2',
-      orderBuyer: 'SO-72DE / Mandiri',
-      job: 'Financial Closing',
-      amount: 'Invoice, payment, cost lengkap',
-      evidence: 'BOM & actual cost terekonsiliasi',
-      due: 'Besok',
-      handoff: 'Tunggu CMO + COO closing',
-      action: 'Close Finance',
-      actionLink: '/orders',
-    },
-  ];
+  // Daftar prioritas tindakan hari ini (action items) dari data riil
+  const paymentItems = paymentsQueue.map(p => ({
+    id: `PAY-${p.id}`,
+    priority: 'P1',
+    orderBuyer: `${p.order_id || p.invoice_no} / ${p.buyer || 'Buyer'}`,
+    job: `Verifikasi pembayaran DP / Tagihan`,
+    amount: rupiah(p.amount),
+    evidence: p.evidence_ref || 'Bukti bayar diunggah',
+    due: 'Hari ini',
+    handoff: 'Update invoice -> update gate G1/G3',
+    action: 'Verifikasi',
+    actionLink: '/cfo/invoices',
+  }));
 
-  // Collection & AR antrean
-  const collectionRows = arData?.queue?.slice(0, 5) || [
-    { buyer: 'PT Berkah Mandiri', order: 'SO-BO011', outstanding: 14500000, due: '12 Mei 2026', next: 'Follow-up telepon' },
-    { buyer: 'CV Oxford Store', order: 'SO-BO012', outstanding: 8200000, due: '15 Mei 2026', next: 'Kirim surat tagihan' },
-    { buyer: 'PT Makmur Jaya', order: 'SO-BO014', outstanding: 4500000, due: '18 Mei 2026', next: 'Konfirmasi janji bayar' },
-    { buyer: 'CV Sentosa', order: 'SO-BO015', outstanding: 9800000, due: '20 Mei 2026', next: 'Follow-up WhatsApp' },
-    { buyer: 'UD Jaya Abadi', order: 'SO-BO018', outstanding: 3400000, due: '22 Mei 2026', next: 'Penjadwalan transfer' },
-  ];
+  const poItems = pendingPOs.map(po => ({
+    id: `PO-${po.id}`,
+    priority: 'P1',
+    orderBuyer: `${po.po_no} / ${po.supplier || po.item}`,
+    job: `Persetujuan Anggaran PO (${po.item})`,
+    amount: rupiah(po.amount),
+    evidence: 'PR Riadi ready + review limit anggaran',
+    due: 'Hari ini',
+    handoff: 'Riadi proses PO & GR',
+    action: 'Setujui PO',
+    actionLink: '/cfo/purchase-orders',
+  }));
 
-  // Cash & Payable (AP) antrean
-  const payableRows = apData?.register?.slice(0, 5) || [
-    { supplier: 'PT Sumber Kain', item: 'Kain Katun Combed', amount: 27850000, due: '14 Mei 2026', status: 'Approved' },
-    { supplier: 'CV Kancing Indah', item: 'Accessories', amount: 4200000, due: '16 Mei 2026', status: 'Pending Review' },
-    { supplier: 'PT Makloon Indah', item: 'Bordir Komputer', amount: 15400000, due: '18 Mei 2026', status: 'Approved' },
-    { supplier: 'PT Benang Mulia', item: 'Benang Jahit', amount: 3100000, due: '21 Mei 2026', status: 'Approved' },
-    { supplier: 'CV Kemasan Prima', item: 'Polybag & Karton', amount: 2900000, due: '25 Mei 2026', status: 'Pending' },
-  ];
+  const shipmentItems = shipments.map(sh => ({
+    id: `SH-${sh.id}`,
+    priority: 'P2',
+    orderBuyer: `${sh.shipment_no} / ${sh.buyer || 'Order #' + sh.order_fk}`,
+    job: `Shipment Finance Gate (${sh.finance_gate})`,
+    amount: `Total item: ${sh.line_total_qty || 0}`,
+    evidence: sh.goods_ready ? 'Barang Siap Kirim (COO)' : 'Packing dalam proses',
+    due: 'Hari ini',
+    handoff: 'CEO exception bila ada tunggakan; COO eksekusi',
+    action: 'Review Gate',
+    actionLink: '/cfo/shipments',
+  }));
+
+  const closingItems = closings.map(cl => ({
+    id: `CLS-${cl.order_fk}`,
+    priority: 'P2',
+    orderBuyer: `Order #${cl.order_fk}`,
+    job: 'Financial Closing',
+    amount: 'Rekonsiliasi invoice, cost & AP',
+    evidence: 'Operasional selesai (COO Closed)',
+    due: 'Besok',
+    handoff: 'Tutup order final',
+    action: 'Close Finance',
+    actionLink: '/coo/closing',
+  }));
+
+  const priorityItems = [...paymentItems, ...poItems, ...shipmentItems, ...closingItems];
+
+  // Collection & AR antrean riil
+  const collectionRows = arData?.rows?.filter(r => Number(r.outstanding) > 0).slice(0, 5) || [];
+
+  // Cash & Payable (AP) antrean riil
+  const payableRows = apData?.rows?.slice(0, 5) || [];
 
   return (
     <div className="page">
@@ -243,6 +237,7 @@ export default function CFOHome() {
                   </td>
                 </tr>
               ))}
+              {!priorityItems.length&&<tr><td colSpan={8} className="empty" style={{textAlign:'center',padding:16}}>Semua tindakan harian keuangan telah selesai. Tidak ada antrean tertunda.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -268,16 +263,17 @@ export default function CFOHome() {
               </thead>
               <tbody>
                 {collectionRows.map((r, i) => (
-                  <tr key={i}>
+                  <tr key={r.invoice_id || i}>
                     <td>
                       <b>{r.buyer}</b><br />
-                      <small style={{ color: '#64748b' }}>{r.order}</small>
+                      <small style={{ color: '#64748b' }}>{r.order_id || r.invoice_no}</small>
                     </td>
                     <td>{rupiah(r.outstanding)}</td>
-                    <td><small>{r.due}</small></td>
-                    <td><span className="badge amber">{r.next}</span></td>
+                    <td><small>{r.due_date || '—'}</small></td>
+                    <td><span className="badge amber">{r.next_action || 'Follow-up'}</span></td>
                   </tr>
                 ))}
+                {!collectionRows.length&&<tr><td colSpan={4} className="empty" style={{textAlign:'center',padding:12}}>Tidak ada piutang jatuh tempo</td></tr>}
               </tbody>
             </table>
           </div>
@@ -287,7 +283,7 @@ export default function CFOHome() {
         <section className="panel">
           <div className="panel-head">
             <h2><Layers size={16} style={{ marginRight: 6 }} /> Cash & Payable (AP)</h2>
-            <Link to="/cfo/purchase-orders" className="btn sm">Lihat AP <ArrowRight size={12} /></Link>
+            <Link to="/cfo/receivables" className="btn sm">Lihat AP <ArrowRight size={12} /></Link>
           </div>
           <div className="table-scroll">
             <table>
@@ -296,25 +292,26 @@ export default function CFOHome() {
                   <th>Supplier / Partner</th>
                   <th>Nilai</th>
                   <th>Jatuh Tempo</th>
-                  <th>Cash Plan</th>
+                  <th>Status AP</th>
                 </tr>
               </thead>
               <tbody>
                 {payableRows.map((r, i) => (
-                  <tr key={i}>
+                  <tr key={r.po_id || i}>
                     <td>
                       <b>{r.supplier}</b><br />
-                      <small style={{ color: '#64748b' }}>{r.item}</small>
+                      <small style={{ color: '#64748b' }}>{r.item || r.po_no}</small>
                     </td>
-                    <td>{rupiah(r.amount)}</td>
-                    <td><small>{r.due}</small></td>
+                    <td>{rupiah(r.outstanding || r.amount)}</td>
+                    <td><small>{r.due_date || '—'}</small></td>
                     <td>
-                      <span className={'badge ' + (r.status === 'Approved' ? 'green' : 'amber')}>
-                        {r.status}
+                      <span className={'badge ' + (r.status === 'RECEIVED' ? 'green' : 'amber')}>
+                        {r.approval_status || r.status || 'Pending'}
                       </span>
                     </td>
                   </tr>
                 ))}
+                {!payableRows.length&&<tr><td colSpan={4} className="empty" style={{textAlign:'center',padding:12}}>Tidak ada hutang jatuh tempo</td></tr>}
               </tbody>
             </table>
           </div>

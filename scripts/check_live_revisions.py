@@ -24,12 +24,8 @@ rev_req = urllib.request.Request(
 items = json.loads(urllib.request.urlopen(rev_req, context=ctx).read())
 print(f"Total revisions: {len(items)}")
 
-by_status = {}
-for r in items:
-    by_status[r['status']] = by_status.get(r['status'], 0) + 1
-print("Status summary:", by_status)
+target_ids = [1, 9] + list(range(10, 31))
+for r in sorted(items, key=lambda x: x['id']):
+    if r['id'] in target_ids:
+        print(f"#{r['id']}: [{r['status']}] '{r['module_name']}'")
 
-print("Checking #1 and #9:")
-for r in items:
-    if r['id'] in [1, 9]:
-        print(f"#{r['id']} | status={r['status']} | title={r['module_name']} | op={r['operator']}")

@@ -318,7 +318,7 @@ export function toCustomerOrder(order) {
     projected_shipment: order.projected_shipment ?? null,
     sample_approval_request: order.sample_approval_request ?? null,
     status_pembayaran_sederhana: simplePaymentStatus(order),
-    shipment: order.shipment ?? (norm(order.shipment_status) || null),
+    shipment: order.shipment ?? simpleShipmentStatus(order),
     resi: order.resi ?? order.tracking_no ?? null,
     updated_at: order.updated_at ?? null,
     riwayat_status: order.riwayat_status ?? [],
@@ -337,6 +337,15 @@ export function simplePaymentStatus(order) {
   return 'Menunggu pembayaran';
 }
 
+/** Customer-friendly wording for shipment status: never exposes raw internal codes. */
+export function simpleShipmentStatus(order) {
+  const s = norm(order?.shipment_status);
+  if (['SHIPPED', 'DELIVERED'].includes(s)) return 'Pesanan telah dikirim';
+  if (['READY', 'PACKED'].includes(s)) return 'Pesanan siap dikirim';
+  if (['PREPARING'].includes(s)) return 'Pesanan sedang disiapkan';
+  return 'Belum siap dikirim';
+}
+
 export const customerStatusModule = {
   CUSTOMER_STATUS,
   PRODUCTION_PROCESSES,
@@ -349,6 +358,7 @@ export const customerStatusModule = {
   isCustomerSafe,
   toCustomerOrder,
   simplePaymentStatus,
+  simpleShipmentStatus,
 };
 
 export default customerStatusModule;
