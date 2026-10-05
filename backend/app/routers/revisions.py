@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Respon
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, defer
 
+import re
+
 from ..auth import get_current_user
 from ..audit import log_audit
 from ..database import get_db
@@ -11,6 +13,14 @@ from ..models import RevisionProposal, RevisionStatusEvent, Role, User
 
 router = APIRouter(prefix="/revisions", tags=["revisions"])
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+def compute_recheck_title(title: str) -> str:
+    m = re.match(r"^#RECHECK(\d+)\s*(.*)$", title or "")
+    if m:
+        num = int(m.group(1)) + 1
+        return f"#RECHECK{num} {m.group(2)}".strip()[:120]
+    return f"#RECHECK1 {title or ''}".strip()[:120]
 
 
 class StatusChange(BaseModel):
@@ -159,6 +169,8 @@ def change_revision_status(proposal_id: int, payload: StatusChange,
         mod_name = payload.module_name.strip()[:120]
         if mod_name:
             proposal.module_name = mod_name
+    elif previous == "TINJAU_ULANG" and payload.status == "CHECK":
+        proposal.module_name = compute_recheck_title(proposal.module_name)
     proposal.status_note = note or None
     proposal.status_updated_at = datetime.utcnow()
     proposal.status_updated_by_id = user.id

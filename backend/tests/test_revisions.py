@@ -140,8 +140,26 @@ def test_title_update_and_recheck_title_on_status_change(client, headers):
         "expected_status": "REVISI",
         "status": "CHECK",
         "note": "Perbaikan selesai",
-        "module_name": "#RECHECK12 CMO Support - Test"
+        "module_name": "#RECHECK2 CMO Support - Test"
     })
     assert status_res.status_code == 200
     assert status_res.json()["status"] == "CHECK"
-    assert status_res.json()["module_name"] == "#RECHECK12 CMO Support - Test"
+    assert status_res.json()["module_name"] == "#RECHECK2 CMO Support - Test"
+
+    # 3. Transition to TINJAU_ULANG then back to CHECK (auto-increment to #RECHECK3)
+    tinjau_res = client.patch(f"/api/revisions/{prop_id}/status", headers=headers("CEO"), json={
+        "expected_status": "CHECK",
+        "status": "TINJAU_ULANG",
+        "note": "Perlu diperbaiki lagi"
+    })
+    assert tinjau_res.status_code == 200
+    assert tinjau_res.json()["status"] == "TINJAU_ULANG"
+
+    recheck_res = client.patch(f"/api/revisions/{prop_id}/status", headers=headers("CMO_SUPPORT"), json={
+        "expected_status": "TINJAU_ULANG",
+        "status": "CHECK",
+        "note": "Sudah diperbaiki kedua kali"
+    })
+    assert recheck_res.status_code == 200
+    assert recheck_res.json()["status"] == "CHECK"
+    assert recheck_res.json()["module_name"] == "#RECHECK3 CMO Support - Test"

@@ -112,10 +112,10 @@ export default function RevisionPage(){
   function computeRecheckTitle(title) {
     const match = (title||'').match(/^#RECHECK(\d+)\s*(.*)$/);
     if (match) {
-      const digits = match[1];
+      const currentNum = parseInt(match[1], 10);
+      const nextNum = isNaN(currentNum) ? 1 : currentNum + 1;
       const rest = match[2];
-      const nextDigits = digits + (digits.length + 1);
-      return `#RECHECK${nextDigits} ${rest}`;
+      return `#RECHECK${nextNum} ${rest}`;
     }
     return `#RECHECK1 ${title}`;
   }
@@ -140,7 +140,7 @@ export default function RevisionPage(){
       setActionError(next==='CHECK'?'Tuliskan perbaikan yang perlu diperiksa tim.':'Tuliskan hal yang masih perlu diperbaiki.');return;
     }
     setUpdatingStatus(true);
-    const updatedTitle = (next === 'CHECK' && ['TINJAU_ULANG', 'REVISI'].includes(detail.status))
+    const updatedTitle = (next === 'CHECK' && detail.status === 'TINJAU_ULANG')
       ? computeRecheckTitle(detail.module_name)
       : undefined;
     try{
