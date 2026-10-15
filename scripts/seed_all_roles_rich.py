@@ -7,6 +7,7 @@ import sys
 import urllib.error
 import urllib.request
 from datetime import date, timedelta
+from uuid import uuid4
 
 BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 PASSWORD = "demo123456789"
@@ -106,12 +107,52 @@ po_payload = {
         {"article_code": "NA-SHIRT-DRILL", "garment_type": "Kemeja Kantor", "qty": 800, "size_breakdown": "M:300, L:300, XL:200", "sample_required": True, "production_route": "Cutting > Printing > Sewing > QC"}
     ]
 }
-s, po = call("cmo.support", "POST", "/cmo/po-intake", po_payload)
-if s in (200, 201) and isinstance(po, dict) and "id" in po:
-    call("cmo.support", "POST", f"/cmo/po-intake/{po['id']}/check")
-    call("cmo.support", "POST", f"/cmo/po-intake/{po['id']}/submit")
-    s2, accepted = call("cmo.manager", "POST", f"/cmo/po-intake/{po['id']}/review", {"action": "ACCEPT", "note": "Disetujui untuk penjadwalan"})
-    print(f"  + Order Baru Aktif: {accepted.get('order_id') if isinstance(accepted, dict) else 'OK'}")
+_ART = "NA-SHIRT-DRILL"
+_PONO = po_payload["po_number"]
+_s, _orders = call("cmo.manager", "GET", "/orders")
+_existing = next((x for x in (_orders or [])
+                  if any(a.get("article_code") == _ART for a in (x.get("articles") or []))), None)
+_s, _intakes = call("cmo.manager", "GET", "/cmo/po-intake")
+_intake = next((p for p in (_intakes or []) if p.get("po_number") == _PONO), None)
+
+if _existing:
+    print(f"  = Order Baru sudah ada: {_existing['order_id']}")
+elif _intake and _intake.get("order_id"):
+    print(f"  = PO intake {_PONO} sudah menghasilkan order {_intake['order_id']}")
+else:
+    # Pakai PO intake yang sudah ada (mis. NEEDS_INFO dari percobaan lama) atau buat baru.
+    po = _intake
+    if not po:
+        s, po = call("cmo.support", "POST", "/cmo/po-intake", po_payload)
+        if s not in (200, 201) or not (isinstance(po, dict) and "id" in po):
+            print(f"  ! PO intake gagal [{s}]: {json.dumps(po)[:200] if po else None}")
+            po = None
+    if po:
+        # Dokumen PO wajib supaya completeness lolos (check → submit).
+        _bnd = "----BOSRICH" + uuid4().hex
+        _pdf = (f"--{_bnd}\r\n"
+                f'Content-Disposition: form-data; name="document"; filename="{_PONO}.pdf"\r\n'
+                f"Content-Type: application/pdf\r\n\r\n"
+                f"%PDF-1.4\nDemo PO\r\n--{_bnd}--\r\n").encode()
+        _req = urllib.request.Request(
+            f"{BASE}/api/cmo/po-intake/{po['id']}/document", data=_pdf,
+            headers={"Content-Type": f"multipart/form-data; boundary={_bnd}",
+                     "Authorization": f"Bearer {login('cmo.support')}"})
+        try:
+            with urllib.request.urlopen(_req, context=CTX) as _r:
+                pass
+        except Exception as _e:
+            print(f"  ! Upload dokumen PO gagal: {_e}")
+        _s, cur = call("cmo.manager", "GET", f"/cmo/po-intake/{po['id']}")
+        if _s == 200 and cur.get("status") not in ("SUBMITTED", "REVIEWED"):
+            call("cmo.support", "PATCH", f"/cmo/po-intake/{po['id']}", po_payload)
+        call("cmo.support", "POST", f"/cmo/po-intake/{po['id']}/check")
+        s2, sub = call("cmo.support", "POST", f"/cmo/po-intake/{po['id']}/submit")
+        if s2 in (200, 201):
+            s3, accepted = call("cmo.manager", "POST", f"/cmo/po-intake/{po['id']}/review", {"action": "ACCEPT", "note": "Disetujui untuk penjadwalan"})
+            print(f"  + Order Baru Aktif: {accepted.get('order_id') if isinstance(accepted, dict) else accepted}")
+        else:
+            print(f"  ! Submit gagal [{s2}]: {json.dumps(sub)[:200] if sub else None}")
 
 # 3. PRINTING — IMAN (Target Harian & Job Cards)
 print("\n[3/7] Printing & Bordir — Iman")

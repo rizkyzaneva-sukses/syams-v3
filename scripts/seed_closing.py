@@ -87,10 +87,18 @@ else:
                     "notes": "Pengiriman dikonfirmasi customer"})
 
 # ── 2. COO menutup sisi operasional ─────────────────────────────────────────
+# Idempotensi: jika order sudah CLOSED (mis. ditutup seed_finish), jangan PATCH
+# ulang — order tertutup bersifat immutable dan PATCH akan ditolak 400.
 print("\n2) COO: operational_close_status=CLOSED")
-step("Operational CLOSED", "coo.manager", "PATCH", f"/coo/order-closing/{oid}",
-     {"operational_close_status": "CLOSED",
-      "notes": "Serah terima fisik dan pekerjaan operasional selesai"})
+status, closing = call("coo.manager", "GET", f"/coo/order-closing/{oid}")
+if status == 200 and closing and closing.get("order_close_status") == "CLOSED":
+    print("  = order sudah CLOSED (immutable, dilewati)")
+elif status == 200 and closing and closing.get("operational_close_status") == "CLOSED":
+    print("  = operational sudah CLOSED")
+else:
+    step("Operational CLOSED", "coo.manager", "PATCH", f"/coo/order-closing/{oid}",
+         {"operational_close_status": "CLOSED",
+          "notes": "Serah terima fisik dan pekerjaan operasional selesai"})
 
 # ── 3. CFO menutup sisi finansial ───────────────────────────────────────────
 print("\n3) CFO: financial_close_status=CLOSED")

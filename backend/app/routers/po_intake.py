@@ -130,6 +130,16 @@ def commit_or_conflict(db: Session):
         raise HTTPException(409, "This buyer and PO number are already registered") from exc
 
 
+def flush_or_conflict(db: Session):
+    """Flush inside the conflict guard so a unique violation on po_number
+    surfaces as a 409 instead of an unhandled IntegrityError (500)."""
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "This buyer and PO number are already registered") from exc
+
+
 @router.get("")
 def list_po_intake(limit: int = Query(200, ge=1, le=500), offset: int = Query(0, ge=0),
                    db: Session = Depends(get_db), user: User = Depends(require_roles(*READ_ROLES))):
@@ -150,7 +160,7 @@ def create_po_intake(payload: PODraft, db: Session = Depends(get_db),
     po = POIntake(created_by_id=user.id, articles_json="[]", missing_items_json="[]")
     db.add(po)
     apply_draft(po, payload, db)
-    db.flush()
+    flush_or_conflict(db)
     log_audit(db, user, "CREATE_DRAFT", "POIntake", po.id, po.po_number or "Incomplete PO", obj=po)
     commit_or_conflict(db)
     db.refresh(po)

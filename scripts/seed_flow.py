@@ -82,6 +82,7 @@ else:
         "minimum_dp_percent": 30,
         "cfo_quotation_limit": 500000000,
         "allow_credit_terms": True,
+        "change_reason": "Kebijakan awal demo: margin min 15%, DP min 30%, limit quotation CFO Rp500jt, kredit diizinkan.",
     })
 
 # ── 2. Ambil order hasil seed sebelumnya ────────────────────────────────────
@@ -97,13 +98,17 @@ if not orders:
     raise SystemExit("Tidak ada order untuk diproses")
 
 # ── 3. Quotation untuk tiap order ───────────────────────────────────────────
+# Idempotensi: lewati order yang SUDAH punya quotation apa pun (mis. order yang
+# digarap seed_routed). Kalau tidak, quotation baru yang masih DRAFT akan
+# men-supersede quotation lama yang sudah APPROVED dan memblokir gate berikutnya.
 print("\n3) Quotation (CMO Manager)")
 _, quotes = call("cmo.manager", "GET", "/cmo/quotations")
 quotes = quotes or []
+orders_with_quote = {q.get("order_fk") for q in quotes}
 for i, o in enumerate(orders, start=1):
     qno = f"QT-{today.year}-{i:03d}"
-    if find(quotes, "quotation_no", qno):
-        print(f"  = {qno} (sudah ada)")
+    if find(quotes, "quotation_no", qno) or o["id"] in orders_with_quote:
+        print(f"  = {qno} / order {o['order_id']} (sudah ada quotation)")
         continue
     arts = o.get("articles") or []
     lines = [{"article_id": a["id"], "unit_price": "85000", "unit_hpp": "60000"} for a in arts]
@@ -118,6 +123,7 @@ for i, o in enumerate(orders, start=1):
         "pricing_lines": lines,
         "payment_plan": "DP 30%, pelunasan sebelum pengiriman",
     })
+    orders_with_quote.add(o["id"])
 
 # ── 4. Sample untuk order yang mensyaratkan sample ──────────────────────────
 print("\n4) Sample (CMO Manager)")
@@ -142,23 +148,28 @@ for o in orders:
         })
 
 # ── 5. SPK untuk order produksi ─────────────────────────────────────────────
+# Idempotensi: lewati order yang SUDAH punya SPK (mis. order yang digarap
+# seed_routed). SPK baru versi lebih tinggi akan men-supersede SPK lama sehingga
+# gate "Versi SPK terbaru" gagal dan produksi tidak bisa lanjut.
 print("\n5) SPK (CMO Manager)")
 _, spks = call("cmo.manager", "GET", "/cmo/spk")
 spks = spks or []
+spk_orders = {s.get("order_fk") for s in spks}
 n = 0
 for o in orders:
     if o["order_type"] == "SAMPLE_ONLY":
         continue
     n += 1
     spk_no = f"SPK-{today.year}-{n:03d}"
-    if find(spks, "spk_no", spk_no):
-        print(f"  = {spk_no} (sudah ada)")
+    if find(spks, "spk_no", spk_no) or o["id"] in spk_orders:
+        print(f"  = {spk_no} / order {o['order_id']} (sudah ada SPK)")
         continue
     step(f"{spk_no} — {o['buyer']}", "cmo.manager", "POST", "/cmo/spk", {
         "order_fk": o["id"],
         "spk_no": spk_no,
         "notes": "Surat perintah kerja produksi",
     })
+    spk_orders.add(o["id"])
 
 # ── 6. Laporan ──────────────────────────────────────────────────────────────
 print("\n" + "=" * 62)

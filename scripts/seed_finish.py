@@ -145,6 +145,8 @@ if sh.get("status") != "DELIVERED":
 flow_state(order_id, "setelah delivery")
 
 # ── 5. Order closing ────────────────────────────────────────────────────────
+# Idempotent: hanya PATCH field yang masih belum CLOSED. Order yang sudah
+# ditutup bersifat immutable (PRD §7) — re-run tidak boleh menabrak guardrail.
 print("\n5) Order closing (CMO)")
 status, closing = call("cmo.manager", "GET", f"/coo/order-closing/{oid}")
 if status == 200 and closing:
@@ -156,11 +158,19 @@ else:
     step("Buat closing", "cmo.manager", "POST", f"/coo/order-closing/{oid}",
          {"order_fk": oid, "customer_close_status": "CLOSED",
           "notes": "Order selesai, semua tahap terpenuhi"})
+    closing = {}
 
-step("Closing operasional", "coo.manager", "PATCH", f"/coo/order-closing/{oid}",
-     {"operational_close_status": "CLOSED", "notes": "Produksi dan serah terima selesai"})
-step("Closing finansial", "cfo.manager", "PATCH", f"/coo/order-closing/{oid}",
-     {"financial_close_status": "CLOSED", "notes": "Tagihan lunas dan terekonsiliasi"})
+if closing.get("operational_close_status") != "CLOSED":
+    step("Closing operasional", "coo.manager", "PATCH", f"/coo/order-closing/{oid}",
+         {"operational_close_status": "CLOSED", "notes": "Produksi dan serah terima selesai"})
+else:
+    print("  = closing operasional sudah CLOSED, dilewati")
+
+if closing.get("financial_close_status") != "CLOSED":
+    step("Closing finansial", "cfo.manager", "PATCH", f"/coo/order-closing/{oid}",
+         {"financial_close_status": "CLOSED", "notes": "Tagihan lunas dan terekonsiliasi"})
+else:
+    print("  = closing finansial sudah CLOSED, dilewati")
 
 flow_state(order_id, "final")
 
