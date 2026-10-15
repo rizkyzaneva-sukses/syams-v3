@@ -15,11 +15,12 @@ const roleMenus={
      kontrol. Workspace operasional (CFO Home, Shipment Gate, Deliveries, Order
      Closing, PO rutin) sengaja TIDAK ada — CEO melihatnya sebagai drill-down
      read-only, bukan sebagai menu kerja (revisi #74 & #77). */
-  CEO:[['Morning CEO View','/ceo',Crown],['Company Performance','/ceo/company-performance',BarChart3],['Decision Needed','/ceo/decisions',ClipboardList],['CEO Action Tracker','/ceo/decisions',CheckSquare],['Exception Center','/exceptions',AlertTriangle],['Policy & Override','/ceo/business-policy',DollarSign],['Override Register','/ceo/overrides',AlertTriangle],['Master Control — Lihat Saja','/master',Database],['Audit Trail','/audit-log',ClipboardList],['Usulan Revisi','/revisions',MessageSquarePlus]],
+  CEO:[['Morning CEO View','/ceo',Crown],['Company Performance','/ceo/company-performance',BarChart3],['Laporan Keuangan','/accounting',FileText],['Decision Needed','/ceo/decisions',ClipboardList],['CEO Action Tracker','/ceo/decisions',CheckSquare],['Exception Center','/exceptions',AlertTriangle],['Policy & Override','/ceo/business-policy',DollarSign],['Override Register','/ceo/overrides',AlertTriangle],['Master Control — Lihat Saja','/master',Database],['Audit Trail','/audit-log',ClipboardList],['Usulan Revisi','/revisions',MessageSquarePlus]],
   CMO_MANAGER:[['Morning Priority','/cmo/priority',Target],['Orders','/cmo/orders',ShoppingCart],['PPM','/cmo/samples',ClipboardList],['Sample Approval Feed','/cmo/sample-approval',ClipboardList],['SPK','/cmo/spk',CheckSquare],['Release to COO','/cmo/release-to-coo',CheckSquare],['Buyer CRM','/cmo/buyer-crm',Users],['Sales Pipeline','/cmo/sales-pipeline',TrendingUp],['Exception Center','/cmo/exception-center',AlertTriangle],['Reports','/cmo/reports',BarChart3],['Usulan Revisi','/revisions',MessageSquarePlus]],
   CMO_SUPPORT:[['Hari Ini','/cmo/today',Target],['PO Masuk','/cmo/po-inbox',ShoppingCart],['Buyer & Follow-up','/cmo/buyer-crm',Users],['Draft Order','/cmo/orders',ShoppingCart],['Quotation','/cmo/quotations',FileText],['Sample/PPM','/cmo/samples',ClipboardList],['SPK — Generate & Print','/cmo/spk',CheckSquare],['After Sales','/cmo/after-sales',Truck],['Tugas Saya','/tasks',ClipboardList],['Master Control — Lihat Saja','/master',Database],['Usulan Revisi','/revisions',MessageSquarePlus]],
   CFO_MANAGER:[
     ['Morning Finance','/cfo',Home],
+    ['Akuntansi','/accounting',BarChart3],
     ['Purchase Orders','/cfo/purchase-orders',Package],
     ['Material Gate','/purchasing',Package],
     ['Operational Cost','/cfo/costing?tab=operational',BarChart3],
@@ -34,7 +35,7 @@ const roleMenus={
     ['Shipment Finance Gate','/cfo/shipments',Truck],
     ['Financial Closing','/coo/closing',CheckSquare],
   ],
-  FINANCE_SUPPORT:[['Morning Finance','/cfo',Home],['Invoice & AR','/cfo/invoices',FileText],['AP','/cfo/receivables',DollarSign]],
+  FINANCE_SUPPORT:[['Morning Finance','/cfo',Home],['Akuntansi','/accounting',BarChart3],['Invoice & AR','/cfo/invoices',FileText],['AP','/cfo/receivables',DollarSign]],
   COO_MANAGER:[['COO Home','/coo',Home],['Material Requests','/coo/material-requests',Package],['Production Queue','/coo/production',Factory],['WIP Tracking','/coo/wip',Package],['QC Records','/coo/qc',CheckSquare],['Shipments & Serah Terima','/cfo/shipments',Truck],['Master Control','/master',Database],['Production Plan','/coo/planning',Factory],['Konfirmasi Customer (Lihat)','/coo/deliveries',Truck],['Closing Operasional','/coo/closing',CheckSquare]],
   SAMPLE_PIC:[['My Sample Tasks','/tasks',ClipboardList],['Samples','/cmo/samples',ClipboardList],['Master Control','/master',Database]],
   PRINTING_PIC:[['Printing Hari Ini','/printing/today',Target],['My Tasks','/tasks',ClipboardList],['Production Queue','/coo/production',Factory],['Master Control','/master',Database]],

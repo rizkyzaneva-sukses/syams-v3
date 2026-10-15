@@ -9,11 +9,12 @@ from alembic.script import ScriptDirectory
 from .database import Base, engine, SessionLocal
 from .config import settings
 from . import auth_models
+from . import accounting_models  # noqa: F401 — pastikan tabel accounting ikut create_all
 from .routers import (auth, orders, master, dashboard, modules, revisions, po_intake, cmo_priority,
                       cmo_pipeline, cmo_support, cmo_manager, hr_employees, hr_recruitment,
                       sample_lifecycle, sample_work, printing_jobs, printing_ops,
                       cfo_receivables, cfo_costing, coo_execution,
-                      ceo_override, ceo_performance, cfo_payments, coo_handoffs)
+                      ceo_override, ceo_performance, cfo_payments, coo_handoffs, accounting)
 from .services.seed import seed
 
 
@@ -77,7 +78,10 @@ for router in (auth.router, orders.router, master.router, dashboard.router, modu
                # belum pernah dipasang sehingga semua endpoint-nya 404
                # (revisi #70-#78 CEO, #17/#20 CFO, #54 COO).
                ceo_override.router, ceo_performance.router, cfo_payments.router,
-               coo_handoffs.router):
+               coo_handoffs.router,
+               # Modul accounting double-entry (PRD §5 & §7): COA, jurnal,
+               # laporan keuangan, aset tetap/penyusutan, budget.
+               accounting.router):
     app.include_router(router, prefix="/api")
 
 

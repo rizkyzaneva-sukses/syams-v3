@@ -147,4 +147,38 @@ Kalau ada modul baru, jangan bikin aplikasi/database terpisah. Tambahkan model +
 Lihat `INSTALL_SERVER.md`.
 
 ## Batas V0.2
-Data model & endpoint utama tersedia, tetapi modul accounting double-entry penuh, payroll calculation final, bank reconciliation, tax, document PDF template final, dan formula KPI/SLA/TB yang masih CONFIGURABLE/TBD belum boleh dianggap production-final sampai aturan bisnisnya dikunci.
+Data model & endpoint utama tersedia, tetapi modul payroll calculation final, bank reconciliation, tax, document PDF template final, dan formula KPI/SLA/TB yang masih CONFIGURABLE/TBD belum boleh dianggap production-final sampai aturan bisnisnya dikunci.
+
+## V0.3 — Modul Akuntansi (double-entry)
+
+Sejak PRD v1.0 §5 & §7 (15 Okt 2026), aplikasi punya modul akuntansi
+double-entry. Ini yang sebelumnya tercatat sebagai batas V0.2 dan sekarang
+tertutup:
+
+- **Chart of accounts** — 34 akun standar manufaktur garmen, siap pakai via
+  `POST /api/accounting/seed-coa` (idempotent), atau tambah/ubah manual.
+- **Jurnal berpasangan** — `POST /api/accounting/journal-entries`. Jurnal yang
+  tidak balance **ditolak 400**. Jurnal `POSTED` tidak bisa diedit; koreksi
+  lewat **reversal** (`POST /api/accounting/journal-entries/{id}/reverse`).
+- **Buku besar** — `GET /api/accounting/general-ledger/{account_id}` dengan
+  saldo berjalan.
+- **Laporan keuangan** — trial balance, laba rugi, neraca, arus kas. Semuanya
+  **hanya membaca jurnal POSTED**; neraca wajib balance (Aset = Liabilitas +
+  Ekuitas + Laba Berjalan).
+- **Aset tetap & penyusutan** — garis lurus, `POST /api/accounting/depreciation/run`
+  per periode `YYYY-MM` (idempotent, satu periode sekali per aset), otomatis
+  membuat jurnal beban penyusutan.
+- **Anggaran** — `POST /api/accounting/budgets` + perbandingan realisasi.
+- **Auto-posting** — `POST /api/accounting/sync-transactions` memposting invoice
+  (Debit AR / Kredit Pendapatan) dan pembayaran terverifikasi (Debit Bank /
+  Kredit AR) ke jurnal. Idempotent lewat `source_ref`.
+- **UI** — halaman `Akuntansi` (8 tab) untuk CFO/Finance (tulis) dan CEO
+  (read-only).
+
+Hak tulis akuntansi: `CFO_MANAGER` + `FINANCE_SUPPORT`. Endpoint menulis
+mewajibkan role; laporan boleh dibaca semua user terautentikasi.
+
+Yang masih di luar cakupan V0.3 (belum production-final): rekonsiliasi bank
+otomatis vs mutasi, perpajakan (PPN/PPh) final, penutupan buku tahunan
+(closing entries), multi-mata-uang, dan payroll calculation final.
+

@@ -1,10 +1,11 @@
 {
-  "version": "0.2",
-  "status": "ALL-IN MVP / DEVELOPER FOUNDATION",
+  "version": "0.3",
+  "status": "ALL-IN MVP / DEVELOPER FOUNDATION + ACCOUNTING",
   "modules": [
     "MASTER",
     "CMO",
     "CFO",
+    "ACCOUNTING",
     "COO",
     "CHRO",
     "CEO",
@@ -15,5 +16,14 @@
     "docker-compose local",
     "docker-compose.prod + Caddy HTTPS"
   ],
-  "important_rule": "Do not hard-code TBD/CONFIGURABLE rules."
+  "important_rule": "Do not hard-code TBD/CONFIGURABLE rules.",
+  "accounting": {
+    "enabled": true,
+    "double_entry": true,
+    "coa_endpoint": "POST /api/accounting/seed-coa",
+    "reports": ["trial-balance", "income-statement", "balance-sheet", "cash-flow", "general-ledger"],
+    "assets": ["fixed-assets", "straight-line depreciation"],
+    "budgets": true,
+    "since": "PRD v1.0 §5 & §7 (15 Okt 2026)"
+  }
 }

@@ -62,6 +62,7 @@ import AfterSalesPage from './pages/AfterSalesPage';
 import GuidePage from './pages/GuidePage';
 import PrintingTodayPage from './pages/PrintingTodayPage';
 import PurchasingPage from './pages/PurchasingPage';
+import AccountingPage from './pages/AccountingPage';
 import Access from './components/Access';
 import Layout from './components/Layout';
 import {getToken} from './api';
@@ -103,6 +104,7 @@ function App(){return <BrowserRouter><Routes>
       <Route path="purchasing" element={<Access><PurchasingPage/></Access>}/>
       <Route path="cfo/receivables" element={<Access><CFOReceivablesPage/></Access>}/>
       <Route path="cfo/costing" element={<Access><CFOCostingPage/></Access>}/>
+    <Route path="accounting" element={<Access><AccountingPage/></Access>}/>
       <Route path="coo/execution" element={<Access><COOExecutionPage/></Access>}/>
     <Route path="cmo/customers" element={<Access><CustomerList/></Access>}/>
     <Route path="cmo/orders" element={<Access><OrderList/></Access>}/>

@@ -209,3 +209,92 @@ label input:focus,label select:focus,label textarea:focus{border-color:#3b82f6;b
 .revision-operator-form label>span{display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px}
 .revision-operator-form input{width:100%;font-family:inherit;border:1px solid #dce5f0;border-radius:8px;padding:9px 10px}
 .revision-operator-form .revision-status-buttons{margin-top:12px}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI POLISH PASS v2 — design tokens + dashboard quality floor
+   Tujuan: hilangkan "tell amatir" (angka tak tabular, header tabel tak nempel,
+   fokus keyboard tak terlihat, konten kepotong di HP, empty-state hambar).
+   Semua aturan di bawah menimpa definisi lama secara sengaja.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --ink:#0f1f3a; --ink-2:#334a66; --muted:#64748b; --muted-2:#8896a8;
+  --line:#e4eaf2; --line-2:#eef2f7; --surface:#ffffff; --canvas:#f4f7fb;
+  --navy:#0c2b52; --navy-2:#1e5ea5; --brand:#155fae;
+  --ok:#0f8a4d; --ok-bg:#e6f6ec; --warn:#9a6300; --warn-bg:#fdf3d8;
+  --danger:#b3262c; --danger-bg:#fdeaea; --info:#1c4e8f; --info-bg:#e8f1fc;
+  --radius:13px; --radius-sm:9px; --shadow:0 1px 2px rgba(15,31,58,.05),0 4px 14px rgba(15,31,58,.05);
+}
+
+/* Angka: selalu tabular supaya kolom uang/qty lurus. */
+.stat strong,.mini b,td,.money,.badge,.caprow,.flow-step-circle,.top-user{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+/* Hierarki tipe yang lebih tenang & konsisten. */
+.page-title h1{font-size:clamp(21px,2.4vw,27px);font-weight:800;letter-spacing:-.02em;line-height:1.15}
+.page-title p{color:var(--muted);font-size:13.5px}
+.panel h2{font-size:16px;font-weight:800;letter-spacing:-.01em}
+.panel{border-radius:var(--radius);box-shadow:var(--shadow);border-color:var(--line-2)}
+
+/* KPI card: angka besar tapi tak meneriakkan; label jadi eyebrow kecil. */
+.stat{padding:16px 18px;gap:2px;border-radius:var(--radius);box-shadow:var(--shadow)}
+.stat strong{font-size:clamp(22px,2.4vw,28px);font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.stat span,.stat small{font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.stat.red{border-left:4px solid #d93a41}.stat.amber{border-left:4px solid #e0900f}
+.stat.green{border-left:4px solid #12a05c}.stat.gray{border-left:4px solid #94a3b8}
+
+/* Tabel: header menempel saat scroll, baris mudah dipindai, angka rapi. */
+.table-scroll{overflow:auto;border-radius:var(--radius-sm);-webkit-overflow-scrolling:touch}
+table{font-size:13px}
+thead th{position:sticky;top:0;z-index:2;background:#eef3f9;color:#3c5473;
+  font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  padding:11px 12px;border-bottom:1px solid var(--line)}
+td{padding:11px 12px;border-top:1px solid var(--line-2);color:var(--ink-2)}
+tbody tr:hover td{background:#f8fbfe}
+td a{color:#0f4f9c}
+
+/* Badge: sedikit lebih tegas & mudah dibedakan. */
+.badge{padding:3px 9px;font-size:10.5px;font-weight:800;letter-spacing:.03em;border:1px solid transparent}
+.badge.green{background:var(--ok-bg);color:#0b6b3c;border-color:#bfe6cf}
+.badge.amber{background:var(--warn-bg);color:#7a4e00;border-color:#f0dfa8}
+.badge.red{background:var(--danger-bg);color:#8f1f24;border-color:#f2c4c6}
+.badge.gray{background:#eef2f7;color:#4a5a6e;border-color:#dde4ec}
+.badge.blue{background:var(--info-bg);color:#16437c;border-color:#c9ddf6}
+
+/* Aksesibilitas: fokus keyboard harus terlihat jelas. */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
+textarea:focus-visible,[tabindex]:focus-visible{outline:2.5px solid #2563eb;outline-offset:2px;border-radius:6px}
+
+/* Cegah konten data-dense memaksa overflow lalu kepotong (musuh utama di HP). */
+.app-shell,.main,.page,.panel,.table-scroll,.cards,.grid2,.filter-bar,
+.revision-layout{min-width:0}
+.page{overflow-x:clip}
+
+/* Empty state: beri arah, bukan sekadar patah hati. */
+.empty{min-height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;color:var(--muted);font-style:normal;font-size:13px}
+.empty:before{content:'—';font-size:22px;line-height:1;color:#c3cfdd;font-weight:800}
+
+/* Scrollbar halus (WebKit). */
+.table-scroll::-webkit-scrollbar,.flow-progress::-webkit-scrollbar,.sidebar nav::-webkit-scrollbar{height:9px;width:9px}
+.table-scroll::-webkit-scrollbar-thumb,.flow-progress::-webkit-scrollbar-thumb,.sidebar nav::-webkit-scrollbar-thumb{background:#c7d3e2;border-radius:99px}
+.table-scroll::-webkit-scrollbar-thumb:hover{background:#aebed2}
+.table-scroll::-webkit-scrollbar-track{background:#f1f5fa}
+
+/* Login: kartu lebih tegas, input lebih besar & fokus jelas. */
+.login-card{border-radius:20px;box-shadow:0 24px 70px rgba(18,52,91,.16)}
+.login-card h1{font-size:26px;font-weight:800;letter-spacing:-.02em}
+.login-card input{padding:13px 14px;border-radius:10px;font-size:14px}
+.login-card input:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.14)}
+.btn,.primary{transition:background .15s,border-color .15s,box-shadow .15s}
+
+/* Responsif: tabel boleh lebih lebar dari layar, tapi tetap bisa di-scroll. */
+@media(max-width:900px){
+  .page{padding:16px}
+  .cards{grid-template-columns:repeat(2,1fr);gap:11px}
+  .stat{padding:13px 14px}
+  table{font-size:12.5px}
+  .table-scroll table{min-width:600px}
+  thead th{position:static}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
