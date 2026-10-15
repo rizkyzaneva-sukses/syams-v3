@@ -298,3 +298,19 @@ textarea:focus-visible,[tabindex]:focus-visible{outline:2.5px solid #2563eb;outl
 @media(prefers-reduced-motion:reduce){
   *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
 }
+
+/* ===== QC quick-login (trial internal, env-gated) ===== */
+.qc-quick{margin-top:20px;border-top:1px dashed #d9e2ec;padding-top:16px}
+.qc-toggle{width:100%;background:#f2f6fb;border:1px solid #d7e0ea;color:#33475b;border-radius:10px;padding:10px;font-weight:700;font-size:13px;cursor:pointer}
+.qc-toggle:hover{background:#e7eff8}
+.qc-panel{margin-top:12px;background:#fbfdff;border:1px solid #e2e9f2;border-radius:12px;padding:14px}
+.qc-note{margin:0 0 12px;font-size:12px;color:#5b6b7f;line-height:1.5}
+.qc-note code{background:#eef3f9;padding:2px 6px;border-radius:5px;font-weight:700;color:#1d4e89}
+.qc-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.qc-account{display:flex;flex-direction:column;gap:2px;align-items:flex-start;background:#fff;border:1px solid #dfe7f0;border-radius:9px;padding:9px 11px;cursor:pointer;text-align:left;transition:border-color .12s,box-shadow .12s}
+.qc-account:hover{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+.qc-account b{font-size:12.5px;color:#12263f}
+.qc-account span{font-size:11.5px;color:#4a6178}
+.qc-account em{font-size:10.5px;color:#8494a7;font-style:normal}
+.qc-autologin{width:100%;margin-top:12px;background:#0d3769;color:#fff;border:0;border-radius:9px;padding:11px;font-weight:800;font-size:13px;cursor:pointer}
+.qc-autologin:hover{background:#124a8c}

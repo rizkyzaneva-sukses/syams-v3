@@ -13,3 +13,8 @@ playwright-report/
 test-results/
 REQUESTS/
 backend/frontend_dist/
+
+# Local env / QC trial (jangan pernah di-commit)
+.env.local
+.env.*.local
+*.local
