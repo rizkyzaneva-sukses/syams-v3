@@ -140,10 +140,10 @@ const ROLE_GUIDES = {
 
   CFO_MANAGER: {
     title: 'Chief Financial Officer (CFO Manager)',
-    pic: 'Riadi',
+    pic: 'Lutfi',
     icon: DollarSign,
     tone: 'amber',
-    summary: 'Penjaga integritas arus kas dan profitabilitas: persetujuan margin quotation, penerbitan invoice DP/Pelunasan, rekonsiliasi pembayaran bank, clearance Finance Gate, approval PO bahan baku, dan penutupan finansial.',
+    summary: 'Penjaga integritas arus kas dan profitabilitas: persetujuan margin quotation, penerbitan invoice DP/Pelunasan, rekonsiliasi pembayaran bank, clearance Finance Gate, approval anggaran PO bahan baku, dan penutupan finansial. Eksekusi fisik pembelian dan stok gudang dikerjakan Riadi (Purchasing).',
     dailyRoutine: [
       { step: 'Buka CFO Home (/cfo)', desc: 'Periksa antrean prioritas keuangan: pembayaran masuk yang butuh verifikasi, invoice jatuh tempo, dan review HPP.' },
       { step: 'Approval Quotation (/cmo/quotations)', desc: 'Validasi margin harga jual terhadap HPP. Jika margin memenuhi kebijakan bisnis (>15%), klik "Approve".' },
@@ -157,7 +157,7 @@ const ROLE_GUIDES = {
       'Menyetujui atau menolak margin penawaran harga (Quotation).',
       'Menerbitkan invoice, mencatat pembayaran, dan mencocokkan mutasi bank (rekonsiliasi).',
       'Membuka Finance Gate untuk produksi dan pengiriman.',
-      'Mengelola hutang usaha (AP), piutang usaha (AR aging), dan modul Purchasing Riadi.',
+      'Mengelola hutang usaha (AP), piutang usaha (AR aging), dan pengawasan anggaran modul Purchasing (Riadi).',
       'Melakukan Financial Closing pesanan.',
     ],
     donts: [
@@ -312,6 +312,77 @@ const ROLE_GUIDES = {
       { name: 'Employee Issues', path: '/chro/issues', desc: 'Pencatatan dan penyelesaian kasus kedisiplinan pegawai' },
     ],
   },
+
+  PURCHASING_PIC: {
+    title: 'Purchasing & Warehouse PIC',
+    pic: 'Riadi',
+    icon: Package,
+    tone: 'amber',
+    summary: 'Eksekutor pengadaan dan gudang: menerima kebutuhan material dari COO/order, cek stok nyata, hitung kekurangan, ajukan pembelian ke CFO, kirim PO ke supplier, catat kedatangan barang (Goods Receipt), keluarkan bahan ke produksi, dan jaga akurasi stok fisik gudang.',
+    dailyRoutine: [
+      { step: 'Buka Purchasing & Warehouse (/purchasing)', desc: 'Tinjau antrean Material Request dari Siti (COO), daftar PO vendor berjalan, dan peringatan stok di bawah minimum.' },
+      { step: 'Cek Stok & Hitung Kekurangan', desc: 'Bandingkan kebutuhan BOM dengan saldo stok gudang. Catat selisih (shortage) sebagai dasar pembelian. Jangan beli jika stok cukup.' },
+      { step: 'Ajukan Pembelian ke CFO (/cfo/purchase-orders)', desc: 'Kirim pengajuan pembelian. Lutfi (CFO) menyetujui anggaran; setelah disetujui, PO boleh dikirim ke supplier.' },
+      { step: 'Kirim PO ke Supplier & Pantau ETA', desc: 'Terbitkan PO resmi ke vendor. Catat estimasi kedatangan (ETA) dan follow-up keterlambatan.' },
+      { step: 'Catat Kedatangan Barang (Goods Receipt)', desc: 'Saat bahan tiba, catat GR fisik: qty diterima vs qty PO. Bahan masuk ke Inventory (/inventory) dan siap dialokasikan ke order.' },
+      { step: 'Keluarkan Bahan ke Produksi & Jaga Stok', desc: 'Alokasikan bahan per artikel dan catat pengeluaran (issue) ke lantai produksi. Laporkan selisih stok & keterlambatan ke COO/CFO.' },
+    ],
+    dos: [
+      'Menerima dan memverifikasi kebutuhan material dari order/sample/SPK.',
+      'Menghitung kekurangan material (shortage) berdasarkan stok nyata.',
+      'Menerbitkan PO ke supplier setelah anggaran disetujui CFO.',
+      'Mencatat penerimaan barang (GR), pengeluaran bahan, dan akurasi stok gudang.',
+      'Melaporkan keterlambatan material dan selisih stok (stock variance).',
+    ],
+    donts: [
+      'DILARANG menyetujui anggaran pembelian sendiri (wewenang cutoff finansial milik CFO Lutfi).',
+      'DILARANG menerima barang tanpa mencatat Goods Receipt — semua masuk gudang wajib tercatat.',
+      'DILARANG mengeluarkan bahan ke produksi melebihi kebutuhan BOM yang disetujui.',
+    ],
+    keyPages: [
+      { name: 'Purchasing & Warehouse', path: '/purchasing', desc: 'Workspace terpadu Riadi: kebutuhan material, PO vendor, dan stok' },
+      { name: 'Inventory', path: '/inventory', desc: 'Kartu stok material, saldo gudang, dan riwayat pergerakan bahan' },
+      { name: 'Purchase Orders', path: '/cfo/purchase-orders', desc: 'Daftar PO vendor dan status persetujuan anggaran' },
+      { name: 'Material Requests', path: '/coo/material-requests', desc: 'Antrean permintaan bahan dari produksi (input COO, aksi Riadi)' },
+      { name: 'Tasks', path: '/tasks', desc: 'Penugasan kebutuhan material yang menunggu eksekusi purchasing' },
+    ],
+  },
+
+  ARTWORK_PIC: {
+    title: 'Artwork & Sample Assistant',
+    pic: 'Diki',
+    icon: Layers,
+    tone: 'blue',
+    summary: 'Pengelola berkas desain dan versi artwork per artikel: menerima file desain, verifikasi kecocokan dengan spesifikasi & revisi buyer, mencetak artwork/instruksi kerja, serah terima ke Iman (Printing), serta membantu pembuatan dan revisi sample bersama Fahrul.',
+    dailyRoutine: [
+      { step: 'Buka Artwork (/artwork)', desc: 'Tinjau daftar artwork per artikel, versi terkini, dan peringatan versi OBSOLETE/SUPERSEDED.' },
+      { step: 'Terima & Verifikasi File Desain', desc: 'Cek file vs spesifikasi buyer: ukuran, warna, tipe (SABLON/BORDIR/LABEL). Pastikan hanya memakai versi yang berlaku.' },
+      { step: 'Unggah Versi Baru jika Ada Revisi', desc: 'Setiap perubahan desain = unggah versi baru (bukan menimpa). Versi lama otomatis SUPERSEDED dan tidak boleh dicetak lagi.' },
+      { step: 'Cetak Artwork & Instruksi Kerja', desc: 'Cetak file artwork/instruksi kerja pada kertas, lalu catat nomor register cetak bila perlu.' },
+      { step: 'Serah Terima ke Iman (Printing)', desc: 'Lakukan handover resmi ke Iman (Printing PIC) lengkap dengan versi aktif yang disetujui. Iman mengakui (acknowledge) penerimaan.' },
+      { step: 'Bantu Sample/Revisi & Update Fahrul', desc: 'Bantu persiapan, pengerjaan, dan revisi sample sesuai arahan Fahrul. Catat progres & serahkan hasilnya.' },
+    ],
+    dos: [
+      'Menerima, memverifikasi, dan mengelola file desain per artikel.',
+      'Mengunggah versi artwork baru dan mengajukannya untuk approval CMO.',
+      'Mencetak artwork/instruksi kerja dan mencatat serah terima ke Iman.',
+      'Membantu pembuatan dan revisi sample sesuai arahan Fahrul.',
+      'Memastikan operator mencetak dari satu versi aktif saja.',
+    ],
+    donts: [
+      'DILARANG mencetak dari versi OBSOLETE/SUPERSEDED — sistem akan menolaknya (guardrail PRD §7).',
+      'DILARANG menimpa file versi lama; semua perubahan wajib jadi versi baru yang tercatat.',
+      'DILARANG menyetujui artwork sendiri (approval milik CMO Manager).',
+      'DILARANG menyerahkan file ke produksi tanpa handover resmi yang tercatat.',
+    ],
+    keyPages: [
+      { name: 'Artwork', path: '/artwork', desc: 'Kelola kepala artwork, versi aktif, OBSOLETE/SUPERSEDED, dan cek boleh-cetak' },
+      { name: 'Sample Lifecycle', path: '/sample/lifecycle', desc: 'Audit versi sample, revisi, dan bukti foto yang dikerjakan bersama Fahrul' },
+      { name: 'Samples', path: '/cmo/samples', desc: 'Daftar permintaan sample dan status pengerjaannya' },
+      { name: 'Tasks', path: '/tasks', desc: 'Penugasan artwork/sample harian untuk Diki' },
+      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+    ],
+  },
 };
 
 const FLOW_STEPS = [
@@ -324,15 +395,15 @@ const FLOW_STEPS = [
   },
   {
     step: '2. Quotation & Pricing Gate',
-    owner: 'Cecep (CMO Manager) & Riadi (CFO Manager)',
-    desc: 'Cecep tentukan harga jual per artikel. Riadi memeriksa kelayakan margin terhadap kebijakan bisnis. Jika margin >= 15%, Riadi klik "Approve Quotation".',
+    owner: 'Cecep (CMO Manager) & Lutfi (CFO Manager)',
+    desc: 'Cecep tentukan harga jual per artikel. Lutfi memeriksa kelayakan margin terhadap kebijakan bisnis. Jika margin >= 15%, Lutfi klik "Approve Quotation".',
     gate: 'Quotation berstatus APPROVED. Jika margin di bawah batas, wajib eskalasi ke CEO.',
     tone: 'amber',
   },
   {
     step: '3. Down Payment & Finance Gate',
-    owner: 'Riadi (CFO Manager)',
-    desc: 'Riadi menerbitkan Invoice DP (min 30%). Setelah buyer transfer, pembayaran dicatat dan direkonsiliasi. Riadi menyetujui "Finance Gate".',
+    owner: 'Lutfi (CFO Manager)',
+    desc: 'Lutfi menerbitkan Invoice DP (min 30%). Setelah buyer transfer, pembayaran dicatat dan direkonsiliasi. Lutfi menyetujui "Finance Gate".',
     gate: 'Finance Gate berstatus CLEAR. Lantai produksi tidak boleh bergerak sebelum DP lunas.',
     tone: 'amber',
   },
@@ -345,7 +416,7 @@ const FLOW_STEPS = [
   },
   {
     step: '5. Material & Rencana Produksi',
-    owner: 'Siti (COO Manager) & Riadi (CFO Manager)',
+    owner: 'Siti (COO Manager) & Riadi (Purchasing)',
     desc: 'Siti menyusun BOM dan mengajukan Material Request. Riadi membeli bahan hingga PO vendor READY. Siti menetapkan jadwal dan Approve Production Plan.',
     gate: 'Material READY dan Production Plan APPROVED.',
     tone: 'green',
@@ -359,15 +430,15 @@ const FLOW_STEPS = [
   },
   {
     step: '7. QC Final, Packing & Shipment',
-    owner: 'Siti (COO) & Riadi (CFO)',
-    desc: 'Setelah QC PASS 100%, Siti mengemas (PACKED) dengan rekonsiliasi kuantitas baris artikel. Riadi menyetujui Finance Gate Pengiriman. Barang diberangkatkan (SHIPPED).',
+    owner: 'Siti (COO) & Lutfi (CFO)',
+    desc: 'Setelah QC PASS 100%, Siti mengemas (PACKED) dengan rekonsiliasi kuantitas baris artikel. Lutfi menyetujui Finance Gate Pengiriman. Barang diberangkatkan (SHIPPED).',
     gate: 'QC PASS 100%, Shipment PACKED terekonsiliasi, dan Finance Gate Pengiriman CLEAR.',
     tone: 'green',
   },
   {
     step: '8. Serah Terima Fisik & 3-Way Closing',
-    owner: 'Siti (COO), Cecep (CMO), Riadi (CFO)',
-    desc: 'Siti mencatat serah terima fisik (DELIVERED). Cecep mencatat kepuasan buyer (Customer Close). Siti menutup operasional. Riadi memverifikasi saldo nol & menutup finansial.',
+    owner: 'Siti (COO), Cecep (CMO), Lutfi (CFO)',
+    desc: 'Siti mencatat serah terima fisik (DELIVERED). Cecep mencatat kepuasan buyer (Customer Close). Siti menutup operasional. Lutfi memverifikasi saldo nol & menutup finansial.',
     gate: 'Ketiga pilar (Customer + Operational + Financial) tertutup. Order resmi CLOSED.',
     tone: 'blue',
   },
@@ -396,7 +467,7 @@ const FAQS = [
   },
   {
     q: 'Kenapa akun CEO tidak memiliki menu untuk membuat Purchase Order atau Surat Jalan?',
-    a: 'Berdasarkan blueprint tata kelola BOS Syams (Revisi #74 & #77), CEO tidak memiliki workspace operasional harian. Pembelian material adalah wewenang CFO/Purchasing Riadi, dan pengiriman fisik adalah wewenang COO Siti. CEO bertindak sebagai pengawas strategis (read-only audit) dan pemutus eskalasi darurat.',
+    a: 'Berdasarkan blueprint tata kelola BOS Syams (Revisi #74 & #77), CEO tidak memiliki workspace operasional harian. Pembelian material dieksekusi Riadi (Purchasing) dengan persetujuan anggaran Lutfi (CFO), dan pengiriman fisik adalah wewenang COO Siti. CEO bertindak sebagai pengawas strategis (read-only audit) dan pemutus eskalasi darurat.',
   },
   {
     q: 'Kenapa penutupan order (Closing) membutuhkan 3 orang berbeda?',
@@ -503,11 +574,13 @@ export default function GuidePage() {
             <option value="CEO">👑 CEO (Iyan)</option>
             <option value="CMO_MANAGER">🎯 CMO Manager (Cecep)</option>
             <option value="CMO_SUPPORT">📋 CMO Support (Deby)</option>
-            <option value="CFO_MANAGER">💰 CFO Manager (Riadi)</option>
+            <option value="CFO_MANAGER">💰 CFO Manager (Lutfi)</option>
             <option value="COO_MANAGER">🏭 COO Manager (Siti)</option>
             <option value="PRINTING_PIC">🖨️ Printing PIC (Iman)</option>
             <option value="SAMPLE_PIC">🧵 Sample PIC (Fahrul)</option>
             <option value="CHRO_MANAGER">👥 CHRO / HR (Yuni)</option>
+            <option value="PURCHASING_PIC">📦 Purchasing & Gudang (Riadi)</option>
+            <option value="ARTWORK_PIC">🎨 Artwork & Sample Asst (Diki)</option>
           </select>
         </div>
       </div>
@@ -518,11 +591,13 @@ export default function GuidePage() {
           { key: 'CEO', label: 'CEO (Iyan)', icon: Crown },
           { key: 'CMO_MANAGER', label: 'CMO Mgr (Cecep)', icon: Target },
           { key: 'CMO_SUPPORT', label: 'CMO Spt (Deby)', icon: FileText },
-          { key: 'CFO_MANAGER', label: 'CFO Mgr (Riadi)', icon: DollarSign },
+          { key: 'CFO_MANAGER', label: 'CFO Mgr (Lutfi)', icon: DollarSign },
           { key: 'COO_MANAGER', label: 'COO Mgr (Siti)', icon: Factory },
           { key: 'PRINTING_PIC', label: 'Printing (Iman)', icon: Printer },
           { key: 'SAMPLE_PIC', label: 'Sample (Fahrul)', icon: Scissors },
           { key: 'CHRO_MANAGER', label: 'CHRO (Yuni)', icon: Users },
+          { key: 'PURCHASING_PIC', label: 'Purchasing (Riadi)', icon: Package },
+          { key: 'ARTWORK_PIC', label: 'Artwork (Diki)', icon: Layers },
         ].map((r) => {
           const Icon = r.icon;
           const isActive = selectedRole === r.key;
