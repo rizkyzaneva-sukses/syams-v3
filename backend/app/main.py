@@ -10,11 +10,17 @@ from .database import Base, engine, SessionLocal
 from .config import settings
 from . import auth_models
 from . import accounting_models  # noqa: F401 — pastikan tabel accounting ikut create_all
+# Modul lanjutan (menutup gap BLUEPRINT/PRD): semua diimport di sini supaya
+# tabelnya ikut Base.metadata.create_all di mode development.
+from . import (inventory_models, hr_time_models, banking_models,
+               artwork_models, crm_models, platform_models)  # noqa: F401
 from .routers import (auth, orders, master, dashboard, modules, revisions, po_intake, cmo_priority,
                       cmo_pipeline, cmo_support, cmo_manager, hr_employees, hr_recruitment,
+                      hr_time,
                       sample_lifecycle, sample_work, printing_jobs, printing_ops,
                       cfo_receivables, cfo_costing, coo_execution,
-                      ceo_override, ceo_performance, cfo_payments, coo_handoffs, accounting)
+                      ceo_override, ceo_performance, cfo_payments, coo_handoffs, accounting,
+                      inventory, banking, artwork, crm, platform)
 from .services.seed import seed
 
 
@@ -81,7 +87,16 @@ for router in (auth.router, orders.router, master.router, dashboard.router, modu
                coo_handoffs.router,
                # Modul accounting double-entry (PRD §5 & §7): COA, jurnal,
                # laporan keuangan, aset tetap/penyusutan, budget.
-               accounting.router):
+               accounting.router,
+               # Modul lanjutan penutup gap BLUEPRINT/PRD:
+               #   inventory → Riadi (material, stok, PR, GR, Material Gate)
+               #   banking   → Lutfi (rekonsiliasi bank, treasury)
+               #   artwork   → Diki (versioning artwork, obsolete warning)
+               #   crm       → Cecep/Deby (lead, opportunity, sales target)
+               #   hr_time   → Yuni (absensi, cuti)
+               #   platform  → notifikasi + idempotency (PRD §6)
+               inventory.router, banking.router, artwork.router, crm.router,
+               hr_time.router, platform.router):
     app.include_router(router, prefix="/api")
 
 

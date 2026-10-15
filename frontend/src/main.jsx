@@ -63,6 +63,11 @@ import GuidePage from './pages/GuidePage';
 import PrintingTodayPage from './pages/PrintingTodayPage';
 import PurchasingPage from './pages/PurchasingPage';
 import AccountingPage from './pages/AccountingPage';
+import InventoryPage from './pages/InventoryPage';
+import BankingPage from './pages/BankingPage';
+import ArtworkPage from './pages/ArtworkPage';
+import CRMPage from './pages/CRMPage';
+import AttendancePage from './pages/AttendancePage';
 import Access from './components/Access';
 import Layout from './components/Layout';
 import {getToken} from './api';
@@ -105,6 +110,11 @@ function App(){return <BrowserRouter><Routes>
       <Route path="cfo/receivables" element={<Access><CFOReceivablesPage/></Access>}/>
       <Route path="cfo/costing" element={<Access><CFOCostingPage/></Access>}/>
     <Route path="accounting" element={<Access><AccountingPage/></Access>}/>
+    <Route path="banking" element={<Access><BankingPage/></Access>}/>
+    <Route path="inventory" element={<Access><InventoryPage/></Access>}/>
+    <Route path="artwork" element={<Access><ArtworkPage/></Access>}/>
+    <Route path="crm" element={<Access><CRMPage/></Access>}/>
+    <Route path="chro/attendance" element={<Access><AttendancePage/></Access>}/>
       <Route path="coo/execution" element={<Access><COOExecutionPage/></Access>}/>
     <Route path="cmo/customers" element={<Access><CustomerList/></Access>}/>
     <Route path="cmo/orders" element={<Access><OrderList/></Access>}/>

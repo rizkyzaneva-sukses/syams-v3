@@ -192,9 +192,9 @@ export const ROLE_LAYOUT_ORDER={
 /* Label lama Layout.jsx yang menjadi acuan penyisipan. Dipakai tes untuk
    memastikan aturan urutan di atas hanya menyebut label yang benar-benar ada. */
 export const LAYOUT_ANCHOR_LABELS={
-  CHRO_MANAGER:['CHRO Home','Training','Recruitment'],
-  HR_SUPPORT:['CHRO Home','Training','Recruitment'],
-  CMO_MANAGER:['Morning Priority','Orders'],
+  CHRO_MANAGER:['Ruang Yuni — SDM','Training'],
+  HR_SUPPORT:['Ruang Yuni — SDM','Training'],
+  CMO_MANAGER:['Lini Kerja Sales','Orders'],
 };
 
 export const ROLE_LIST=Object.keys(MENUS_BY_ROLE);

@@ -4,6 +4,7 @@ import {Home,Database,Package,ShoppingCart,DollarSign,Factory,Users,Crown,Clipbo
 import {api,clearToken} from '../api';
 import {canAccess} from '../business';
 import GlobalSearch from './GlobalSearch';
+import NotificationBell from './NotificationBell';
 
 /* Sidebar menus.
    CMO_MANAGER follows the locked blueprint in revisi #14 poin 1 — order is
@@ -16,13 +17,14 @@ const roleMenus={
      Closing, PO rutin) sengaja TIDAK ada — CEO melihatnya sebagai drill-down
      read-only, bukan sebagai menu kerja (revisi #74 & #77). */
   CEO:[['Morning CEO View','/ceo',Crown],['Company Performance','/ceo/company-performance',BarChart3],['Laporan Keuangan','/accounting',FileText],['Decision Needed','/ceo/decisions',ClipboardList],['CEO Action Tracker','/ceo/decisions',CheckSquare],['Exception Center','/exceptions',AlertTriangle],['Policy & Override','/ceo/business-policy',DollarSign],['Override Register','/ceo/overrides',AlertTriangle],['Master Control — Lihat Saja','/master',Database],['Audit Trail','/audit-log',ClipboardList],['Usulan Revisi','/revisions',MessageSquarePlus]],
-  CMO_MANAGER:[['Morning Priority','/cmo/priority',Target],['Orders','/cmo/orders',ShoppingCart],['PPM','/cmo/samples',ClipboardList],['Sample Approval Feed','/cmo/sample-approval',ClipboardList],['SPK','/cmo/spk',CheckSquare],['Release to COO','/cmo/release-to-coo',CheckSquare],['Buyer CRM','/cmo/buyer-crm',Users],['Sales Pipeline','/cmo/sales-pipeline',TrendingUp],['Exception Center','/cmo/exception-center',AlertTriangle],['Reports','/cmo/reports',BarChart3],['Usulan Revisi','/revisions',MessageSquarePlus]],
-  CMO_SUPPORT:[['Hari Ini','/cmo/today',Target],['PO Masuk','/cmo/po-inbox',ShoppingCart],['Buyer & Follow-up','/cmo/buyer-crm',Users],['Draft Order','/cmo/orders',ShoppingCart],['Quotation','/cmo/quotations',FileText],['Sample/PPM','/cmo/samples',ClipboardList],['SPK — Generate & Print','/cmo/spk',CheckSquare],['After Sales','/cmo/after-sales',Truck],['Tugas Saya','/tasks',ClipboardList],['Master Control — Lihat Saja','/master',Database],['Usulan Revisi','/revisions',MessageSquarePlus]],
+  CMO_MANAGER:[['Lini Kerja Sales','/cmo/priority',Target],['Leads & Pipeline','/crm',TrendingUp],['Orders','/cmo/orders',ShoppingCart],['PPM','/cmo/samples',ClipboardList],['Sample Approval Feed','/cmo/sample-approval',ClipboardList],['SPK','/cmo/spk',CheckSquare],['Release to COO','/cmo/release-to-coo',CheckSquare],['Buyer CRM','/cmo/buyer-crm',Users],['Artwork','/artwork',FileText],['Exception Center','/cmo/exception-center',AlertTriangle],['Reports','/cmo/reports',BarChart3],['Usulan Revisi','/revisions',MessageSquarePlus]],
+  CMO_SUPPORT:[['Agenda Hari Ini','/cmo/today',Target],['Leads & Pipeline','/crm',TrendingUp],['PO Masuk','/cmo/po-inbox',ShoppingCart],['Buyer & Follow-up','/cmo/buyer-crm',Users],['Draft Order','/cmo/orders',ShoppingCart],['Quotation','/cmo/quotations',FileText],['Sample/PPM','/cmo/samples',ClipboardList],['SPK — Generate & Print','/cmo/spk',CheckSquare],['Artwork','/artwork',FileText],['After Sales','/cmo/after-sales',Truck],['Tugas Saya','/tasks',ClipboardList],['Master Control — Lihat Saja','/master',Database],['Usulan Revisi','/revisions',MessageSquarePlus]],
   CFO_MANAGER:[
     ['Morning Finance','/cfo',Home],
     ['Akuntansi','/accounting',BarChart3],
+    ['Rekonsiliasi Bank','/banking',DollarSign],
     ['Purchase Orders','/cfo/purchase-orders',Package],
-    ['Material Gate','/purchasing',Package],
+    ['Inventory & Purchasing','/inventory',Package],
     ['Operational Cost','/cfo/costing?tab=operational',BarChart3],
     ['HPP & Pricing','/cfo/costing?tab=variance',DollarSign],
     ['Invoice & AR','/cfo/invoices',FileText],
@@ -35,13 +37,13 @@ const roleMenus={
     ['Shipment Finance Gate','/cfo/shipments',Truck],
     ['Financial Closing','/coo/closing',CheckSquare],
   ],
-  FINANCE_SUPPORT:[['Morning Finance','/cfo',Home],['Akuntansi','/accounting',BarChart3],['Invoice & AR','/cfo/invoices',FileText],['AP','/cfo/receivables',DollarSign]],
-  COO_MANAGER:[['COO Home','/coo',Home],['Material Requests','/coo/material-requests',Package],['Production Queue','/coo/production',Factory],['WIP Tracking','/coo/wip',Package],['QC Records','/coo/qc',CheckSquare],['Shipments & Serah Terima','/cfo/shipments',Truck],['Master Control','/master',Database],['Production Plan','/coo/planning',Factory],['Konfirmasi Customer (Lihat)','/coo/deliveries',Truck],['Closing Operasional','/coo/closing',CheckSquare]],
-  SAMPLE_PIC:[['My Sample Tasks','/tasks',ClipboardList],['Samples','/cmo/samples',ClipboardList],['Master Control','/master',Database]],
-  PRINTING_PIC:[['Printing Hari Ini','/printing/today',Target],['My Tasks','/tasks',ClipboardList],['Production Queue','/coo/production',Factory],['Master Control','/master',Database]],
-  PRODUCTION_PIC:[['My Tasks','/tasks',ClipboardList],['Production Queue','/coo/production',Factory],['Material Requests','/coo/material-requests',Package],['Master Control','/master',Database]],
-  CHRO_MANAGER:[['CHRO Home','/chro',Home],['Employees','/chro/employees',Users],['Training','/chro/training',BookOpen],['Performance','/chro/performance',BarChart3],['Employee Issues','/chro/issues',AlertTriangle]],
-  HR_SUPPORT:[['CHRO Home','/chro',Home],['Employees','/chro/employees',Users],['Training','/chro/training',BookOpen]],
+  FINANCE_SUPPORT:[['Morning Finance','/cfo',Home],['Akuntansi','/accounting',BarChart3],['Rekonsiliasi Bank','/banking',DollarSign],['Invoice & AR','/cfo/invoices',FileText],['AP','/cfo/receivables',DollarSign]],
+  COO_MANAGER:[['Ruang Siti — Operasional','/coo',Home],['Inventory & Purchasing','/inventory',Package],['Material Requests','/coo/material-requests',Package],['Production Queue','/coo/production',Factory],['WIP Tracking','/coo/wip',Package],['QC Records','/coo/qc',CheckSquare],['Shipments & Serah Terima','/cfo/shipments',Truck],['Master Control','/master',Database],['Production Plan','/coo/planning',Factory],['Konfirmasi Customer (Lihat)','/coo/deliveries',Truck],['Closing Operasional','/coo/closing',CheckSquare]],
+  SAMPLE_PIC:[['Tugas Sample Saya','/tasks',ClipboardList],['Samples','/cmo/samples',ClipboardList],['Artwork','/artwork',FileText],['Master Control','/master',Database]],
+  PRINTING_PIC:[['Printing Hari Ini','/printing/today',Target],['Artwork','/artwork',FileText],['My Tasks','/tasks',ClipboardList],['Production Queue','/coo/production',Factory],['Master Control','/master',Database]],
+  PRODUCTION_PIC:[['My Tasks','/tasks',ClipboardList],['Inventory & Purchasing','/inventory',Package],['Production Queue','/coo/production',Factory],['Material Requests','/coo/material-requests',Package],['Master Control','/master',Database]],
+  CHRO_MANAGER:[['Ruang Yuni — SDM','/chro',Home],['Employees','/chro/employees',Users],['Attendance & Cuti','/chro/attendance',ClipboardList],['Training','/chro/training',BookOpen],['Performance','/chro/performance',BarChart3],['Employee Issues','/chro/issues',AlertTriangle]],
+  HR_SUPPORT:[['Ruang Yuni — SDM','/chro',Home],['Employees','/chro/employees',Users],['Attendance & Cuti','/chro/attendance',ClipboardList],['Training','/chro/training',BookOpen]],
   SHIPMENT_ADMIN:[['Shipments','/cfo/shipments',Truck],['Master Control','/master',Database],['Deliveries','/coo/deliveries',Truck]]
 };
 for(const role of ['COO_MANAGER','PRODUCTION_PIC']) roleMenus[role].push(['BOM & Actual Cost','/coo/bom-cost',Package]);
@@ -83,5 +85,5 @@ export default function Layout(){
     <nav>{menus.map(([label,path,Icon],i)=><NavLink key={i} to={path} onClick={()=>setOpen(false)} className={({isActive})=>isActive?'active':''}><Icon size={18}/><span>{label}</span></NavLink>)}</nav>
     <div className="side-foot">{foot.map(([label,path,Icon],i)=><NavLink key={i} to={path} onClick={()=>setOpen(false)}><Icon size={18}/>{label}</NavLink>)}<button onClick={logout}><LogOut size={18}/>Keluar</button></div>
    </aside>
-   <main className="main"><header className="topbar"><button className="menu-mobile" onClick={()=>setOpen(true)}><Menu/></button><GlobalSearch/><div className="top-user">{me?.name}</div></header><Outlet context={{me}}/></main>
+   <main className="main"><header className="topbar"><button className="menu-mobile" onClick={()=>setOpen(true)}><Menu/></button><GlobalSearch/><NotificationBell/><div className="top-user">{me?.name}</div></header><Outlet context={{me}}/></main>
  </div>}
