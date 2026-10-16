@@ -124,7 +124,11 @@ function MaterialPanel({materials,canWrite,onChanged}){
 // ── Stok ────────────────────────────────────────────────────────────────────
 function StokPanel({stock,low,materials,locations,canWrite,onChanged}){
   const [form,setForm]=useState(null);
+  const noMaster=!(materials||[]).length||!(locations||[]).length;
+  const formValid=form&&form.material_id&&form.location_id&&Number(form.qty)>0;
   async function save(){
+    if(!form.material_id||!form.location_id){alert('Material dan lokasi wajib dipilih.');return}
+    if(!(Number(form.qty)>0)){alert('Qty harus lebih dari 0.');return}
     await api('/inventory/movements',{method:'POST',body:JSON.stringify({
       material_id:Number(form.material_id),location_id:Number(form.location_id),
       movement_type:form.movement_type,qty:Number(form.qty),
@@ -132,7 +136,10 @@ function StokPanel({stock,low,materials,locations,canWrite,onChanged}){
     setForm(null);onChanged();
   }
   return <>
-    {canWrite&&!form&&<button className="btn primary" onClick={()=>setForm({material_id:'',location_id:'',movement_type:'RECEIPT',qty:'',unit_cost:'',reason:''})} style={{marginBottom:14}}>+ Movement Stok</button>}
+    {canWrite&&!form&&<button className="btn primary" disabled={noMaster}
+       title={noMaster?'Isi master material & lokasi dulu (tombol "Isi Data Awal").':undefined}
+       onClick={()=>setForm({material_id:'',location_id:'',movement_type:'RECEIPT',qty:'',unit_cost:'',reason:''})} style={{marginBottom:14}}>+ Movement Stok</button>}
+    {canWrite&&noMaster&&<p style={{color:'#b45309',fontSize:12,marginBottom:10}}>Master material/lokasi masih kosong — jalankan <b>Isi Data Awal</b> dulu sebelum mencatat movement.</p>}
     {form&&<section className="panel"><h2>Movement Stok</h2>
       <div className="form-grid">
         <label>Material<select value={form.material_id} onChange={e=>setForm({...form,material_id:e.target.value})}>
@@ -146,7 +153,7 @@ function StokPanel({stock,low,materials,locations,canWrite,onChanged}){
         <label>Alasan (wajib utk ADJUSTMENT)<input value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})}/></label>
       </div>
       <div className="form-actions"><button className="btn" onClick={()=>setForm(null)}>Batal</button>
-        <button className="btn primary" onClick={()=>save().catch(e=>alert(e.message))}>Simpan</button></div>
+        <button className="btn primary" disabled={!formValid} onClick={()=>save().catch(e=>alert(e.message))}>Simpan</button></div>
     </section>}
 
     <section className="panel">
