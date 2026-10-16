@@ -10,7 +10,8 @@ from ..workflow import DEFAULT_PRODUCTION_ROUTE
 router = APIRouter(prefix="/orders", tags=["orders"])
 ORDER_READ_ROLES = (Role.CEO, Role.CMO_MANAGER, Role.CMO_SUPPORT, Role.CFO_MANAGER,
                     Role.FINANCE_SUPPORT, Role.COO_MANAGER, Role.SAMPLE_PIC,
-                    Role.PRINTING_PIC, Role.PRODUCTION_PIC, Role.SHIPMENT_ADMIN)
+                    Role.PRINTING_PIC, Role.PRODUCTION_PIC, Role.SHIPMENT_ADMIN,
+                    Role.CHRO_MANAGER, Role.HR_SUPPORT)
 
 @router.get("", response_model=list[OrderOut])
 def list_orders(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db: Session = Depends(get_db), user: User = Depends(require_roles(*ORDER_READ_ROLES))):

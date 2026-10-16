@@ -17,7 +17,8 @@ from ..audit import log_audit
 router = APIRouter(prefix="/master", tags=["master"])
 MASTER_ROLES = (Role.CEO, Role.CMO_MANAGER, Role.CMO_SUPPORT, Role.CFO_MANAGER,
                 Role.FINANCE_SUPPORT, Role.COO_MANAGER, Role.SAMPLE_PIC,
-                Role.PRINTING_PIC, Role.PRODUCTION_PIC, Role.SHIPMENT_ADMIN)
+                Role.PRINTING_PIC, Role.PRODUCTION_PIC, Role.SHIPMENT_ADMIN,
+                Role.CHRO_MANAGER, Role.HR_SUPPORT)
 
 
 def forecast_row(db, order):

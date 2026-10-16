@@ -375,7 +375,13 @@ def test_capacity_forecast_uses_daily_capacity_and_manual_override(client, heade
 
 
 def test_sensitive_module_reads_follow_role_matrix(client, headers, order):
-    for path in ("/orders", "/master/summary", "/master/forecast", "/cmo/customers", "/cmo/quotations", "/cmo/spk", "/coo/material-requests", "/coo/qc-records", "/coo/bom", "/coo/deliveries", f"/coo/order-closing/{order['id']}", f"/orders/{order['order_id']}/flow"):
+    # Bos meminta "Master Control munculin untuk semua role": HR (CHRO_MANAGER &
+    # HR_SUPPORT) kini boleh MEMBACA Master Control dan daftar/detail order
+    # (read-only) supaya drill-down dari halaman /master berfungsi.
+    for path in ("/orders", "/master/summary", "/master/forecast", f"/orders/{order['order_id']}/flow"):
+        call(client, headers, "GET", path, "HR_SUPPORT")
+    # Modul transaksional divisi lain tetap tertutup untuk HR.
+    for path in ("/cmo/customers", "/cmo/quotations", "/cmo/spk", "/coo/material-requests", "/coo/qc-records", "/coo/bom", "/coo/deliveries", f"/coo/order-closing/{order['id']}"):
         call(client, headers, "GET", path, "HR_SUPPORT", expected=403)
 
 

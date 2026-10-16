@@ -52,6 +52,20 @@ export function registeredRoutePaths(source){
 
 const ROUTES=registeredRoutePaths(mainSrc);
 
+/* Ambil isi array `roleMenus[ROLE]` dari Layout.jsx lewat pencocokan kurung,
+   supaya tes bisa memeriksa sidebar live tanpa mengeksekusi JSX. */
+function roleMenuBlock(src, role){
+  const m=new RegExp('\\b'+role+'\\s*:\\s*\\[').exec(src);
+  if(!m) return null;
+  let depth=1, i=m.index+m[0].length;
+  for(; i<src.length && depth>0; i++){
+    const c=src[i];
+    if(c==='[') depth++;
+    else if(c===']') depth--;
+  }
+  return src.slice(m.index+m[0].length, i-1);
+}
+
 /* Peran yang ada di aplikasi (grup di business.js + user demo). */
 const ALL_ROLES=['CEO','CMO_MANAGER','CMO_SUPPORT','CFO_MANAGER','FINANCE_SUPPORT',
   'COO_MANAGER','PRODUCTION_PIC','PRINTING_PIC','SAMPLE_PIC','SHIPMENT_ADMIN',
@@ -244,4 +258,33 @@ test('modul menu tidak menduplikasi hak akses dan file terlarang tidak disentuh'
   // SidebarMenu.jsx adalah komponen baru; ia tidak menggantikan Layout.jsx.
   assert.ok(!/export default function Layout/.test(read('components/SidebarMenu.jsx')));
   assert.deepEqual(ROLE_LIST.sort(),ALL_ROLES.slice().sort(),'daftar peran di menu harus mencakup semua peran aplikasi');
+});
+
+test('SEMUA 12 peran punya hak akses /master DAN tepat satu menu Master Control di sidebar', () => {
+  const problems=[];
+  for(const role of ALL_ROLES){
+    // (a) hak akses: halaman /master benar-benar boleh dibuka peran ini.
+    if(!canAccess(role,'/master')) problems.push(`${role} tidak punya hak akses /master`);
+    // (b) entri menu live: tepat satu entri ber-path '/master' di roleMenus Layout.jsx.
+    const block=roleMenuBlock(layoutSrc,role);
+    if(block===null){ problems.push(`${role} tidak punya blok roleMenus di Layout.jsx`); continue; }
+    const hits=(block.match(/'\/master'/g)||[]).length;
+    if(hits!==1) problems.push(`${role} punya ${hits} entri /master (harus tepat 1)`);
+  }
+  assert.deepEqual(problems,[],'Master Control tidak konsisten:\n'+problems.join('\n'));
+
+  // Label persis untuk 5 peran yang baru ditambahkan.
+  const expectedLabels={
+    CMO_MANAGER:'Master Control',
+    CFO_MANAGER:'Master Control',
+    FINANCE_SUPPORT:'Master Control',
+    CHRO_MANAGER:'Master Control',
+    HR_SUPPORT:'Master Control — Lihat Saja',
+  };
+  for(const [role,label] of Object.entries(expectedLabels)){
+    const block=roleMenuBlock(layoutSrc,role);
+    const m=/\[['"]([^'"]*)['"],['"]\/master['"]/.exec(block);
+    assert.ok(m,`${role}: entri /master tidak ditemukan di roleMenus`);
+    assert.equal(m[1],label,`${role}: label menu Master Control harus "${label}"`);
+  }
 });

@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import ProcessFlow from '../components/ProcessFlow';
 
 /* PANDUAN LENGKAP PENGGUNAAN BOS SYAMS (Semua Revisi #1 - #78)
    Panduan komprehensif berbasis peran dengan SOP harian, batas kewenangan tegas,
@@ -66,6 +67,7 @@ const ROLE_GUIDES = {
       { name: 'Exception Center', path: '/exceptions', desc: 'Pusat eskalasi isu operasional lintas divisi' },
       { name: 'Kebijakan Bisnis', path: '/ceo/business-policy', desc: 'Pengaturan limit margin, DP, dan tata kelola berversi' },
       { name: 'Audit Trail', path: '/audit-log', desc: 'Rekaman jejak aktivitas sistem yang tidak dapat diubah' },
+      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
     ],
   },
 
@@ -101,6 +103,7 @@ const ROLE_GUIDES = {
       { name: 'Pusat SPK', path: '/cmo/spk', desc: 'Pemeriksaan gate kesiapan dan pelepasan SPK' },
       { name: 'Sample Approval Feed', path: '/cmo/sample-approval', desc: 'Umpan balik persetujuan sample dari buyer' },
       { name: 'Buyer CRM', path: '/cmo/buyer-crm', desc: 'Database profil buyer, kontak, dan riwayat pesanan' },
+      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
     ],
   },
 
@@ -135,6 +138,7 @@ const ROLE_GUIDES = {
       { name: 'Quotation', path: '/cmo/quotations', desc: 'Pembuatan draf surat penawaran harga' },
       { name: 'SPK Dokumen', path: '/cmo/spk', desc: 'Generate dan cetak dokumen SPK' },
       { name: 'Tugas Saya', path: '/tasks', desc: 'Daftar penugasan operasional yang diberikan ke Deby' },
+      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
     ],
   },
 
@@ -172,6 +176,7 @@ const ROLE_GUIDES = {
       { name: 'Purchasing & Warehouse', path: '/purchasing', desc: 'Workspace kebutuhan material, PO vendor, dan stok gudang' },
       { name: 'Shipments Gate', path: '/cfo/shipments', desc: 'Pemeriksaan status saldo tagihan sebelum barang diberangkatkan' },
       { name: 'Closing Keuangan', path: '/coo/closing', desc: 'Verifikasi saldo nol dan penutupan finansial order' },
+      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
     ],
   },
 
@@ -210,6 +215,7 @@ const ROLE_GUIDES = {
       { name: 'WIP Tracking', path: '/coo/wip', desc: 'Pemantauan kuantitas barang dalam proses (WIP)' },
       { name: 'QC Records', path: '/coo/qc', desc: 'Pencatatan hasil inspeksi mutu lolos/reject' },
       { name: 'Deliveries', path: '/coo/deliveries', desc: 'Pencatatan pengiriman dan serah terima fisik buyer' },
+      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
     ],
   },
 
@@ -242,6 +248,7 @@ const ROLE_GUIDES = {
       { name: 'Job Cards', path: '/printing/job-cards', desc: 'Daftar kartu kerja cetak dan kendali kuantitas per batch' },
       { name: 'Target Harian', path: '/printing/daily-target', desc: 'Pencatatan dan evaluasi ketercapaian target harian' },
       { name: 'Tugas Saya', path: '/tasks', desc: 'Daftar penugasan operasional divisi printing' },
+      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
     ],
   },
 
@@ -310,6 +317,7 @@ const ROLE_GUIDES = {
       { name: 'Training & Onboarding', path: '/chro/training', desc: 'Jadwal pelatihan dan siklus masa orientasi 2 minggu' },
       { name: 'Performance Reviews', path: '/chro/performance', desc: 'Evaluasi berkala 6 parameter oleh manager terkait' },
       { name: 'Employee Issues', path: '/chro/issues', desc: 'Pencatatan dan penyelesaian kasus kedisiplinan pegawai' },
+      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
     ],
   },
 
@@ -345,6 +353,7 @@ const ROLE_GUIDES = {
       { name: 'Purchase Orders', path: '/cfo/purchase-orders', desc: 'Daftar PO vendor dan status persetujuan anggaran' },
       { name: 'Material Requests', path: '/coo/material-requests', desc: 'Antrean permintaan bahan dari produksi (input COO, aksi Riadi)' },
       { name: 'Tasks', path: '/tasks', desc: 'Penugasan kebutuhan material yang menunggu eksekusi purchasing' },
+      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
     ],
   },
 
@@ -750,7 +759,11 @@ export default function GuidePage() {
         </div>
       </div>
 
-      {/* Bagian 2: Alur 8 Gate Utama Produksi & Pengiriman */}
+      {/* Bagian 2: Alur Proses End-to-End (8 Tahap) — proses lengkap dari PO
+          masuk sampai order CLOSED, lengkap dengan gate teknis & halaman kerja. */}
+      <ProcessFlow />
+
+      {/* Bagian 3: Alur 8 Gate Utama Produksi & Pengiriman (ringkas) */}
       <section className="panel" style={{ marginBottom: 32 }}>
         <div className="panel-head" style={{ marginBottom: 18 }}>
           <div>
@@ -795,7 +808,7 @@ export default function GuidePage() {
         </div>
       </section>
 
-      {/* Bagian 3: Tanya Jawab Kendala Teknis (Troubleshooting & FAQs) */}
+      {/* Bagian 4: Tanya Jawab Kendala Teknis (Troubleshooting & FAQs) */}
       <section className="panel">
         <div className="panel-head" style={{ marginBottom: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>

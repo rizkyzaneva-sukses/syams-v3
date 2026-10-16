@@ -1874,7 +1874,7 @@ from ..flow_engine import FlowEngine
 
 @router.get("/orders/{order_id}/flow")
 def get_order_flow(order_id: str, db: Session = Depends(get_db), user = Depends(get_current_user)):
-    require(user,"CEO","CMO_MANAGER","CMO_SUPPORT","CFO_MANAGER","FINANCE_SUPPORT","COO_MANAGER","PRODUCTION_PIC","PRINTING_PIC","SAMPLE_PIC","SHIPMENT_ADMIN")
+    require(user,"CEO","CMO_MANAGER","CMO_SUPPORT","CFO_MANAGER","FINANCE_SUPPORT","COO_MANAGER","PRODUCTION_PIC","PRINTING_PIC","SAMPLE_PIC","SHIPMENT_ADMIN","CHRO_MANAGER","HR_SUPPORT")
     """Returns flow definition + current step + progress + validation for next steps."""
     order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
     if not order:

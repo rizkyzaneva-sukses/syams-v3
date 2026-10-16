@@ -1,6 +1,6 @@
 export const groups={cmo:['CMO_MANAGER','CMO_SUPPORT'],cfo:['CFO_MANAGER','FINANCE_SUPPORT'],coo:['COO_MANAGER','PRODUCTION_PIC','PRINTING_PIC','SHIPMENT_ADMIN'],hr:['CHRO_MANAGER','HR_SUPPORT']};
 const routeRoles={
-  '/master':['CEO',...groups.cmo,...groups.cfo,...groups.coo,'SAMPLE_PIC'],
+  '/master':['CEO',...groups.cmo,...groups.cfo,...groups.coo,...groups.hr,'SAMPLE_PIC'],
   '/cmo':groups.cmo,'/cmo/priority':['CMO_MANAGER','CEO'],'/cmo/sales-pipeline':['CMO_MANAGER','CEO'],'/cmo/reports':['CMO_MANAGER','CEO'],'/cmo/buyer-crm':[...groups.cmo,'CEO'],'/cmo/sample-approval':['CMO_MANAGER','CEO','SAMPLE_PIC'],'/cmo/release-to-coo':['CMO_MANAGER','CEO'],'/cmo/exception-center':['CMO_MANAGER','CEO'],'/cmo/today':['CMO_SUPPORT','CMO_MANAGER','CEO'],'/cmo/orders':groups.cmo,'/cmo/orders/new':groups.cmo,'/cmo/po-inbox':['CMO_MANAGER','CMO_SUPPORT','CEO'],'/cmo/customers':groups.cmo,
   '/cmo/quotations':[...groups.cmo,'CFO_MANAGER','CEO'],'/cmo/samples':[...groups.cmo,'SAMPLE_PIC'],'/cmo/spk':groups.cmo,'/cmo/after-sales':['CMO_SUPPORT','CMO_MANAGER','CEO'],
   // CEO tidak punya halaman kerja operasional: pembuatan/ubah PO, invoice, dan
@@ -31,7 +31,7 @@ const routeRoles={
   '/tasks':['CEO','CMO_MANAGER','CMO_SUPPORT','COO_MANAGER','PRODUCTION_PIC','PRINTING_PIC','SAMPLE_PIC'],
   '/exceptions':['CEO','CMO_MANAGER','COO_MANAGER','CFO_MANAGER','CHRO_MANAGER'],
 };
-export function canAccess(role,path){if(!role)return false;if(path.startsWith('/orders/'))return !['CHRO_MANAGER','HR_SUPPORT'].includes(role);if(path.startsWith('/cmo/po-inbox'))return ['CMO_MANAGER','CMO_SUPPORT','CEO'].includes(role);return path in routeRoles&&routeRoles[path].includes(role);}
+export function canAccess(role,path){if(!role)return false;if(path.startsWith('/orders/'))return true;if(path.startsWith('/cmo/po-inbox'))return ['CMO_MANAGER','CMO_SUPPORT','CEO'].includes(role);return path in routeRoles&&routeRoles[path].includes(role);}
 export function nullableNumber(value){return value==null||value===''?null:Number(value);}
 export function normalizeDates(value){
   if(Array.isArray(value)) return value.map(normalizeDates);

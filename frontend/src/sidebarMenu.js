@@ -210,8 +210,6 @@ export const BLOCKED_BY_PERMISSION=[
   // (role, label, path, tambalan yang dibutuhkan di business.js)
   ['CMO_SUPPORT','Approval Sample (Lihat)','/cmo/sample-approval',"tambahkan 'CMO_SUPPORT' ke routeRoles['/cmo/sample-approval']"],
   ['SAMPLE_PIC','Sample Exception','/exceptions',"tambahkan 'SAMPLE_PIC' ke routeRoles['/exceptions']"],
-  ['CHRO_MANAGER','Master Control','/master',"tambahkan groups.hr ke routeRoles['/master']"],
-  ['HR_SUPPORT','Master Control — Lihat Saja','/master',"tambahkan groups.hr ke routeRoles['/master']"],
 ];
 
 export function menusFor(role){
