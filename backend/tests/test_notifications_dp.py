@@ -102,9 +102,11 @@ def test_spk_release_notifies_production_roles(db):
     assert titles(db, "COO_MANAGER") == []
     spk.status = "PRINTED"
     db.commit()
-    assert titles(db, "CMO_MANAGER") == ["SPK SPK-9 siap direlease"]
+    assert titles(db, "CMO_MANAGER") == []                      # dicetak saja belum memicu apa pun
     spk.status = "RELEASED"
     db.commit()
+    ppm = inbox(db, "CMO_MANAGER")[-1]
+    assert ppm[0] == "SPK SPK-9 dirilis — lakukan PPM" and ppm[2] == "/cmo/samples"
     for role, link in (("COO_MANAGER", "/coo/planning"), ("PRODUCTION_PIC", "/coo/material-requests"),
                        ("PRINTING_PIC", "/master"), ("CMO_SUPPORT", "/cmo/today")):
         rows = inbox(db, role)
@@ -129,6 +131,7 @@ def test_finance_gate_and_sample_and_material_events(db):
     order.finance_gate_status = "APPROVED"
     db.commit()
     assert titles(db, "CMO_MANAGER")[-1] == f"Finance Gate {order.order_id} disetujui"
+    assert titles(db, "CMO_SUPPORT")[-1] == f"Invoice di-ACC CFO — cetak & release SPK {order.order_id}"
     sample = m.SampleRecord(order_fk=order.id, article_code="Agape", status="PROCESS")
     db.add(sample)
     db.commit()
@@ -222,7 +225,7 @@ def test_invoice_dp_is_validated_and_exposed(client, headers, db):
     call(client, headers, "CFO_MANAGER", "POST", "/cfo/invoices", {**base, "dp_amount": -5}, expected=400)
     created = call(client, headers, "CFO_MANAGER", "POST", "/cfo/invoices", {**base, "dp_amount": 6_000_000})
     assert float(created["dp_amount"]) == 6_000_000
-    listed = call(client, headers, "FINANCE_SUPPORT", "GET", "/cfo/invoices")
+    listed = call(client, headers, "CFO_MANAGER", "GET", "/cfo/invoices")
     assert float(listed[0]["dp_amount"]) == 6_000_000
     call(client, headers, "CFO_MANAGER", "PATCH", f"/cfo/invoices/{created['id']}", {"dp_amount": 30_000_000}, expected=400)
     changed = call(client, headers, "CFO_MANAGER", "PATCH", f"/cfo/invoices/{created['id']}", {"dp_amount": 8_000_000})

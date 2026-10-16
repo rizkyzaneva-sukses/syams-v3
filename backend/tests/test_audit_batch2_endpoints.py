@@ -78,7 +78,7 @@ def test_denied_role_is_actually_denied_on_reload(client, db, headers, path, rol
     leftover DOM/SPA state cannot mask a real leak.
     """
     _seed_minimal(db)
-    wrong = {"CMO_MANAGER": "HR_SUPPORT", "SAMPLE_PIC": "FINANCE_SUPPORT",
+    wrong = {"CMO_MANAGER": "HR_SUPPORT", "SAMPLE_PIC": "CFO_MANAGER",
              "PRINTING_PIC": "CHRO_MANAGER", "CFO_MANAGER": "PRINTING_PIC",
              "COO_MANAGER": "CMO_SUPPORT", "CHRO_MANAGER": None}.get(role)
     if wrong is None:

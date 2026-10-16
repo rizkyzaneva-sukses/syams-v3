@@ -10,7 +10,6 @@ class Role(str, enum.Enum):
     CMO_MANAGER = "CMO_MANAGER"
     CMO_SUPPORT = "CMO_SUPPORT"
     CFO_MANAGER = "CFO_MANAGER"
-    FINANCE_SUPPORT = "FINANCE_SUPPORT"
     COO_MANAGER = "COO_MANAGER"
     SAMPLE_PIC = "SAMPLE_PIC"
     PRINTING_PIC = "PRINTING_PIC"
@@ -80,7 +79,18 @@ class Article(Base):
     production_status = Column(String(32), default="NOT_STARTED", nullable=False)
     # Sheet lama: EXTRA SIZE (spare internal untuk reject, mis. "M+2/L+1") dan MOCKUP (link Drive/gambar).
     extra_size = Column(String(120), nullable=True)
-    mockup_url = Column(Text, nullable=True)
+    mockup_url = Column(Text, nullable=True)      # LEGACY: sebelumnya link Drive; kini diganti design_image_id
+    design_image_id = Column(Integer, nullable=True)       # stored_images.id (gambar desain)
+    size_chart_image_id = Column(Integer, nullable=True)   # stored_images.id (size chart)
+    # Spesifikasi di SPK (form SPK Syams)
+    fabric_type = Column(String(120), nullable=True)       # JENIS KAIN, mis. 16S CKP
+    print_type = Column(String(120), nullable=True)        # JENIS SABLON, mis. PLASTISOL
+    embroidery_type = Column(String(120), nullable=True)   # JENIS BORDIR
+    material_color = Column(String(120), nullable=True)    # WARNA MATERIAL
+    packaging = Column(String(40), nullable=True)          # OPP | ZIPLOCK | lainnya
+    label_note = Column(String(200), nullable=True)        # LABEL / HANTAG
+    zipper_note = Column(String(200), nullable=True)       # ZIPPER / HEADZIP
+    finishing_note = Column(String(300), nullable=True)    # LAINNYA
     order = relationship("Order", back_populates="articles")
 
 class POIntake(Base):
@@ -261,6 +271,9 @@ class Customer(Base):
     country = Column(String(80), nullable=True)
     contact_name = Column(String(120), nullable=True)
     contact_info = Column(String(200), nullable=True)
+    phone = Column(String(40), nullable=True)
+    shipping_carrier = Column(String(120), nullable=True)   # EKSPEDISI PENGIRIMAN
+    address = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -1417,3 +1430,4 @@ class ProductionHandoff(Base):
 # Tabel Control System (order_sequences, order_stages, dst.) harus terdaftar di Base.metadata
 # kapan pun models dimuat, karena pembuatan Order memakai penomoran SYM-YYMM-NNN.
 from . import control_models  # noqa: E402,F401
+from . import cfo_models  # noqa: E402,F401

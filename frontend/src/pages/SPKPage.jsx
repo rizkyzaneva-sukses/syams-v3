@@ -320,7 +320,7 @@ export default function SPKPage(){
             </>}
             {preparer&&['GENERATED','PRINTED','RELEASED'].includes(s.status)&&<button className="btn sm" disabled={busy} onClick={()=>showPdf(s)}><Eye size={14}/> Preview PDF</button>}
             {preparer&&['GENERATED','PRINTED'].includes(s.status)&&<button className="btn sm" disabled={busy} onClick={()=>showPdf(s,true)}><Printer size={14}/> Print</button>}
-            {manager&&s.status==='PRINTED'&&<button className="btn sm primary" disabled={busy} onClick={()=>openRelease(s)}><Check size={14}/> Release</button>}
+            {(manager||preparer)&&s.status==='PRINTED'&&<button className="btn sm primary" disabled={busy} onClick={()=>openRelease(s)}><Check size={14}/> Release</button>}
             {preparer&&['DRAFT','GENERATED','PRINTED'].includes(s.status)&&<button className="btn sm" disabled={busy} onClick={()=>act(s,'void')}><Ban size={14}/> Void</button>}
             {preparer&&s.status==='DRAFT'&&<button className="icon-btn danger" disabled={busy} onClick={()=>act(s,'delete')} title="Hapus draft"><Trash2 size={15}/></button>}
           </td>

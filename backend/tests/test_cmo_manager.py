@@ -196,7 +196,7 @@ def test_morning_priority_capacity_bottleneck_and_sla_summary(client, headers, u
 def test_morning_priority_permission_is_enforced_in_api(client, headers, users, db):
     """Batas kewenangan ditegakkan di server, bukan hanya UI (revisi #14 poin 9)."""
     seed(db, users)
-    for role in ("CFO_MANAGER", "COO_MANAGER", "CHRO_MANAGER", "PRODUCTION_PIC", "FINANCE_SUPPORT"):
+    for role in ("CFO_MANAGER", "COO_MANAGER", "CHRO_MANAGER", "PRODUCTION_PIC"):
         get(client, headers, role, expected=403)
     for role in ("CMO_MANAGER", "CMO_SUPPORT", "CEO"):
         data = get(client, headers, role)

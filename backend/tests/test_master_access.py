@@ -7,7 +7,7 @@ from app.models import Role
 
 NEW_READ_ROLES = ["CHRO_MANAGER", "HR_SUPPORT"]
 LEGACY_MASTER_ROLES = [
-    "CEO", "CMO_MANAGER", "CMO_SUPPORT", "CFO_MANAGER", "FINANCE_SUPPORT",
+    "CEO", "CMO_MANAGER", "CMO_SUPPORT", "CFO_MANAGER",
     "COO_MANAGER", "SAMPLE_PIC", "PRINTING_PIC", "PRODUCTION_PIC", "SHIPMENT_ADMIN",
 ]
 MASTER_READ_ENDPOINTS = [
@@ -42,7 +42,7 @@ def test_wip_capacity_write_stays_coo_only(client, headers):
 
 
 def test_legacy_master_roles_still_read_summary(client, headers):
-    assert len(LEGACY_MASTER_ROLES) == 10
+    assert len(LEGACY_MASTER_ROLES) == 9
     for role in LEGACY_MASTER_ROLES:
         resp = client.get("/api/master/summary", headers=headers(role))
         assert resp.status_code == 200, f"{role} GET /api/master/summary -> {resp.status_code}: {resp.text}"

@@ -8,8 +8,7 @@ from ..auth import get_current_user, require_roles
 from ..workflow import DEFAULT_PRODUCTION_ROUTE
 
 router = APIRouter(prefix="/orders", tags=["orders"])
-ORDER_READ_ROLES = (Role.CEO, Role.CMO_MANAGER, Role.CMO_SUPPORT, Role.CFO_MANAGER,
-                    Role.FINANCE_SUPPORT, Role.COO_MANAGER, Role.SAMPLE_PIC,
+ORDER_READ_ROLES = (Role.CEO, Role.CMO_MANAGER, Role.CMO_SUPPORT, Role.CFO_MANAGER, Role.COO_MANAGER, Role.SAMPLE_PIC,
                     Role.PRINTING_PIC, Role.PRODUCTION_PIC, Role.SHIPMENT_ADMIN,
                     Role.CHRO_MANAGER, Role.HR_SUPPORT)
 

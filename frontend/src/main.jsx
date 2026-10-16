@@ -70,6 +70,12 @@ import CRMPage from './pages/CRMPage';
 import AttendancePage from './pages/AttendancePage';
 import MasterSetupPage from './pages/MasterSetupPage';
 import ControlSystemPage from './pages/ControlSystemPage';
+import CompanyProfilePage from './pages/CompanyProfilePage';
+import CFOCashPage from './pages/CFOCashPage';
+import CFOProductionPage from './pages/CFOProductionPage';
+import CFOMaterialsPage from './pages/CFOMaterialsPage';
+import CFOCogsPage from './pages/CFOCogsPage';
+import CFOPriceCalculatorPage from './pages/CFOPriceCalculatorPage';
 import Access from './components/Access';
 import Layout from './components/Layout';
 import {getToken} from './api';
@@ -79,7 +85,7 @@ function Protected({children}){return getToken()?children:<Navigate to="/login" 
 /* Halaman awal per divisi. Deby (CMO Support) harus mendarat di daftar kerjanya,
    bukan dashboard lintas divisi — itu isi revisi #1. Cecep tetap ke Morning
    Priority miliknya, CHRO ke HR, sisanya ke Master Control. */
-const HOME_BY_ROLE={CMO_SUPPORT:'/cmo/today',CMO_MANAGER:'/cmo/priority',CFO_MANAGER:'/cfo',FINANCE_SUPPORT:'/cfo',CHRO_MANAGER:'/chro',HR_SUPPORT:'/chro'};
+const HOME_BY_ROLE={CMO_SUPPORT:'/cmo/today',CMO_MANAGER:'/cmo/priority',CFO_MANAGER:'/cfo',CHRO_MANAGER:'/chro',HR_SUPPORT:'/chro'};
 function HomeRedirect(){const role=useOutletContext()?.me?.role;return role?<Navigate to={HOME_BY_ROLE[role]||'/master'} replace/>:null}
 function App(){return <BrowserRouter><Routes>
   <Route path="/login" element={<Login/>}/>
@@ -87,6 +93,13 @@ function App(){return <BrowserRouter><Routes>
     <Route index element={<HomeRedirect/>}/>
     <Route path="master" element={<Access><MasterControl/></Access>}/>
     <Route path="master/setup" element={<Access><MasterSetupPage/></Access>}/>
+    <Route path="ceo/company" element={<Access><CompanyProfilePage/></Access>}/>
+    <Route path="cfo/cash" element={<Access><CFOCashPage/></Access>}/>
+    <Route path="cfo/production-results" element={<Access><CFOProductionPage/></Access>}/>
+    <Route path="cfo/material-purchases" element={<Access><CFOMaterialsPage mode="purchases"/></Access>}/>
+    <Route path="cfo/stock" element={<Access><CFOMaterialsPage mode="stock"/></Access>}/>
+    <Route path="cfo/cogs-weekly" element={<Access><CFOCogsPage/></Access>}/>
+    <Route path="cfo/price-calculator" element={<Access><CFOPriceCalculatorPage/></Access>}/>
     <Route path="master/control" element={<Access><div className="page"><div className="page-title"><div><h1>Control System</h1><p>Status 15 tahap setiap order — tampilan penuh</p></div></div><ControlSystemPage/></div></Access>}/>
     {/* Panduan sengaja tanpa Access: berlaku untuk semua peran */}
     <Route path="panduan" element={<GuidePage/>}/>

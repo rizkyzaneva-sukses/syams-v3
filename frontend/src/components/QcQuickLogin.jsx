@@ -17,7 +17,6 @@ const ACCOUNTS = [
   { email: 'cmo.manager@syams.local', label: 'CMO Manager', name: 'Cecep', home: 'Prioritas Sales' },
   { email: 'cmo.support@syams.local', label: 'CMO Support', name: 'Deby', home: 'Tugas Hari Ini' },
   { email: 'cfo.manager@syams.local', label: 'CFO Manager', name: 'Lutfi', home: 'Keuangan' },
-  { email: 'finance.support@syams.local', label: 'Finance Support', name: '—', home: 'Keuangan' },
   { email: 'coo.manager@syams.local', label: 'COO Manager', name: 'Siti', home: 'Eksekusi Produksi' },
   { email: 'sample.pic@syams.local', label: 'Sample PIC', name: 'Fahrul', home: 'Sample' },
   { email: 'printing.pic@syams.local', label: 'Printing PIC', name: 'Iman', home: 'Printing' },

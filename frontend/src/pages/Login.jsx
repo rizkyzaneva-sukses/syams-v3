@@ -2,7 +2,7 @@ import React,{useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {api,setToken} from '../api';
 import QcQuickLogin from '../components/QcQuickLogin';
-const ROLE_HOME={CMO_SUPPORT:'/cmo/today',CMO_MANAGER:'/cmo/priority',CHRO_MANAGER:'/chro',HR_SUPPORT:'/chro',CFO_MANAGER:'/cfo',COO_MANAGER:'/coo',CEO:'/ceo',SAMPLE_PIC:'/sample/today',PRINTING_PIC:'/printing/today',PRODUCTION_PIC:'/tasks',SHIPMENT_ADMIN:'/cfo/shipments',FINANCE_SUPPORT:'/cfo'};
+const ROLE_HOME={CMO_SUPPORT:'/cmo/today',CMO_MANAGER:'/cmo/priority',CHRO_MANAGER:'/chro',HR_SUPPORT:'/chro',CFO_MANAGER:'/cfo',COO_MANAGER:'/coo',CEO:'/ceo',SAMPLE_PIC:'/sample/today',PRINTING_PIC:'/printing/today',PRODUCTION_PIC:'/tasks',SHIPMENT_ADMIN:'/cfo/shipments'};
 export default function Login(){const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[err,setErr]=useState(''); const nav=useNavigate();
  async function doLogin(em,pw){setErr('');const r=await api('/auth/login',{method:'POST',body:JSON.stringify({email:em,password:pw})});setToken(r.access_token);const me=await api('/auth/me');nav(ROLE_HOME[me.role]||'/master')}
  async function submit(e){e.preventDefault();try{await doLogin(email,password)}catch(x){setErr(x.message)}}

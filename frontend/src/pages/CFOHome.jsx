@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import CFOTaskGrid from '../components/CFOTaskGrid';
 import {
   DollarSign,
   AlertTriangle,
@@ -160,13 +161,15 @@ export default function CFOHome() {
     <div className="page">
       <div className="page-title">
         <div>
-          <h1>Morning Finance — Lutfi</h1>
+          <h1>Ruang Kerja CFO — Lutfi</h1>
           <p>Pembayaran, piutang, pricing, payable, shipment gate, dan closing yang perlu ditindaklanjuti hari ini</p>
         </div>
         <button onClick={loadData} className="btn sm">
           <RefreshCw size={14} style={{ marginRight: 6 }} /> Refresh
         </button>
       </div>
+
+      <CFOTaskGrid />
 
       {/* Metric Cards Sesuai Blueprint */}
       <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>

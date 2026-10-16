@@ -125,22 +125,21 @@ def test_deby_today_buckets_match_the_revisi_1_work_list(db, client, headers):
 
 # ─────────────────── wewenang: Deby vs Cecep (revisi #1) ───────────────────
 
-def test_cmo_support_cannot_release_or_void_spk():
-    """Deby menyiapkan & mencetak; Release/VOID tetap milik Cecep.
+def test_cmo_support_releases_but_cannot_void_spk():
+    """Keputusan pemilik (16 Okt 2026): setelah CFO ACC, Deby mencetak PDF dan merilis SPK, lalu Cecep PPM.
 
-    Diuji pada sumber `modules.py` karena semua jalur HTTP-nya sudah dijaga
-    `spk_require` dengan daftar peran yang sama; tes ini mengunci daftarnya
-    supaya `CMO_SUPPORT` tidak diam-diam ditambahkan ke aksi keputusan.
+    VOID tetap milik Cecep. Diuji pada sumber `modules.py` karena semua jalur HTTP-nya dijaga
+    `spk_require` dengan daftar peran yang sama.
     """
     import re
 
     src = (Path(__file__).resolve().parents[1] / "app" / "routers" / "modules.py").read_text(encoding="utf-8")
-    for action in ("RELEASE", "VOID"):
+    mt = re.search(r'"VOID"\s*,\s*\{([^}]*)\}', src)
+    assert mt, "batas peran untuk aksi VOID tidak ditemukan"
+    assert "CMO_SUPPORT" not in mt.group(1) and "CMO_MANAGER" in mt.group(1), "VOID harus milik CMO_MANAGER saja"
+    for action in ("RELEASE", "RELEASE_READINESS"):
         mt = re.search(rf'"{action}"\s*,\s*\{{([^}}]*)\}}', src)
-        assert mt, f"batas peran untuk aksi {action} tidak ditemukan"
-        assert "CMO_SUPPORT" not in mt.group(1), \
-            f"CMO_SUPPORT tidak boleh punya aksi {action}"
-        assert "CMO_MANAGER" in mt.group(1), f"{action} harus milik CMO_MANAGER"
+        assert mt and "CMO_SUPPORT" in mt.group(1) and "CMO_MANAGER" in mt.group(1), f"{action} untuk Deby dan Cecep"
     # Generate & Print justru HARUS tetap boleh untuk Deby (tugasnya).
     for action in ("GENERATE", "PRINT"):
         mt = re.search(rf'"{action}"\s*,\s*\{{([^}}]*)\}}', src)

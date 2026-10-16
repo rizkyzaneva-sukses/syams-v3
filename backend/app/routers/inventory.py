@@ -40,7 +40,7 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 
 # Master data (supplier/location/material) boleh ditulis Riadi & PIC produksi,
 # karena merekalah yang mengurus data fisik gudang.
-MASTER_WRITE_ROLES = (models.Role.COO_MANAGER, models.Role.PRODUCTION_PIC)
+MASTER_WRITE_ROLES = (models.Role.COO_MANAGER, models.Role.PRODUCTION_PIC, models.Role.CFO_MANAGER)
 # Approve PR / posting GR / keputusan gate adalah keputusan lintas fungsi (belanja
 # vs produksi), jadi butuh COO + CFO.
 APPROVE_ROLES = (models.Role.COO_MANAGER, models.Role.CFO_MANAGER)

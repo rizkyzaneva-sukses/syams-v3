@@ -110,7 +110,7 @@ def test_ar_aging_buckets_and_collection_queue(api_client, headers, db):
 
 def test_ar_aging_filters_and_partial_payment(api_client, headers, db):
     seed(db)
-    only_over60 = call(api_client, headers, "FINANCE_SUPPORT", "/cfo/ar-aging?bucket=d_over_60").json()
+    only_over60 = call(api_client, headers, "CFO_MANAGER", "/cfo/ar-aging?bucket=d_over_60").json()
     assert [row["invoice_no"] for row in only_over60["rows"]] == ["INV-90"]
 
     by_buyer = call(api_client, headers, "CFO_MANAGER", "/cfo/ar-aging?buyer=alpha").json()
@@ -170,7 +170,7 @@ def test_ap_summary_separates_supplier_and_makloon(api_client, headers, db):
     assert wait["received"] is False and wait["outstanding"] == 0.0 and wait["status"] == "NOT_RECEIVED"
 
     # Filter UNCLASSIFIED valid; nama vendor yang tidak dikenal tetap 400.
-    unclassified = call(api_client, headers, "FINANCE_SUPPORT", "/cfo/ap-summary?vendor_type=UNCLASSIFIED").json()
+    unclassified = call(api_client, headers, "CFO_MANAGER", "/cfo/ap-summary?vendor_type=UNCLASSIFIED").json()
     assert len(unclassified["rows"]) == 3
     assert call(api_client, headers, "CFO_MANAGER", "/cfo/ap-summary?vendor_type=BOGUS").status_code == 400
 

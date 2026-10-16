@@ -5,7 +5,7 @@ Aturan keras yang ditegakkan DI SINI (bukan cuma di UI):
 - Jurnal POSTED tidak bisa diedit/dihapus. Koreksi wajib lewat reversal.
 - Laporan hanya membaca jurnal POSTED.
 - Auto-posting dari invoice/payment bersifat idempotent lewat source_ref.
-- Hak tulis: CFO_MANAGER + FINANCE_SUPPORT. CEO read-only (punya drill-down).
+- Hak tulis: CFO_MANAGER. CEO read-only (punya drill-down).
 """
 from datetime import date, datetime
 from decimal import Decimal
@@ -25,7 +25,7 @@ from .. import accounting_service as svc
 
 router = APIRouter(prefix="/accounting", tags=["accounting"])
 
-WRITE_ROLES = (models.Role.CFO_MANAGER, models.Role.FINANCE_SUPPORT)
+WRITE_ROLES = (models.Role.CFO_MANAGER,)
 ALL_ROLES = tuple(models.Role)
 
 

@@ -23,7 +23,7 @@ function priceQty(value){return value==null||value===''?null:String(value);}
 export default function CFOCostingPage(){
   const {me}=useOutletContext();
   const role=me?.role;
-  const canView=['CFO_MANAGER','FINANCE_SUPPORT','CEO'].includes(role);
+  const canView=['CFO_MANAGER','CEO'].includes(role);
   const canFilter=['CFO_MANAGER','CEO'].includes(role);
 
   const [searchParams, setSearchParams] = useSearchParams();

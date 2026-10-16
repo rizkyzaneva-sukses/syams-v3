@@ -7,7 +7,7 @@ const money=n=>'Rp '+Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:
 const num=n=>Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:2});
 const TODAY=new Date().toISOString().slice(0,10);
 const YEAR_START=TODAY.slice(0,4)+'-01-01';
-const WRITE_ROLES=['CFO_MANAGER','FINANCE_SUPPORT'];
+const WRITE_ROLES=['CFO_MANAGER'];
 const TYPE_LABEL={ASSET:'Aset',LIABILITY:'Liabilitas',EQUITY:'Ekuitas',REVENUE:'Pendapatan',EXPENSE:'Beban'};
 
 export default function AccountingPage(){

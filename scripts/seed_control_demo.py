@@ -11,7 +11,9 @@ APP_ENV=development dan menolak jalan bila sudah ada order (kecuali --append).
 Data dibuat relatif terhadap hari ini, jadi ada yang PROGRES, PERHATIAN, URGENT, dan SELESAI.
 """
 import argparse
+import json
 import sys
+from io import BytesIO
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -23,8 +25,40 @@ from app.control_service import ensure_control_defaults, next_order_id  # noqa: 
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app import models as m  # noqa: E402
 from app import notifications  # noqa: E402,F401  (agar order contoh ikut membuat notifikasi seperti di aplikasi)
+from app.cfo_models import CashEntry, DailyWorker, ProductionResult, StoredImage  # noqa: E402
+from app.inventory_models import (GoodsReceipt, GoodsReceiptLine, InventoryLocation, Material, StockMovement, Supplier)  # noqa: E402
+from app.routers.cfo_workspace import CashIn, add_cash  # noqa: E402
+from app.models import SystemConfig  # noqa: E402
 
 NOW = datetime.utcnow()
+
+
+def picture(kind, label, size, bg, fg):
+    """Gambar contoh (logo / desain / size chart) supaya dokumen SPK & invoice terlihat nyata saat demo."""
+    from PIL import Image, ImageDraw
+    image = Image.new("RGB", size, bg)
+    draw = ImageDraw.Draw(image)
+    w, h = size
+    if kind == "LOGO":
+        draw.ellipse((w * 0.04, h * 0.1, w * 0.3, h * 0.9), fill=fg)
+        draw.text((w * 0.36, h * 0.38), label, fill=(60, 60, 60))
+    elif kind == "SIZE_CHART":
+        for i in range(6):
+            draw.line((w * 0.1, h * (0.15 + i * 0.13), w * 0.9, h * (0.15 + i * 0.13)), fill=fg, width=2)
+        draw.text((w * 0.4, h * 0.02), label, fill=fg)
+    else:
+        draw.rounded_rectangle((w * 0.2, h * 0.12, w * 0.8, h * 0.9), radius=40, fill=fg)
+        draw.text((w * 0.38, h * 0.48), label, fill=(255, 255, 255))
+    out = BytesIO()
+    image.save(out, format="PNG")
+    return out.getvalue()
+
+
+def store(db, kind, data, user_id, size):
+    row = StoredImage(kind=kind, filename=f"demo-{kind.lower()}.png", mime="image/png", width=size[0], height=size[1], data=data, created_by_id=user_id)
+    db.add(row)
+    db.flush()
+    return row.id
 O = m.OrderType
 
 # buyer, article, jenis, qty, extra, tipe, flow_step, SPK dirilis N hari lalu (None = belum), deadline +hari, invoice (total, dibayar)
@@ -78,6 +112,20 @@ def main():
                                             sample_required=needs_sample, production_route="Cutting > Sewing > QC"))
             db.add(order)
             db.flush()
+            article_row = order.articles[0]
+            article_row.mockup_url = None
+            article_row.design_image_id = store(db, "DESIGN", picture("DESIGN", article, (600, 700), (25, 25, 25), (150 + n * 7 % 90, 25, 40)), manager.id if manager else None, (600, 700))
+            article_row.size_chart_image_id = store(db, "SIZE_CHART", picture("SIZE_CHART", "SIZE CHART", (600, 500), (250, 250, 250), (90, 90, 90)), manager.id if manager else None, (600, 500))
+            article_row.size_breakdown = f"S:{qty // 5}, M:{qty // 4}, L:{qty // 4}, XL:{qty // 4}, XXL:{qty - qty // 5 - 3 * (qty // 4)}"
+            article_row.fabric_type, article_row.print_type, article_row.material_color = "16S CKP", "PLASTISOL", "BLACK"
+            article_row.embroidery_type, article_row.packaging, article_row.label_note = "-", "OPP", "LABEL LEHER"
+            customer = db.query(m.Customer).filter_by(name=buyer).first() or m.Customer(name=buyer)
+            customer.phone, customer.shipping_carrier, customer.address = f"0812-{1000 + n}-2026", "JNE Trucking", f"Jl. Contoh No. {n}, Bandung"
+            db.add(customer)
+            db.flush()
+            order.customer_id = customer.id
+            db.add(m.Quotation(order_fk=order.id, quotation_no=f"Q-{order.order_id}", status="APPROVED", amount=billed, currency="IDR",
+                               pricing_breakdown=json.dumps([{"article_id": article_row.id, "unit_price": round(billed / qty), "unit_hpp": round(billed / qty * 0.7)}])))
             created.append(order)
             db.add(m.POIntake(po_number=f"PO-{buyer.split()[0].upper()[:4]}-{n:03d}", buyer=buyer, order_type=otype.value,
                               buyer_deadline=order.buyer_deadline, articles_json="[]", status="ACCEPTED",
@@ -112,6 +160,50 @@ def main():
                                status="OPEN", next_action="Tagih buyer hari ini"))
         db.add(m.ExceptionItem(order_fk=created[8].id, severity="RED", category="Material", title="Supplier benang tutup",
                                status="OPEN", next_action="Cari supplier alternatif"))
+        cfo = db.query(m.User).filter_by(role=m.Role.CFO_MANAGER).first()
+        ceo = db.query(m.User).filter_by(role=m.Role.CEO).first()
+        logo_id = store(db, "LOGO", picture("LOGO", "SYAMS Manufacturing", (700, 200), (255, 255, 255), (20, 150, 170)), ceo.id if ceo else None, (700, 200))
+        profile = db.query(SystemConfig).filter_by(key="company_profile").first() or SystemConfig(key="company_profile", value="{}", updated_at=NOW)
+        profile.value = json.dumps({"name": "SYAMS Manufacturing", "tagline": "Screen printing, Sewing, Setting , Adfruk service etc.",
+                                    "phone": "082117116036", "email": "syamsproduction15@gmail.com", "address": "Bandung", "logo_image_id": logo_id})
+        db.add(profile)
+        # karyawan harian + hasil produksi 5 hari terakhir
+        crew = [("Asep", "SEWING", 1500), ("Budi", "CUTTING", 800), ("Cecep S", "PRINTING", 1200), ("Dedi", "QC", 500), ("Eko", "PACKING", 400)]
+        workers = [DailyWorker(name=name, process=process, rate_per_pcs=rate) for name, process, rate in crew]
+        db.add_all(workers)
+        db.flush()
+        for back in range(5):
+            for w in workers:
+                qty = 60 + (w.id * 17 + back * 11) % 90
+                db.add(ProductionResult(result_date=date.today() - timedelta(days=back), worker_fk=w.id, process=w.process, qty=qty,
+                                        rate=w.rate_per_pcs, amount=w.rate_per_pcs * qty, created_by_id=cfo.id if cfo else None))
+        # bahan: pembelian & stok
+        supplier, store_loc = Supplier(code="SUP-01", name="Toko Kain Jaya"), InventoryLocation(code="GD-01", name="Gudang Utama")
+        db.add_all([supplier, store_loc])
+        db.flush()
+        mats = [Material(code="KAIN-16S", name="Cotton Combed 16S", category="KAIN", unit="kg", standard_cost=95_000, reorder_point=120),
+                Material(code="BNG-HTM", name="Benang Jahit Hitam", category="BENANG", unit="cone", standard_cost=12_500, reorder_point=20),
+                Material(code="LBL-LHR", name="Label Leher", category="AKSESORIS", unit="pcs", standard_cost=450, reorder_point=500),
+                Material(code="OPP-30", name="Plastik OPP 30x40", category="KEMASAN", unit="pcs", standard_cost=300, reorder_point=500)]
+        db.add_all(mats)
+        db.flush()
+        gr = GoodsReceipt(gr_no="GR-DEMO-1", supplier_id=supplier.id, received_date=date.today() - timedelta(days=3), status="POSTED")
+        db.add(gr)
+        db.flush()
+        for mat, qty, stock in zip(mats, (150, 40, 2000, 3000), (110, 60, 1500, 2600)):
+            db.add(GoodsReceiptLine(receipt_id=gr.id, material_id=mat.id, location_id=store_loc.id, qty_ordered=qty, qty_received=qty,
+                                    unit_cost=mat.standard_cost * 1.04))
+            db.add(StockMovement(material_id=mat.id, location_id=store_loc.id, movement_type="RECEIPT", qty=stock))
+        # kas kecil + kas besar (kas besar memakai fungsi aplikasi supaya jurnal ikut terbentuk)
+        for back, (direction, amount, category, text) in enumerate([("IN", 1_000_000, "Modal kas", "Isi kas kecil"), ("OUT", 85_000, "ATK", "Beli isolasi & spidol"),
+                                                                    ("OUT", 150_000, "Transport", "Bensin pengiriman"), ("OUT", 60_000, "Konsumsi", "Konsumsi meeting pagi")]):
+            db.add(CashEntry(kind="PETTY", entry_date=date.today() - timedelta(days=max(0, 2 - back)), direction=direction, category=category,
+                             description=text, amount=amount, created_by_id=cfo.id if cfo else None))
+        db.flush()
+        if cfo:
+            for direction, amount, cash, counter, text in (("IN", 45_000_000, "1-1100", "4-1000", "Pelunasan buyer Kyan"), ("OUT", 7_500_000, "1-1100", "6-2000", "Sewa gedung Oktober")):
+                add_cash(CashIn(kind="BIG", entry_date=date.today(), direction=direction, category="Demo", description=text, amount=amount,
+                                cash_account_code=cash, counter_account_code=counter), db, cfo)
         db.commit()
         print(f"{len(created)} order contoh dibuat: {created[0].order_id} … {created[-1].order_id}")
 

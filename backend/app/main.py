@@ -22,7 +22,7 @@ from .routers import (auth, orders, master, dashboard, modules, revisions, po_in
                       sample_lifecycle, sample_work, printing_jobs, printing_ops,
                       cfo_receivables, cfo_costing, coo_execution,
                       ceo_override, ceo_performance, cfo_payments, coo_handoffs, accounting,
-                      inventory, banking, artwork, crm, platform, control)
+                      inventory, banking, artwork, crm, platform, control, company, cfo_workspace)
 from .services.seed import seed
 
 
@@ -102,7 +102,7 @@ for router in (auth.router, orders.router, master.router, dashboard.router, modu
                inventory.router, banking.router, artwork.router, crm.router,
                hr_time.router, platform.router,
                # Control System sesuai sheet lama: papan 15 tahap, master data, SLA berversi.
-               control.router):
+               control.router, company.router, cfo_workspace.router):
     app.include_router(router, prefix="/api")
 
 

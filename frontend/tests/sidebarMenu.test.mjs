@@ -67,7 +67,7 @@ function roleMenuBlock(src, role){
 }
 
 /* Peran yang ada di aplikasi (grup di business.js + user demo). */
-const ALL_ROLES=['CEO','CMO_MANAGER','CMO_SUPPORT','CFO_MANAGER','FINANCE_SUPPORT',
+const ALL_ROLES=['CEO','CMO_MANAGER','CMO_SUPPORT','CFO_MANAGER',
   'COO_MANAGER','PRODUCTION_PIC','PRINTING_PIC','SAMPLE_PIC','SHIPMENT_ADMIN',
   'CHRO_MANAGER','HR_SUPPORT'];
 
@@ -81,8 +81,8 @@ const BATCH1_PAGES=[
   ['/sample/tasks',['SAMPLE_PIC']],
   ['/printing/job-cards',['PRINTING_PIC']],
   ['/printing/daily-target',['PRINTING_PIC']],
-  ['/cfo/receivables',['CFO_MANAGER','FINANCE_SUPPORT']],
-  ['/cfo/costing',['CFO_MANAGER','FINANCE_SUPPORT']],
+  ['/cfo/receivables',['CFO_MANAGER']],
+  ['/cfo/costing',['CFO_MANAGER']],
   ['/coo/execution',['COO_MANAGER','PRODUCTION_PIC']],
 ];
 
@@ -200,9 +200,6 @@ test('mergeMenus mempertahankan menu lama, tidak menduplikasi label, dan tidak m
   assert.deepEqual(mergeMenus({},'HR_SUPPORT').map(([label])=>label),
     ['Employees','Recruitment','Training','Master Control — Lihat Saja']);
 
-  const fin=mergeMenus({FINANCE_SUPPORT:[['CFO Home','/cfo','Home']]},'FINANCE_SUPPORT');
-  assert.deepEqual(fin.map(([label])=>label),['CFO Home','Piutang & Collection','Actual Cost & HPP']);
-
   // Juga menerima fungsi (bentuk `visibleMenus` di Layout.jsx).
   assert.deepEqual(mergeMenus(()=>({}),'PRINTING_PIC').map(([label])=>label),
     ['My Tasks','Production Queue','Job Card','Daily Target','Master Control']);
@@ -277,7 +274,6 @@ test('SEMUA 12 peran punya hak akses /master DAN tepat satu menu Master Control 
   const expectedLabels={
     CMO_MANAGER:'Master Control',
     CFO_MANAGER:'Master Control',
-    FINANCE_SUPPORT:'Master Control',
     CHRO_MANAGER:'Master Control',
     HR_SUPPORT:'Master Control — Lihat Saja',
   };

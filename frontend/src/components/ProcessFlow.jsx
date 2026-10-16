@@ -128,11 +128,11 @@ const PHASES = [
   },
   {
     n: 5,
-    title: 'Release SPK',
+    title: 'ACC Invoice → Release SPK → PPM',
     tone: 'green',
     icon: FactoryIcon,
-    who: 'Deby (generate & print) → Cecep (release)',
-    what: 'Deby meng-generate nomor SPK dan mencetak fisiknya (ber-snapshot terkunci). Cecep menekan “Release SPK” setelah 7 gate hijau. SPK dirilis SEBELUM bahan diproses, sama seperti sheet lama.',
+    who: 'Lutfi (ACC) → Deby (cetak PDF & release) → Cecep (PPM)',
+    what: 'Setelah CFO meng-ACC invoice (Finance Gate), Deby diberi tahu: generate nomor SPK, cetak PDF (format form SPK Syams berlogo, gambar desain, size, spesifikasi), lalu Release SPK setelah 7 gate hijau. SPK cetak diberikan ke Cecep untuk PPM. SPK dirilis SEBELUM bahan diproses, sama seperti sheet lama.',
     pages: [
       { name: 'Pusat SPK', path: '/cmo/spk' },
       { name: 'Release to COO', path: '/cmo/release-to-coo' },

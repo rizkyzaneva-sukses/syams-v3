@@ -9,7 +9,7 @@ const statusLabels={REVISI:'Revisi',CHECK:'Check',TINJAU_ULANG:'Tinjau Ulang',SO
 /* Operator yang mengerjakan revisi. Bebas diisi, tapi pilihan umum disiapkan
    supaya penulisan konsisten — "Hermes" untuk agen ini, lalu agen lain. */
 const operatorSuggestions=['Hermes','GPT','Claude','Gemini','Manusia'];
-const ownerLabels={CEO:'CEO',CMO_MANAGER:'CMO Manager',CMO_SUPPORT:'CMO Support',CFO_MANAGER:'CFO Manager',FINANCE_SUPPORT:'Finance Support',COO_MANAGER:'COO Manager',SAMPLE_PIC:'Sample PIC',PRINTING_PIC:'Printing PIC',PRODUCTION_PIC:'Production PIC',CHRO_MANAGER:'CHRO Manager',HR_SUPPORT:'HR Support',SHIPMENT_ADMIN:'Shipment Admin'};
+const ownerLabels={CEO:'CEO',CMO_MANAGER:'CMO Manager',CMO_SUPPORT:'CMO Support',CFO_MANAGER:'CFO Manager',COO_MANAGER:'COO Manager',SAMPLE_PIC:'Sample PIC',PRINTING_PIC:'Printing PIC',PRODUCTION_PIC:'Production PIC',CHRO_MANAGER:'CHRO Manager',HR_SUPPORT:'HR Support',SHIPMENT_ADMIN:'Shipment Admin'};
 const statusFilters=['SEMUA','REVISI','CHECK','TINJAU_ULANG','SOLVED'];
 
 function formatDate(value){return new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value));}

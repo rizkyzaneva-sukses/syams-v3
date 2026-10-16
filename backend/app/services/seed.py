@@ -14,7 +14,6 @@ def seed(db: Session):
         User(name="CMO Manager", email="cmo.manager@syams.local", role=Role.CMO_MANAGER, password_hash=hash_password(DEMO_PASSWORD)),
         User(name="CMO Support", email="cmo.support@syams.local", role=Role.CMO_SUPPORT, password_hash=hash_password(DEMO_PASSWORD)),
         User(name="CFO Manager", email="cfo.manager@syams.local", role=Role.CFO_MANAGER, password_hash=hash_password(DEMO_PASSWORD)),
-        User(name="Finance Support", email="finance.support@syams.local", role=Role.FINANCE_SUPPORT, password_hash=hash_password(DEMO_PASSWORD)),
         User(name="COO Manager", email="coo.manager@syams.local", role=Role.COO_MANAGER, password_hash=hash_password(DEMO_PASSWORD)),
         User(name="Sample PIC", email="sample.pic@syams.local", role=Role.SAMPLE_PIC, password_hash=hash_password(DEMO_PASSWORD)),
         User(name="Printing PIC", email="printing.pic@syams.local", role=Role.PRINTING_PIC, password_hash=hash_password(DEMO_PASSWORD)),

@@ -301,6 +301,7 @@ def build_order_view(order, sla: dict[str, StageSlaItem], rows: dict[str, OrderS
         "extra_size": " | ".join(a.extra_size for a in order.articles if a.extra_size),
         "extra_total": sum(parse_extra_total(a.extra_size) for a in order.articles),
         "mockup_url": next((a.mockup_url for a in order.articles if a.mockup_url), None),
+        "design_image_id": next((a.design_image_id for a in order.articles if a.design_image_id), None),
         "total_qty": qty, "active_qty": 0 if priority == "SELESAI" else qty,
         "payment": "LUNAS" if order.finance_status == "PAID" else "OUTSTANDING",
         **{"invoice_status": "BELUM TERBIT", "sample_status": "SKIP", "revision": None, "buyer_approval": "TIDAK PERLU",

@@ -4,8 +4,9 @@ import {api} from '../api';
 import {currencyOptions, DEFAULT_CURRENCY} from '../currency';
 import SizeBreakdownInput from '../components/SizeBreakdownInput';
 import ExtraSizeInput from '../components/ExtraSizeInput';
+import ImageUpload from '../components/ImageUpload';
 
-const blankArticle={article_code:'',garment_type:'',qty:'',size_breakdown:'',sample_required:false,production_route:'',extra_size:'',mockup_url:''};
+const blankArticle={article_code:'',garment_type:'',qty:'',size_breakdown:'',sample_required:false,production_route:'',extra_size:'',design_image_id:null,size_chart_image_id:null,fabric_type:'',print_type:'',embroidery_type:'',material_color:'',packaging:'OPP',label_note:'',zipper_note:'',finishing_note:''};
 const blank={po_number:'',buyer:'',order_type:'SAMPLE_PRODUCTION',buyer_deadline:'',notes:'',follow_up_note:'',currency:DEFAULT_CURRENCY,payment_terms:'',articles:[{...blankArticle}]};
 
 export default function POIntakeFormPage(){
@@ -49,12 +50,21 @@ export default function POIntakeFormPage(){
         {form.articles.map((article,index)=><div className="form-grid" key={index} style={{padding:'12px 0',borderTop:index?'1px solid #e2e8f0':undefined}}>
           <label>Kode article *<input required value={article.article_code||''} onChange={e=>setArticle(index,'article_code',e.target.value)}/></label>
           <label>Jenis pakaian<select value={article.garment_type||''} onChange={e=>setArticle(index,'garment_type',e.target.value)}><option value="">Pilih jenis pakaian</option>{article.garment_type&&!garments.some(g=>g.name===article.garment_type)&&<option value={article.garment_type}>{article.garment_type}</option>}{garments.map(g=><option key={g.id} value={g.name}>{g.name}</option>)}</select></label>
-          <label>Mockup (link Drive / gambar)<input type="url" maxLength={2000} placeholder="https://drive.google.com/…" value={article.mockup_url||''} onChange={e=>setArticle(index,'mockup_url',e.target.value)}/></label>
           <label>Qty *<input required min="1" type="number" value={article.qty||''} onChange={e=>setArticle(index,'qty',e.target.value)}/></label>
           <label>Size breakdown</label>
           <SizeBreakdownInput value={article.size_breakdown} onChange={v=>setArticle(index,'size_breakdown',v)}/>
           <label>Extra size (spare internal untuk reject)</label>
           <ExtraSizeInput value={article.extra_size} onChange={v=>setArticle(index,'extra_size',v)}/>
+          <ImageUpload kind="DESIGN" label="Gambar desain / mockup" value={article.design_image_id} onChange={id=>setArticle(index,'design_image_id',id)} hint="Dipakai di SPK. Unggah gambar, bukan link Drive."/>
+          <ImageUpload kind="SIZE_CHART" label="Size chart (opsional)" value={article.size_chart_image_id} onChange={id=>setArticle(index,'size_chart_image_id',id)}/>
+          <label>Jenis kain<input maxLength={120} value={article.fabric_type||''} onChange={e=>setArticle(index,'fabric_type',e.target.value)} placeholder="mis. 16S CKP"/></label>
+          <label>Jenis sablon<input maxLength={120} value={article.print_type||''} onChange={e=>setArticle(index,'print_type',e.target.value)} placeholder="mis. PLASTISOL"/></label>
+          <label>Jenis bordir<input maxLength={120} value={article.embroidery_type||''} onChange={e=>setArticle(index,'embroidery_type',e.target.value)} placeholder="- bila tidak ada"/></label>
+          <label>Warna material<input maxLength={120} value={article.material_color||''} onChange={e=>setArticle(index,'material_color',e.target.value)} placeholder="mis. BLACK"/></label>
+          <label>Packaging<select value={article.packaging||''} onChange={e=>setArticle(index,'packaging',e.target.value)}><option value="OPP">OPP</option><option value="ZIPLOCK">ZIPLOCK</option><option value="">Lainnya / tidak ada</option></select></label>
+          <label>Label / hantag<input maxLength={200} value={article.label_note||''} onChange={e=>setArticle(index,'label_note',e.target.value)} placeholder="mis. LABEL LEHER"/></label>
+          <label>Zipper / headzip<input maxLength={200} value={article.zipper_note||''} onChange={e=>setArticle(index,'zipper_note',e.target.value)}/></label>
+          <label>Finishing lainnya<input maxLength={300} value={article.finishing_note||''} onChange={e=>setArticle(index,'finishing_note',e.target.value)}/></label>
           <label><input type="checkbox" checked={Boolean(article.sample_required)} onChange={e=>setArticle(index,'sample_required',e.target.checked)}/> Perlu sample</label>
           {form.articles.length>1&&<button type="button" className="btn danger" onClick={()=>setForm({...form,articles:form.articles.filter((_,i)=>i!==index)})}>Hapus article</button>}
         </div>)}

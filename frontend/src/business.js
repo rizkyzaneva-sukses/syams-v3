@@ -1,6 +1,9 @@
-export const groups={cmo:['CMO_MANAGER','CMO_SUPPORT'],cfo:['CFO_MANAGER','FINANCE_SUPPORT'],coo:['COO_MANAGER','PRODUCTION_PIC','PRINTING_PIC','SHIPMENT_ADMIN'],hr:['CHRO_MANAGER','HR_SUPPORT']};
+export const groups={cmo:['CMO_MANAGER','CMO_SUPPORT'],cfo:['CFO_MANAGER'],coo:['COO_MANAGER','PRODUCTION_PIC','PRINTING_PIC','SHIPMENT_ADMIN'],hr:['CHRO_MANAGER','HR_SUPPORT']};
 const routeRoles={
   '/master':['CEO',...groups.cmo,...groups.cfo,...groups.coo,...groups.hr,'SAMPLE_PIC'],
+  '/ceo/company':['CEO'],
+  '/cfo/cash':[...groups.cfo,'CEO'],'/cfo/production-results':[...groups.cfo,'CEO'],'/cfo/material-purchases':[...groups.cfo,'CEO'],
+  '/cfo/stock':[...groups.cfo,'CEO'],'/cfo/cogs-weekly':[...groups.cfo,'CEO'],'/cfo/price-calculator':[...groups.cfo,'CEO'],
   '/master/setup':['CEO',...groups.cmo,...groups.cfo,...groups.coo,...groups.hr,'SAMPLE_PIC'],
   '/master/control':['CEO',...groups.cmo,...groups.cfo,...groups.coo,...groups.hr,'SAMPLE_PIC'],
   '/cmo':groups.cmo,'/cmo/priority':['CMO_MANAGER','CEO'],'/cmo/sales-pipeline':['CMO_MANAGER','CEO'],'/cmo/reports':['CMO_MANAGER','CEO'],'/cmo/buyer-crm':[...groups.cmo,'CEO'],'/cmo/sample-approval':['CMO_MANAGER','CEO','SAMPLE_PIC'],'/cmo/release-to-coo':['CMO_MANAGER','CEO'],'/cmo/exception-center':['CMO_MANAGER','CEO'],'/cmo/today':['CMO_SUPPORT','CMO_MANAGER','CEO'],'/cmo/orders':groups.cmo,'/cmo/orders/new':groups.cmo,'/cmo/po-inbox':['CMO_MANAGER','CMO_SUPPORT','CEO'],'/cmo/customers':groups.cmo,
@@ -8,16 +11,16 @@ const routeRoles={
   // CEO tidak punya halaman kerja operasional: pembuatan/ubah PO, invoice, dan
   // delivery adalah wewenang CFO/COO (revisi #74 poin RBAC & #77 poin sidebar).
   // CEO melihat angkanya lewat drill-down read-only di Company Performance.
-  '/cfo':[...groups.cfo,'CEO'],'/cfo/invoices':[...groups.cfo],'/cfo/purchase-orders':[...groups.cfo],'/cfo/shipments':[...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN','CMO_MANAGER','CEO'],'/cmo/priority-v2':['CMO_MANAGER','CEO'],'/chro/employees':groups.hr,'/chro/recruitment':groups.hr,'/sample/lifecycle':['SAMPLE_PIC','CMO_MANAGER','CMO_SUPPORT'],'/sample/today':['SAMPLE_PIC'],'/sample/tasks':['SAMPLE_PIC'],'/printing/job-cards':['PRINTING_PIC','COO_MANAGER'],'/printing/daily-target':['PRINTING_PIC','COO_MANAGER'],'/printing/today':['PRINTING_PIC','COO_MANAGER'],'/purchasing':['CFO_MANAGER','FINANCE_SUPPORT','COO_MANAGER','CEO'],'/cfo/receivables':['CFO_MANAGER','FINANCE_SUPPORT'],'/cfo/costing':['CFO_MANAGER','FINANCE_SUPPORT'],'/coo/execution':['COO_MANAGER','PRODUCTION_PIC'],
+  '/cfo':[...groups.cfo,'CEO'],'/cfo/invoices':[...groups.cfo],'/cfo/purchase-orders':[...groups.cfo],'/cfo/shipments':[...groups.cfo,'COO_MANAGER','SHIPMENT_ADMIN','CMO_MANAGER','CEO'],'/cmo/priority-v2':['CMO_MANAGER','CEO'],'/chro/employees':groups.hr,'/chro/recruitment':groups.hr,'/sample/lifecycle':['SAMPLE_PIC','CMO_MANAGER','CMO_SUPPORT'],'/sample/today':['SAMPLE_PIC'],'/sample/tasks':['SAMPLE_PIC'],'/printing/job-cards':['PRINTING_PIC','COO_MANAGER'],'/printing/daily-target':['PRINTING_PIC','COO_MANAGER'],'/printing/today':['PRINTING_PIC','COO_MANAGER'],'/purchasing':['CFO_MANAGER','COO_MANAGER','CEO'],'/cfo/receivables':['CFO_MANAGER'],'/cfo/costing':['CFO_MANAGER'],'/coo/execution':['COO_MANAGER','PRODUCTION_PIC'],
   // Akuntansi double-entry: CFO & Finance menulis; CEO read-only (drill-down laporan).
-  '/accounting':['CFO_MANAGER','FINANCE_SUPPORT','CEO'],
+  '/accounting':['CFO_MANAGER','CEO'],
   // Modul lanjutan (penutup gap BLUEPRINT):
   //  inventory → Riadi (COO/Produksi tulis, CFO approve belanja, CEO lihat)
   //  banking   → Lutfi (rekonsiliasi bank + treasury)
   //  artwork   → Diki/Iman (versioning artwork)
   //  crm       → Cecep/Deby (lead, opportunity, sales target)
-  '/inventory':['COO_MANAGER','PRODUCTION_PIC','CFO_MANAGER','FINANCE_SUPPORT','CEO'],
-  '/banking':['CFO_MANAGER','FINANCE_SUPPORT','CEO'],
+  '/inventory':['COO_MANAGER','PRODUCTION_PIC','CFO_MANAGER','CEO'],
+  '/banking':['CFO_MANAGER','CEO'],
   '/artwork':['CMO_SUPPORT','CMO_MANAGER','SAMPLE_PIC','PRINTING_PIC','CEO','COO_MANAGER'],
   '/crm':['CMO_MANAGER','CMO_SUPPORT','CEO','CFO_MANAGER'],
   '/chro/attendance':groups.hr,

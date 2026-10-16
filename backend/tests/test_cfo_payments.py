@@ -77,7 +77,7 @@ def seed(db):
 
 
 def report(client, headers, invoice_id, amount="1000000", evidence="BCA-TRF-99001",
-           role="FINANCE_SUPPORT", **extra):
+           role="CFO_MANAGER", **extra):
     body = {"amount": amount, "evidence_ref": evidence, **extra}
     return post(client, headers, role, f"/cfo/invoices/{invoice_id}/payments-report", json=body)
 
@@ -105,8 +105,8 @@ def test_finance_reports_then_cfo_verifies(api_client, headers, db):
     assert body["invoice"]["pending_amount"] == 1000000.0
     assert db.get(m.Invoice, invoice.id).paid_amount == Decimal("0")
 
-    # Finance TIDAK boleh memverifikasi laporannya sendiri.
-    assert post(api_client, headers, "FINANCE_SUPPORT", f"/cfo/payment-decisions/{payment_id}/verify").status_code == 403
+    # Hanya CFO_MANAGER yang boleh memverifikasi; role lain ditolak.
+    assert post(api_client, headers, "CMO_MANAGER", f"/cfo/payment-decisions/{payment_id}/verify").status_code == 403
 
     verified = post(api_client, headers, "CFO_MANAGER", f"/cfo/payment-decisions/{payment_id}/verify")
     assert verified.status_code == 200, verified.text
@@ -158,7 +158,7 @@ def test_payment_without_evidence_is_rejected(api_client, headers, db):
         body = {"amount": "1000000"}
         if bad is not None:
             body["evidence_ref"] = bad
-        response = post(api_client, headers, "FINANCE_SUPPORT",
+        response = post(api_client, headers, "CFO_MANAGER",
                         f"/cfo/invoices/{invoice.id}/payments-report", json=body)
         assert 400 <= response.status_code < 500, (bad, response.status_code, response.text)
 
@@ -202,7 +202,7 @@ def test_reject_requires_reason_and_locks_the_payment(api_client, headers, db):
         response = post(api_client, headers, "CFO_MANAGER", f"/cfo/payment-decisions/{payment_id}/reject", json=body)
         assert 400 <= response.status_code < 500, (bad, response.status_code, response.text)
 
-    assert post(api_client, headers, "FINANCE_SUPPORT", f"/cfo/payment-decisions/{payment_id}/reject",
+    assert post(api_client, headers, "CMO_MANAGER", f"/cfo/payment-decisions/{payment_id}/reject",
                 json={"reason": "alasan"}).status_code == 403
 
     rejected = post(api_client, headers, "CFO_MANAGER", f"/cfo/payment-decisions/{payment_id}/reject",
@@ -419,7 +419,7 @@ def test_ap_partial_payments_track_outstanding_and_are_audited(api_client, heade
     po.tax_amount = Decimal("500000")   # gross = 5.5jt
     db.commit()
 
-    first = post(api_client, headers, "FINANCE_SUPPORT", "/cfo/ap-ledger/payments",
+    first = post(api_client, headers, "CFO_MANAGER", "/cfo/ap-ledger/payments",
                  json={"po_fk": po.id, "amount": "2000000", "evidence_ref": "BCA-AP-100"})
     assert first.status_code == 201, first.text
     assert first.json()["po"]["paid"] == 2000000.0
@@ -427,7 +427,7 @@ def test_ap_partial_payments_track_outstanding_and_are_audited(api_client, heade
     assert first.json()["po"]["outstanding"] == 3500000.0
     assert first.json()["po"]["partial"] is True
 
-    second = post(api_client, headers, "FINANCE_SUPPORT", "/cfo/ap-ledger/payments",
+    second = post(api_client, headers, "CFO_MANAGER", "/cfo/ap-ledger/payments",
                   json={"po_no": "PO-SUP-A", "amount": "3500000", "evidence_ref": "BCA-AP-101"})
     assert second.status_code == 201, second.text
     assert second.json()["po"]["outstanding"] == 0.0

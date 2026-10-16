@@ -16,7 +16,6 @@ ROLES = [
     ("CMO_MANAGER", "cmo.manager@syams.local"),
     ("CMO_SUPPORT", "cmo.support@syams.local"),
     ("CFO_MANAGER", "cfo.manager@syams.local"),
-    ("FINANCE_SUPPORT", "finance.support@syams.local"),
     ("COO_MANAGER", "coo.manager@syams.local"),
     ("SAMPLE_PIC", "sample.pic@syams.local"),
     ("PRINTING_PIC", "printing.pic@syams.local"),

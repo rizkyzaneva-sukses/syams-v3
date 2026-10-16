@@ -81,8 +81,10 @@ def rules_for(session: Session, obj) -> list[dict]:
 
     elif isinstance(obj, m.Order):
         if became(obj, "finance_gate_status", "APPROVED"):
-            out.append(_n(["CMO_MANAGER", "CMO_SUPPORT"], f"Finance Gate {obj.order_id} disetujui",
-                          "Pembayaran/DP lolos — lanjutkan sample dan SPK.", "/cmo/spk", "FINANCE"))
+            out.append(_n(["CMO_SUPPORT"], f"Invoice di-ACC CFO — cetak & release SPK {obj.order_id}",
+                          "Cetak SPK (PDF), rilis, lalu berikan ke Cecep untuk PPM.", "/cmo/spk", "TASK"))
+            out.append(_n(["CMO_MANAGER"], f"Finance Gate {obj.order_id} disetujui",
+                          "SPK sedang disiapkan Deby; PPM menyusul setelah SPK dirilis.", "/cmo/orders", "FINANCE"))
         if became(obj, "finance_gate_status", "HOLD"):
             out.append(_n(["CMO_MANAGER"], f"Finance Gate {obj.order_id} ditahan", obj.finance_gate_notes,
                           "/cmo/orders", "FINANCE", "WARNING"))
@@ -133,9 +135,9 @@ def rules_for(session: Session, obj) -> list[dict]:
 
     elif isinstance(obj, m.SPK):
         oid = _oid(session, obj)
-        if became(obj, "status", "PRINTED"):
-            out.append(_n(["CMO_MANAGER"], f"SPK {obj.spk_no} siap direlease", f"Order {oid}", "/cmo/spk", "APPROVAL"))
         if became(obj, "status", "RELEASED"):
+            out.append(_n(["CMO_MANAGER"], f"SPK {obj.spk_no} dirilis — lakukan PPM", f"Order {oid}: SPK hasil cetak diberikan Deby.",
+                          "/cmo/samples", "TASK"))
             out.append(_n(["COO_MANAGER", "PRODUCTION_PIC", "PRINTING_PIC", "CMO_SUPPORT"],
                           f"SPK {obj.spk_no} dirilis — order {oid}",
                           "Mulai tahap BAHAN (BOM, material request, PO), lalu Rencana Produksi.",

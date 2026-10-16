@@ -351,17 +351,6 @@ def test_operational_roles_cannot_read_cost_reports(costing_client, headers, use
                               headers=headers(role)).status_code == 403
 
 
-def test_finance_support_can_read_but_not_filter_by_date(costing_client, headers, users):
-    assert costing_client.get("/api/cfo/actual-cost-variance",
-                              headers=headers("FINANCE_SUPPORT")).status_code == 200
-    assert costing_client.get("/api/cfo/actual-cost-variance?date_from=2026-01-01",
-                              headers=headers("FINANCE_SUPPORT")).status_code == 403
-    assert costing_client.get("/api/cfo/operational-cost",
-                              headers=headers("FINANCE_SUPPORT")).status_code == 200
-    assert costing_client.get("/api/cfo/operational-cost?date_from=2026-01-01",
-                              headers=headers("FINANCE_SUPPORT")).status_code == 403
-
-
 def test_ceo_can_read_and_filter(costing_client, headers, users):
     assert costing_client.get("/api/cfo/actual-cost-variance",
                               headers=headers("CEO")).status_code == 200

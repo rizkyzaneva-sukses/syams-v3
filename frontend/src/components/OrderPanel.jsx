@@ -1,5 +1,6 @@
 import React,{useCallback,useEffect,useState} from 'react';
 import {api} from '../api';
+import {AuthImage} from './ImageUpload';
 import {canActOnStage,canBlock,canChangePic,invoiceTone,sampleTone,stageHint,statusTone} from '../control';
 
 export const TYPE_LABEL={SAMPLE_ONLY:'Sample saja',SAMPLE_PRODUCTION:'Sample + produksi',REPEAT_PRODUCTION:'Produksi saja'};
@@ -40,7 +41,7 @@ export default function OrderPanel({orderId,role,pics,onClose,onChanged}){
           <span><b>{order.articles.join(', ')}</b> · {order.total_qty} pcs{order.extra_total?` (+${order.extra_total} extra)`:''}</span>
           <span>{TYPE_LABEL[order.order_type]}</span>
           <span>Deadline {order.deadline||'-'}</span>
-          {order.mockup_url&&<a href={order.mockup_url} target="_blank" rel="noreferrer">Lihat mockup ↗</a>}
+          {order.design_image_id?<AuthImage id={order.design_image_id} alt="Desain" className="order-thumb"/>:order.mockup_url&&<a href={order.mockup_url} target="_blank" rel="noreferrer">Lihat mockup ↗</a>}
         </div>
         <div className="cmo-facts" aria-label="Status CMO">
           <span>Invoice <b className={'badge '+invoiceTone(order.invoice_status)}>{order.invoice_status}</b></span>

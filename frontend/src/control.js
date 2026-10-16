@@ -19,7 +19,7 @@ export const STAGE_ROLES = {
   PRINTING: PRINT, BORDIR: PRINT, QC_SB: PRINT, SHIPPING: ['COO_MANAGER', 'SHIPMENT_ADMIN'],
 };
 const BLOCK_EXTRA = ['CMO_MANAGER', 'COO_MANAGER'];
-const AUTO_BLOCK = ['CMO_SUPPORT', 'CFO_MANAGER', 'FINANCE_SUPPORT', 'SAMPLE_PIC'];
+const AUTO_BLOCK = ['CMO_SUPPORT', 'CFO_MANAGER', 'SAMPLE_PIC'];
 
 export function canActOnStage(role, code) {
   return (STAGE_ROLES[code] || []).includes(role);

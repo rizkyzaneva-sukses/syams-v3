@@ -218,3 +218,18 @@ python -m app.reset_data                   # dry run: tampilkan apa yang akan di
 python -m app.reset_data --confirm HAPUS-SEMUA-DATA   # kosongkan data transaksi (akun & master dipertahankan)
 python ../scripts/seed_control_demo.py     # hanya APP_ENV=development: 12 order contoh
 ```
+
+## V0.5 — Alur ACC → SPK → PPM, dokumen berlogo, dan ruang kerja CFO
+
+- **Alur:** CFO meng-ACC invoice (Finance Gate) → **CMO Support (Deby)** otomatis diberi notifikasi → generate SPK, cetak **PDF**,
+  **Release SPK** (CMO Manager juga boleh) → SPK cetak diberikan ke **Cecep untuk PPM**. Void SPK tetap hanya CMO Manager.
+- **Role Finance Support dihapus.** Semua tugas keuangan dipegang `CFO_MANAGER`; akun lama otomatis dipindah (migrasi 0032).
+  Nilai enum lama di PostgreSQL sengaja dibiarkan, aplikasi tidak memakainya.
+- **Ruang kerja CFO** (`/cfo`) — 15 tugas: invoice, input hasil produksi, pembelian kain, analisa COGS mingguan, kas kecil harian,
+  piutang harian, kalkulator harga jual, master karyawan harian, stok kain/benang/aksesoris, kas besar (otomatis jurnal), dan laporan
+  laba rugi / neraca / arus kas.
+- **Form order memakai gambar, bukan link Drive:** unggah gambar desain dan size chart (disimpan di database, dikecilkan otomatis),
+  plus spesifikasi SPK (jenis kain, sablon, bordir, warna, packaging, label, zipper). Data buyer (ponsel, ekspedisi, alamat) ada di menu Customer.
+- **Dokumen PDF:** SPK mengikuti form Syams (A4 landscape, satu halaman per artikel) dan **Proforma Invoice** (`GET /api/cfo/invoices/{id}/pdf`).
+  **CEO mengunggah logo** di `/ceo/company`; logo dan kop otomatis dipakai di kedua dokumen.
+- Migrasi: `0031_invoice_dp_amount`, `0032_cfo_workspace_docs` (jalan otomatis saat deploy lewat `entrypoint.sh`). Dependensi baru: `pillow`.

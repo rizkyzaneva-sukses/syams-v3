@@ -24,7 +24,7 @@ from .master import MASTER_ROLES
 
 router = APIRouter(prefix="/control", tags=["control"])
 SETTINGS_ROLES = (Role.CMO_MANAGER,)
-AUTO_BLOCK_ROLES = (Role.CMO_SUPPORT, Role.CFO_MANAGER, Role.FINANCE_SUPPORT, Role.SAMPLE_PIC)
+AUTO_BLOCK_ROLES = (Role.CMO_SUPPORT, Role.CFO_MANAGER, Role.SAMPLE_PIC)
 
 
 def _order(db: Session, order_id: str, lock: bool = False) -> Order:

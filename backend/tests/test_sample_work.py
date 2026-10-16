@@ -100,7 +100,7 @@ def test_view_is_role_scoped(sample_client, headers):
     for role in ("SAMPLE_PIC", "CMO_MANAGER", "CEO", "COO_MANAGER"):
         assert sample_client.get(f"/api{PREFIX}/today", headers=headers(role)).status_code == 200
         assert sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers(role)).status_code == 200
-    for role in ("CFO_MANAGER", "FINANCE_SUPPORT", "CHRO_MANAGER", "PRODUCTION_PIC",
+    for role in ("CFO_MANAGER", "CHRO_MANAGER", "PRODUCTION_PIC",
                  "PRINTING_PIC", "SHIPMENT_ADMIN", "HR_SUPPORT"):
         assert sample_client.get(f"/api{PREFIX}/today", headers=headers(role)).status_code == 403
         assert sample_client.get(f"/api{PREFIX}/my-tasks", headers=headers(role)).status_code == 403
@@ -802,7 +802,7 @@ def test_task_actions_are_role_scoped_and_readable(sample_client, db, headers):
     assert sample_client.get(f"/api{PREFIX}/tasks").status_code == 401
     for role in ("SAMPLE_PIC", "CMO_MANAGER", "CEO", "COO_MANAGER"):
         assert sample_client.get(f"/api{PREFIX}/tasks", headers=headers(role)).status_code == 200
-    for role in ("CFO_MANAGER", "FINANCE_SUPPORT", "CHRO_MANAGER", "PRODUCTION_PIC",
+    for role in ("CFO_MANAGER", "CHRO_MANAGER", "PRODUCTION_PIC",
                  "PRINTING_PIC", "SHIPMENT_ADMIN", "HR_SUPPORT"):
         assert sample_client.get(f"/api{PREFIX}/tasks", headers=headers(role)).status_code == 403
 

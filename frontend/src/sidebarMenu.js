@@ -125,10 +125,6 @@ export const CFO_MENUS={
     ['Piutang & Collection','/cfo/receivables','DollarSign'],
     ['Actual Cost & HPP','/cfo/costing','BarChart3'],
   ],
-  FINANCE_SUPPORT:[
-    ['Piutang & Collection','/cfo/receivables','DollarSign'],
-    ['Actual Cost & HPP','/cfo/costing','BarChart3'],
-  ],
 };
 
 /* CMO — revisi #13/#14 poin 2 (Morning Priority action-first). Blueprint CMO
@@ -160,7 +156,6 @@ export const FOOTER_BY_ROLE={
   CMO_MANAGER:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus']],
   CMO_SUPPORT:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus'],['Task','/tasks','ClipboardList']],
   CFO_MANAGER:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus'],['Exception','/exceptions','AlertTriangle']],
-  FINANCE_SUPPORT:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus']],
   COO_MANAGER:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus'],['Task','/tasks','ClipboardList'],['Exception','/exceptions','AlertTriangle']],
   PRODUCTION_PIC:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus'],['Task','/tasks','ClipboardList']],
   PRINTING_PIC:[['Panduan','/panduan','BookOpen'],['Usulan Revisi','/revisions','MessageSquarePlus'],['Task','/tasks','ClipboardList']],

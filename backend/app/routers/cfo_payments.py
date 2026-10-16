@@ -7,7 +7,7 @@ Ini satu-satunya modul CFO yang MENULIS. Aturan yang ditegakkan di sini:
    ``evidence_ref`` yang bisa diperiksa, permintaan itu **ditolak** (400) — bukan
    disimpan sebagai catatan yang terlihat sah. Ini aturan keras revisi #17.
 2. **Hanya CFO_MANAGER yang boleh verify/reject.** Finance melaporkan, CFO
-   memutuskan. FINANCE_SUPPORT tidak dapat memverifikasi pekerjaannya sendiri.
+   memutuskan. Semua tugas keuangan dipegang CFO_MANAGER (role Finance Support dihapus).
 3. **Reject wajib alasan.** Penolakan tanpa alasan tidak bisa ditindaklanjuti.
 4. **Uang tidak bisa dimutasi ulang.** Begitu sebuah pembayaran VERIFIED atau
    REJECTED, ia terkunci: laporan ulang, verify ulang, reject ulang semuanya
@@ -47,9 +47,9 @@ router = APIRouter(prefix="/cfo", tags=["cfo-payments"])
 
 # ── Peran ────────────────────────────────────────────────────────────────────
 # Finance & CFO boleh MELAPORKAN/MENULIS ledger; hanya CFO yang memutuskan.
-PAYMENT_WRITE_ROLES = {"CFO_MANAGER", "FINANCE_SUPPORT"}
+PAYMENT_WRITE_ROLES = {"CFO_MANAGER"}
 PAYMENT_VERIFY_ROLES = {"CFO_MANAGER"}          # pemisahan tugas: bukan Finance
-PAYMENT_VIEW_ROLES = {"CEO", "CFO_MANAGER", "FINANCE_SUPPORT", "CMO_MANAGER", "CMO_SUPPORT"}
+PAYMENT_VIEW_ROLES = {"CEO", "CFO_MANAGER", "CMO_MANAGER", "CMO_SUPPORT"}
 
 # ── Status ───────────────────────────────────────────────────────────────────
 PAYMENT_STATUSES = ("PAYMENT_REPORTED", "VERIFIED", "REJECTED")

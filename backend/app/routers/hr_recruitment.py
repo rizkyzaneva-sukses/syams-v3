@@ -1577,7 +1577,7 @@ def act_on_payroll_handoff(handoff_id: int,
     hanya lewat dokumen.
     """
     _need(db, "payroll_handoffs")
-    if _role(user) not in ("CFO_MANAGER", "FINANCE_SUPPORT", "CEO"):
+    if _role(user) not in ("CFO_MANAGER", "CEO"):
         raise HTTPException(
             403, "Mem-posting payroll adalah wewenang CFO; HR hanya membuat handoff (revisi #64).")
     row = db.get(m.PayrollHandoff, handoff_id)

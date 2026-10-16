@@ -58,7 +58,7 @@ export default function PurchaseOrderPage(){
 
   const outletCtx = useOutletContext?.();
   const role = outletCtx?.me?.role;
-  const isCFO = ['CFO_MANAGER', 'FINANCE_SUPPORT'].includes(role);
+  const isCFO = ['CFO_MANAGER'].includes(role);
 
   async function approveBudget(id){
     if(!confirm('Setujui anggaran untuk Purchase Order ini (Finance Approval)?')) return;

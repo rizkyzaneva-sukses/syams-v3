@@ -28,6 +28,16 @@ class ArticleCreate(BaseModel):
     production_route: Optional[str] = None
     extra_size: Optional[str] = Field(default=None, max_length=120)
     mockup_url: Optional[str] = Field(default=None, max_length=2000)
+    design_image_id: Optional[int] = None
+    size_chart_image_id: Optional[int] = None
+    fabric_type: Optional[str] = Field(default=None, max_length=120)
+    print_type: Optional[str] = Field(default=None, max_length=120)
+    embroidery_type: Optional[str] = Field(default=None, max_length=120)
+    material_color: Optional[str] = Field(default=None, max_length=120)
+    packaging: Optional[str] = Field(default=None, max_length=40)
+    label_note: Optional[str] = Field(default=None, max_length=200)
+    zipper_note: Optional[str] = Field(default=None, max_length=200)
+    finishing_note: Optional[str] = Field(default=None, max_length=300)
 
 class OrderCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -66,6 +76,16 @@ class ArticleOut(BaseModel):
     production_status: str
     extra_size: Optional[str] = None
     mockup_url: Optional[str] = None
+    design_image_id: Optional[int] = None
+    size_chart_image_id: Optional[int] = None
+    fabric_type: Optional[str] = None
+    print_type: Optional[str] = None
+    embroidery_type: Optional[str] = None
+    material_color: Optional[str] = None
+    packaging: Optional[str] = None
+    label_note: Optional[str] = None
+    zipper_note: Optional[str] = None
+    finishing_note: Optional[str] = None
     class Config:
         from_attributes = True
 

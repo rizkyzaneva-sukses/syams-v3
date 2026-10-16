@@ -11,7 +11,7 @@ from .master import capacity_rows
 router = APIRouter(tags=["dashboards"])
 MODULE_ROLES = {
     "CMO": {"CEO", "CMO_MANAGER", "CMO_SUPPORT"},
-    "CFO": {"CEO", "CFO_MANAGER", "FINANCE_SUPPORT"},
+    "CFO": {"CEO", "CFO_MANAGER"},
     "COO": {"CEO", "COO_MANAGER", "PRODUCTION_PIC", "PRINTING_PIC", "SAMPLE_PIC", "SHIPMENT_ADMIN"},
     "CHRO": {"CEO", "CHRO_MANAGER", "HR_SUPPORT"},
     "CEO": {"CEO"},

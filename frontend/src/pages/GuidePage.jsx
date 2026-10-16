@@ -46,6 +46,7 @@ const ROLE_GUIDES = {
       { step: 'Periksa Decision Needed (/ceo/decisions)', desc: 'Beri keputusan bertipe (Approve/Reject) untuk eskalasi dari divisi: diskon di luar limit CFO, lembur darurat, atau perubahan kapasitas.' },
       { step: 'Monitor CEO Action Tracker', desc: 'Pantau status tindak lanjut instruksi CEO kepada kepala divisi untuk memastikan eksekusi selesai tepat waktu.' },
       { step: 'Tinjau Exception Center (/exceptions)', desc: 'Tinjau kendala operasional dengan severity HIGH atau RED yang dieskalasikan oleh COO/CFO/CHRO.' },
+      { step: 'Atur Logo & Profil Perusahaan (/ceo/company)', desc: 'Unggah logo perusahaan sekali; otomatis tampil di kop Proforma Invoice dan SPK. Ubah nama, telepon, email, dan tagline bila perlu.' },
       { step: 'Kelola Kebijakan Bisnis (/ceo/business-policy)', desc: 'Tetapkan batas margin minimum (%), DP minimum (dalam Rupiah, mis. Rp. 5.000.000), dan limit plafon approval CFO. Setiap perubahan wajib mencantumkan alasan tertulis dan tercatat versi baru secara atomik.' },
       { step: 'Evaluasi Company Performance (/ceo/company-performance)', desc: 'Pantau laporan keuangan, HPP aktual vs estimasi, dan log audit kepatuhan (/audit-log) secara menyeluruh.' },
     ],
@@ -66,6 +67,7 @@ const ROLE_GUIDES = {
       { name: 'Decision Needed', path: '/ceo/decisions', desc: 'Daftar eskalasi keputusan yang menunggu putusan CEO' },
       { name: 'Exception Center', path: '/exceptions', desc: 'Pusat eskalasi isu operasional lintas divisi' },
       { name: 'Kebijakan Bisnis', path: '/ceo/business-policy', desc: 'Pengaturan limit margin, DP, dan tata kelola berversi' },
+      { name: 'Profil Perusahaan & Logo', path: '/ceo/company', desc: 'Unggah logo dan data perusahaan untuk kop Invoice dan SPK' },
       { name: 'Audit Trail', path: '/audit-log', desc: 'Rekaman jejak aktivitas sistem yang tidak dapat diubah' },
       { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
@@ -81,7 +83,7 @@ const ROLE_GUIDES = {
       { step: 'Buka Morning Priority (/cmo/priority)', desc: 'Tinjau antrean prioritas keputusan harian: PO masuk yang diajukan Deby, quotation menunggu harga, dan sample approval.' },
       { step: 'Review & Terima PO Masuk (/cmo/po-inbox)', desc: 'Periksa kelengkapan PO draft dari Deby. Verifikasi kelengkapan, tipe order, dan deadline buyer sebelum klik "Accept Order". Order otomatis mendapat nomor SYM-YYMM-NNN (contoh SYM-2610-001).' },
       { step: 'Review Quotation (/cmo/quotations)', desc: 'Tentukan harga jual dan hitung margin estimasi. Ajukan ke CFO untuk persetujuan margin.' },
-      { step: 'Uji Kesiapan & Rilis SPK (/cmo/spk)', desc: 'Setelah SPK dicetak Deby dan seluruh gate (Quotation, DP CFO, sample, rute) hijau, lakukan "Release SPK". Setelah rilis, tahap BAHAN dimulai (BOM, material request, PO), lalu COO menyetujui Rencana Produksi.' },
+      { step: 'Uji Kesiapan & Rilis SPK (/cmo/spk)', desc: 'Setelah SPK dicetak Deby dan seluruh gate (Quotation, DP CFO, sample, rute) hijau, SPK dirilis (biasanya oleh Deby; Anda juga boleh). Setelah rilis, lakukan PPM bersama tim memakai SPK cetak, lalu tahap BAHAN dimulai (BOM, material request, PO) dan COO menyetujui Rencana Produksi.' },
       { step: 'Konfirmasi Penerimaan Barang (/cmo/buyer-crm)', desc: 'Setelah COO mencatat fisik terkirim (Delivered), minta konfirmasi kepuasan buyer dan catat Customer Delivery Confirmation.' },
       { step: 'Customer Order Closing (/coo/closing)', desc: 'Setelah buyer puas dan tidak ada retur, lakukan penutupan order dari sisi Customer.' },
       { step: 'Pantau Master Control (/master)', desc: 'Tab Morning Priority untuk meeting pagi, Kapasitas untuk memutuskan apakah order baru masih muat (lihat "Sisa kapasitas untuk order baru"), dan Forecast untuk order yang diperkirakan telat.' },
@@ -114,25 +116,25 @@ const ROLE_GUIDES = {
     pic: 'Deby',
     icon: FileText,
     tone: 'blue',
-    summary: 'Garda depan administrasi penjualan: input data customer, penyusunan draft PO intake, upload dokumen kontrak buyer, drafting quotation, pembuatan sample request, serta generate dan cetak fisik SPK.',
+    summary: 'Garda depan administrasi penjualan: input data customer, penyusunan draft PO intake, upload dokumen kontrak buyer, drafting quotation, pembuatan sample request, serta generate, cetak PDF, dan Release SPK setelah invoice di-ACC CFO.',
     dailyRoutine: [
       { step: 'Buka Deby Today (/cmo/today)', desc: 'Tinjau daftar tugas harian Deby: PO masuk baru, follow-up buyer, dan antrean SPK siap cetak.' },
-      { step: 'Input PO Masuk (/cmo/po-inbox)', desc: 'Input PO buyer lengkap dengan kode artikel, kuantitas, breakdown ukuran, jenis pakaian (pilih dari daftar), extra size (spare untuk reject), dan link mockup. Rute produksi terisi otomatis (Cutting > Sewing > QC).' },
+      { step: 'Input PO Masuk (/cmo/po-inbox)', desc: 'Input PO buyer lengkap dengan kode artikel, kuantitas, breakdown ukuran, jenis pakaian (pilih dari daftar), extra size (spare untuk reject), gambar desain (unggah gambar, bukan link Drive), size chart, dan spesifikasi SPK (jenis kain, sablon, bordir, warna, packaging, label). Rute produksi terisi otomatis (Cutting > Sewing > QC). Data buyer (ponsel, ekspedisi, alamat) diisi di menu Customer.' },
       { step: 'Unggah Dokumen PO Asli', desc: 'Wajib mengunggah file PDF bukti PO dari buyer. Tanpa file ini, tombol "Cek Kelengkapan" tidak akan lolos.' },
       { step: 'Cek & Submit PO ke Cecep', desc: 'Jalankan auto-check. Jika lengkap, klik "Kirim ke Cecep" agar masuk ke antrean persetujuan CMO Manager.' },
       { step: 'Draft Quotation & Request Sample', desc: 'Siapkan draft penawaran harga dan ajukan pembuatan sample ke Fahrul jika buyer meminta sample.' },
-      { step: 'Generate & Print Dokumen SPK (/cmo/spk)', desc: 'Generate nomor SPK, lihat preview PDF resmi, dan cetak (Print) salinan fisik untuk arsip.' },
+      { step: 'Cetak PDF & Release SPK (/cmo/spk)', desc: 'Setelah ada notifikasi "Invoice di-ACC CFO", generate SPK, lihat PDF (format form SPK Syams: buyer information, alur produksi, gambar desain, size, spesifikasi, finishing), cetak, lalu tekan Release. Berikan SPK cetak ke Cecep untuk PPM.' },
     ],
     dos: [
       'Menginput PO buyer, data customer, draft quotation, dan permintaan sample.',
       'Mengunggah dokumen kontrak/PO asli dari pelanggan.',
-      'Melakukan Generate dan Print dokumen SPK ber-barcode resmi.',
+      'Melakukan Generate, Print PDF, dan Release SPK setelah Finance Gate (ACC invoice CFO) disetujui.',
       'Memantau status aman pelanggan (Customer Portal Safe View) tanpa membocorkan data internal.',
     ],
     donts: [
-      'DILARANG melakukan "Release SPK" ke lantai produksi (kewenangan eksklusif CMO Manager).',
+      'DILARANG membatalkan (Void) SPK yang sudah dicetak — itu kewenangan CMO Manager.',
       'DILARANG menyetujui quotation atau mengubah status pembayaran invoice.',
-      'DILARANG lupa mengisi jenis pakaian, extra size, dan link mockup saat menginput artikel pesanan baru.',
+      'DILARANG lupa mengunggah gambar desain dan mengisi spesifikasi (kain, sablon, warna) saat menginput artikel pesanan baru.',
     ],
     keyPages: [
       { name: 'Hari Ini (Deby Work List)', path: '/cmo/today', desc: 'Workspace tindakan harian terfokus Deby' },
@@ -149,35 +151,44 @@ const ROLE_GUIDES = {
     pic: 'Lutfi',
     icon: DollarSign,
     tone: 'amber',
-    summary: 'Penjaga integritas arus kas dan profitabilitas: persetujuan margin quotation, penerbitan invoice DP/Pelunasan, rekonsiliasi pembayaran bank, clearance Finance Gate, approval anggaran PO bahan baku, dan penutupan finansial. Eksekusi fisik pembelian dan stok gudang dikerjakan Riadi (Purchasing).',
+    summary: 'Satu-satunya role keuangan (role Finance Support dihapus): semua tugas keuangan dipegang CFO Manager — invoice, hasil produksi, pembelian bahan, COGS, kas, piutang, harga jual, stok bahan, dan laporan keuangan. Eksekusi fisik pembelian dan stok gudang tetap dikerjakan Riadi (Purchasing).',
     dailyRoutine: [
-      { step: 'Buka CFO Home (/cfo)', desc: 'Periksa antrean prioritas keuangan: pembayaran masuk yang butuh verifikasi, invoice jatuh tempo, dan review HPP.' },
-      { step: 'Approval Quotation (/cmo/quotations)', desc: 'Validasi margin harga jual terhadap HPP. Jika margin memenuhi kebijakan bisnis (>15%), klik "Approve".' },
-      { step: 'Terbitkan Invoice & Catat Pembayaran (/cfo/invoices)', desc: 'Klik "Invoice Baru" lalu isi: No Invoice, No PO (pilih dari daftar), Jumlah Tagihan, dan DP dalam Rupiah — Sisa Tagihan terhitung otomatis. DP harus memenuhi DP minimum kebijakan CEO. Saat pembayaran masuk ke rekening bank, catat nominalnya dan lakukan "Reconcile".' },
-      { step: 'Buka Finance Gate Pembayaran', desc: 'Setelah DP lunas dan terekonsiliasi, setujui Finance Gate agar order boleh diproses ke pembuatan SPK.' },
-      { step: 'Approval Purchase Order (/cfo/purchase-orders)', desc: 'Tinjau pengajuan material dari COO di workspace Purchasing (/purchasing). Terbitkan PO supplier dan ubah status ke "READY" setelah barang datang.' },
-      { step: 'Clearance Finance Gate Pengiriman (/cfo/shipments)', desc: 'Sebelum barang dikirim ke buyer, pastikan sisa tagihan lunas atau memiliki izin kredit berjangka dari CEO.' },
-      { step: 'Financial Order Closing (/coo/closing)', desc: 'Setelah seluruh piutang buyer dan hutang supplier lunas tuntas (saldo nol), lakukan Financial Close.' },
+      { step: 'Buka Ruang Kerja CFO (/cfo)', desc: 'Papan 15 tugas CFO: tiap kartu membuka halaman kerjanya dan menampilkan angka terkini (invoice belum lunas, saldo kas kecil, piutang, hasil produksi hari ini).' },
+      { step: '1. Pembuatan invoice (/cfo/invoices)', desc: 'Klik "Invoice Baru": No Invoice (diusulkan otomatis, mis. 141026/WRC/OKT 1), No PO, Jumlah Tagihan, DP (Rp) — Sisa Tagihan otomatis. Tombol "Proforma PDF" mencetak invoice berlogo. Setelah DP masuk dan direkonsiliasi, setujui Finance Gate (ACC) — Deby otomatis mendapat notifikasi untuk cetak & release SPK.' },
+      { step: '2. Input hasil produksi (/cfo/production-results)', desc: 'Catat hasil kerja tiap karyawan per hari (proses, pcs, order). Upah borongan = pcs × tarif terhitung otomatis.' },
+      { step: '3. Data pembelian kain (/cfo/material-purchases)', desc: 'Lihat penerimaan kain/benang/aksesoris yang sudah diposting: supplier, qty, harga, total per minggu.' },
+      { step: '4. Analisa COGS mingguan (/cfo/cogs-weekly)', desc: 'Bahan + biaya produksi + upah dibagi output pcs per minggu; perhatikan kolom Perubahan (merah = COGS naik).' },
+      { step: '5. Laporan kas kecil harian (/cfo/cash)', desc: 'Catat kas masuk/keluar harian; laporan menampilkan saldo awal, mutasi, saldo akhir, dan pengeluaran per kategori.' },
+      { step: '6. Data piutang harian (/cfo/receivables)', desc: 'Pantau aging piutang, janji bayar, dan tindak lanjut penagihan.' },
+      { step: '7. Kalkulator harga jual (/cfo/price-calculator)', desc: 'Isi biaya per pcs, cadangan reject, dan margin → harga jual per pcs, laba, dan omzet pesanan.' },
+      { step: '8. Master karyawan harian', desc: 'Kelola daftar karyawan harian beserta tarif per pcs di tab "Master Karyawan Harian" pada halaman hasil produksi.' },
+      { step: '9–11. Data stok kain, benang/sewing, aksesoris/packing (/cfo/stock)', desc: 'Stok dan nilai persediaan per kelompok; baris merah = di bawah titik pesan ulang. Penyesuaian stok lewat Inventory.' },
+      { step: '12. Input kas besar (/cfo/cash → Kas Besar)', desc: 'Pilih kas/bank, akun lawan, dan jumlah — langsung diposting menjadi jurnal akuntansi.' },
+      { step: '13–15. Laporan laba rugi, neraca, arus kas (/accounting)', desc: 'Dibaca dari jurnal yang sudah diposting; neraca wajib balance.' },
+      { step: 'Approval Quotation, PO, dan Finance Gate Pengiriman', desc: 'Setujui margin quotation (/cmo/quotations), anggaran PO bahan (/cfo/purchase-orders), dan Finance Gate pengiriman (/cfo/shipments); lakukan Financial Closing (/coo/closing) bila saldo nol.' },
     ],
     dos: [
-      'Menyetujui atau menolak margin penawaran harga (Quotation).',
-      'Menerbitkan invoice, mencatat pembayaran, dan mencocokkan mutasi bank (rekonsiliasi).',
-      'Membuka Finance Gate untuk produksi dan pengiriman.',
-      'Mengelola hutang usaha (AP), piutang usaha (AR aging), dan pengawasan anggaran modul Purchasing (Riadi).',
-      'Melakukan Financial Closing pesanan.',
+      'Mengerjakan seluruh tugas keuangan (tidak ada lagi Finance Support).',
+      'Menerbitkan invoice (DP dalam Rupiah) dan mencetak Proforma Invoice PDF berlogo.',
+      'Mencatat pembayaran, memverifikasi, dan merekonsiliasi dengan mutasi bank.',
+      'Menyetujui Finance Gate (ACC) agar SPK bisa dicetak dan dirilis.',
+      'Mencatat kas kecil harian, kas besar, hasil produksi karyawan, dan stok bahan.',
     ],
     donts: [
-      'DILARANG mengetik nominal terbayar secara manual di invoice (wajib melalui input record pembayaran).',
+      'DILARANG mengetik nominal terbayar secara manual di invoice (wajib melalui record pembayaran).',
       'DILARANG menyetujui Finance Gate pengiriman jika piutang masih ada tanpa izin tertulis CEO.',
       'DILARANG mengubah kuantitas atau jadwal eksekusi fisik mesin pabrik.',
     ],
     keyPages: [
-      { name: 'CFO Home', path: '/cfo', desc: 'Pusat komando arus kas, verifikasi bayar, dan gate keuangan' },
-      { name: 'Invoices', path: '/cfo/invoices', desc: 'Pengelolaan tagihan invoice DP dan Pelunasan' },
-      { name: 'Purchase Orders', path: '/cfo/purchase-orders', desc: 'Persetujuan pesanan pembelian bahan baku ke supplier' },
-      { name: 'Purchasing & Warehouse', path: '/purchasing', desc: 'Workspace kebutuhan material, PO vendor, dan stok gudang' },
-      { name: 'Shipments Gate', path: '/cfo/shipments', desc: 'Pemeriksaan status saldo tagihan sebelum barang diberangkatkan' },
-      { name: 'Closing Keuangan', path: '/coo/closing', desc: 'Verifikasi saldo nol dan penutupan finansial order' },
+      { name: 'Ruang Kerja CFO', path: '/cfo', desc: '15 tugas CFO dalam satu papan' },
+      { name: 'Invoices & Proforma', path: '/cfo/invoices', desc: 'No Invoice, No PO, Jumlah Tagihan, DP, Sisa Tagihan + PDF' },
+      { name: 'Hasil Produksi', path: '/cfo/production-results', desc: 'Input hasil harian & master karyawan harian' },
+      { name: 'Pembelian Bahan', path: '/cfo/material-purchases', desc: 'Data pembelian kain, benang, aksesoris' },
+      { name: 'COGS Mingguan', path: '/cfo/cogs-weekly', desc: 'Analisa COGS per pcs per minggu' },
+      { name: 'Kas Kecil & Kas Besar', path: '/cfo/cash', desc: 'Laporan kas harian dan input kas besar (otomatis jurnal)' },
+      { name: 'Kalkulator Harga Jual', path: '/cfo/price-calculator', desc: 'HPP + margin menjadi harga jual per pcs' },
+      { name: 'Stok Bahan', path: '/cfo/stock', desc: 'Stok dan nilai kain, benang, aksesoris/packing' },
+      { name: 'Akuntansi', path: '/accounting', desc: 'Laba rugi, neraca, arus kas, jurnal' },
       { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
@@ -435,7 +446,7 @@ const FLOW_STEPS = [
   {
     step: '1. PO Intake & Order',
     owner: 'Deby (CMO Support) & Cecep (CMO Manager)',
-    desc: 'Deby input data PO buyer (jenis pakaian, extra size, link mockup), upload dokumen PDF asli, lalu kirim ke Cecep. Cecep klik "Accept" untuk mengaktifkan Order.',
+    desc: 'Deby input data PO buyer (jenis pakaian, extra size, gambar desain, spesifikasi), upload dokumen PDF asli, lalu kirim ke Cecep. Cecep klik "Accept" untuk mengaktifkan Order.',
     gate: 'Order aktif dan memiliki nomor SYM-YYMM-NNN (mis. SYM-2610-001). Rute produksi standar terisi otomatis dan terkunci.',
     tone: 'blue',
   },
@@ -461,9 +472,9 @@ const FLOW_STEPS = [
     tone: 'blue',
   },
   {
-    step: '5. Release SPK',
-    owner: 'Deby (Print SPK) & Cecep (Release)',
-    desc: 'Deby generate & cetak fisik SPK ber-barcode. Setelah quotation, Finance Gate, sample, dan rute hijau, Cecep klik "Release SPK". SPK dirilis SEBELUM bahan diproses — sama seperti sheet lama.',
+    step: '5. ACC Invoice → Release SPK → PPM',
+    owner: 'Lutfi (ACC), Deby (Release SPK), Cecep (PPM)',
+    desc: 'Setelah CFO meng-ACC invoice (Finance Gate), Deby otomatis diberi tahu: generate SPK, cetak PDF, lalu Release SPK. SPK cetak diberikan ke Cecep untuk PPM. SPK dirilis SEBELUM bahan diproses — sama seperti sheet lama.',
     gate: '7 gate rilis SPK hijau. BOM, material, dan Rencana Produksi TIDAK dibutuhkan untuk merilis SPK.',
     tone: 'green',
   },
@@ -491,6 +502,22 @@ const FLOW_STEPS = [
 ];
 
 const FAQS = [
+  {
+    q: 'Siapa yang mencetak dan merilis SPK sekarang?',
+    a: 'Setelah CFO meng-ACC invoice (Finance Gate disetujui), CMO Support (Deby) menerima notifikasi, lalu men-generate SPK, mencetak PDF, dan menekan Release (CMO Manager juga boleh). SPK cetak diserahkan ke Cecep untuk PPM. Void SPK tetap hanya untuk CMO Manager.',
+  },
+  {
+    q: 'Role Finance Support tidak ada lagi — siapa mengerjakan tugasnya?',
+    a: 'Semua tugas keuangan dipegang CFO Manager: pembuatan invoice, input hasil produksi, data pembelian kain, analisa COGS mingguan, laporan kas kecil harian, data piutang harian, kalkulator harga jual, master karyawan harian, data stok kain/benang/aksesoris, input kas besar, serta laporan laba rugi, neraca, dan arus kas. Akun lama Finance Support otomatis menjadi CFO Manager.',
+  },
+  {
+    q: 'Di mana logo perusahaan diatur dan di mana logo itu tampil?',
+    a: 'CEO membuka Profil Perusahaan & Logo (/ceo/company) lalu mengunggah logo. Logo, nama, telepon, email, dan tagline otomatis tampil di kop Proforma Invoice dan SPK PDF berikutnya. Role lain tidak bisa mengubah logo.',
+  },
+  {
+    q: 'Kenapa form order meminta unggah gambar, bukan link Drive?',
+    a: 'Gambar desain dan size chart diunggah langsung supaya selalu tampil di SPK PDF (link Drive bisa mati atau terkunci). Format PNG/JPG/WEBP maksimal 8 MB; sistem mengecilkannya otomatis. Link mockup lama tetap terbaca untuk order lama.',
+  },
   {
     q: 'Bagaimana saya tahu ada tugas baru untuk saya?',
     a: 'Lihat ikon lonceng di pojok kanan atas. Setiap proses yang masuk ke role Anda (PO menunggu review, order baru, quotation, invoice terbit, SPK dirilis, permintaan material, giliran tahap produksi, masalah yang dilaporkan, dan sebagainya) membuat notifikasi otomatis. Angka merah di lonceng dan di judul tab browser menunjukkan jumlah yang belum dibaca; pemberitahuan singkat juga muncul di pojok kanan bawah dan memperbarui diri tiap 20 detik. Klik notifikasi untuk langsung membuka halaman kerjanya.',
@@ -565,7 +592,7 @@ export default function GuidePage() {
   const defaultRoleKey = useMemo(() => {
     if (ROLE_GUIDES[currentRole]) return currentRole;
     if (['CHRO_MANAGER', 'HR_SUPPORT'].includes(currentRole)) return 'CHRO_MANAGER';
-    if (['CFO_MANAGER', 'FINANCE_SUPPORT'].includes(currentRole)) return 'CFO_MANAGER';
+    if (['CFO_MANAGER'].includes(currentRole)) return 'CFO_MANAGER';
     if (['COO_MANAGER', 'PRODUCTION_PIC', 'SHIPMENT_ADMIN'].includes(currentRole)) return 'COO_MANAGER';
     if (currentRole === 'PRINTING_PIC') return 'PRINTING_PIC';
     if (currentRole === 'SAMPLE_PIC') return 'SAMPLE_PIC';

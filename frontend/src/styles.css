@@ -421,3 +421,25 @@ tr.cap-red td{background:#fbd9db}tr.cap-amber td{background:#fff0c2}tr.cap-green
 .notif-toast-x{position:absolute;top:6px;right:8px;border:0;background:transparent;color:#fff;font-size:20px;cursor:pointer;opacity:.7}
 @keyframes toast-in{from{transform:translateY(12px);opacity:0}to{transform:none;opacity:1}}
 .money-input{text-align:right;font-variant-numeric:tabular-nums}.money-input.readonly{background:#f1f5f9;color:#334155;font-weight:700}
+
+/* ── Gambar unggahan, ruang kerja CFO, kalkulator ── */
+.image-upload{display:flex;flex-direction:column;gap:6px;grid-column:1/-1;max-width:420px}
+.image-upload-label{font-size:13px;font-weight:700}
+.image-upload-box{border:1px dashed #b8c4d6;border-radius:10px;background:#f8fafc;min-height:110px;display:grid;place-items:center;overflow:hidden}
+.image-upload-box.has-image{border-style:solid;background:#fff}
+.image-upload-preview{max-width:100%;max-height:220px;object-fit:contain;display:block}
+.image-upload-empty{color:#8a97a8;font-size:12.5px}
+.image-upload-actions{display:flex;gap:8px}
+.order-thumb{height:64px;width:auto;border:1px solid var(--line);border-radius:8px;background:#fff;object-fit:contain}
+.task-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.task-card{display:flex;flex-direction:column;gap:3px;border:1px solid var(--line);border-radius:12px;padding:12px 14px 12px 44px;text-decoration:none;color:var(--ink);background:#fbfdff;position:relative;transition:box-shadow .12s,border-color .12s}
+.task-card:hover{border-color:var(--navy-2);box-shadow:0 4px 14px rgba(30,94,165,.15)}
+.task-card b{font-size:13.5px}.task-card small{color:var(--muted);font-size:11.5px;line-height:1.35}
+.task-no{position:absolute;left:12px;top:12px;width:24px;height:24px;border-radius:50%;background:var(--navy-2);color:#fff;font-size:12px;font-weight:800;display:grid;place-items:center}
+.price-result{display:flex;flex-direction:column;gap:2px;background:#0c2b52;color:#fff;border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.price-result strong{font-size:30px;letter-spacing:-.02em}.price-result small{opacity:.8}
+.hint-total{margin-right:auto;font-size:14px;align-self:center}
+.muted-note{color:var(--muted);font-size:12.5px;margin:8px 2px}
+.form-stack{display:flex;flex-direction:column;gap:12px}.form-stack label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:700}
+.form-stack input,.form-stack select,.form-stack textarea{padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;font:inherit}
+.row-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}

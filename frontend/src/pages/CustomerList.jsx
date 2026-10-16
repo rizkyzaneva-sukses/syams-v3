@@ -2,7 +2,7 @@ import React,{useEffect,useState} from 'react';
 import {api} from '../api';
 import {Plus,Edit2,Trash2,X,Check,Search} from 'lucide-react';
 
-const empty={name:'',country:'',contact_name:'',contact_info:'',notes:''};
+const empty={name:'',country:'',contact_name:'',contact_info:'',phone:'',shipping_carrier:'',address:'',notes:''};
 
 export default function CustomerList(){
   const [list,setList]=useState([]),[err,setErr]=useState('');
@@ -51,7 +51,10 @@ export default function CustomerList(){
         <label>Nama Customer *<input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label>
         <div className="form-row"><label>Negara<input value={form.country||''} onChange={e=>setForm({...form,country:e.target.value})} placeholder="ID / US / JP..."/></label>
         <label>Nama Kontak<input value={form.contact_name||''} onChange={e=>setForm({...form,contact_name:e.target.value})}/></label></div>
-        <div className="form-row"><label>Telepon / Email<input value={form.contact_info||''} onChange={e=>setForm({...form,contact_info:e.target.value})}/></label></div>
+        <div className="form-row"><label>Telepon / Email<input value={form.contact_info||''} onChange={e=>setForm({...form,contact_info:e.target.value})}/></label>
+        <label>Nomor ponsel (tampil di SPK)<input maxLength={40} value={form.phone||''} onChange={e=>setForm({...form,phone:e.target.value})}/></label></div>
+        <label>Ekspedisi pengiriman<input maxLength={120} value={form.shipping_carrier||''} onChange={e=>setForm({...form,shipping_carrier:e.target.value})} placeholder="mis. JNE Trucking"/></label>
+        <label>Alamat<textarea rows={2} value={form.address||''} onChange={e=>setForm({...form,address:e.target.value})}/></label>
         <label>Catatan<textarea rows={2} value={form.notes||''} onChange={e=>setForm({...form,notes:e.target.value})}/></label>
         <div className="modal-foot"><button type="button" className="btn" onClick={()=>setForm(null)}>Batal</button><button className="btn primary" disabled={saving}><Check size={14}/> {saving?'Menyimpan...':'Simpan'}</button></div>
       </form>

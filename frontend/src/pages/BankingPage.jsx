@@ -6,7 +6,7 @@ import {currencyOptions, DEFAULT_CURRENCY} from '../currency';
 const money=n=>'Rp '+Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:0});
 const num=n=>Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:2});
 const TODAY=new Date().toISOString().slice(0,10);
-const WRITE_ROLES=['CFO_MANAGER','FINANCE_SUPPORT'];
+const WRITE_ROLES=['CFO_MANAGER'];
 const STATUS_TONE={UNRECONCILED:'amber',MATCHED:'blue',RECONCILED:'green',IGNORED:'gray'};
 const STATUS_LABEL={UNRECONCILED:'Belum',MATCHED:'Dugaan Cocok',RECONCILED:'Cocok',IGNORED:'Diabaikan'};
 

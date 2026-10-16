@@ -154,9 +154,8 @@ def spk_release_readiness(db, spk):
         document = json.loads(spk.snapshot or "null")
     except (TypeError, ValueError):
         document = None
-    current_articles = [{"article_code": a.article_code, "garment_type": a.garment_type or "",
-                         "qty": a.qty, "size_breakdown": a.size_breakdown or "",
-                         "production_route": a.production_route or ""} for a in order.articles]
+    from .spk_document import article_snapshot
+    current_articles = [article_snapshot(a) for a in order.articles]
     document_ok = isinstance(document, dict) and all((
         document.get("spk_no") == spk.spk_no,
         document.get("version") == spk.version,
@@ -517,8 +516,11 @@ def validate(db, obj, user, deleting=False):
                                "VOID": (previous, "VOID")}
                 if action not in transitions or (previous, obj.status) != transitions[action]:
                     fail("Invalid SPK status transition")
-                if action in ("RELEASE", "VOID"):
+                if action == "VOID":
                     require(user, "CMO_MANAGER")
+                elif action == "RELEASE":
+                    # Alur baru: Deby (CMO Support) merilis SPK setelah CFO ACC; Cecep (CMO Manager) tetap boleh.
+                    require(user, "CMO_MANAGER", "CMO_SUPPORT")
                 else:
                     require(user, "CMO_MANAGER", "CMO_SUPPORT")
                 if action == "GENERATE" and not obj.snapshot:

@@ -44,8 +44,8 @@ router = APIRouter(prefix="/cfo", tags=["cfo-receivables"])
 # CFO owns AR/AP. CEO may read for oversight; CMO may only see the AR status
 # they already see on their own pages and must never see AP/cash-plan detail
 # (revisi #17: "CMO hanya melihat status yang diperlukan").
-AR_VIEW_ROLES = {"CEO", "CFO_MANAGER", "FINANCE_SUPPORT"}
-AP_VIEW_ROLES = {"CEO", "CFO_MANAGER", "FINANCE_SUPPORT"}
+AR_VIEW_ROLES = {"CEO", "CFO_MANAGER"}
+AP_VIEW_ROLES = {"CEO", "CFO_MANAGER"}
 # CMO sees AR status only, never the collection internals.
 AR_CMO_ROLES = {"CMO_MANAGER", "CMO_SUPPORT"}
 
@@ -154,11 +154,9 @@ def _collection_action(bucket, outstanding, status):
         return {"action": "RE_VERIFY", "owner": "CFO_MANAGER",
                 "label": "Bukti bayar ditolak — minta ulang bukti ke buyer"}
     if bucket == "not_due":
-        return {"action": "REMIND", "owner": "FINANCE_SUPPORT",
-                "label": "Kirim pengingat jatuh tempo sebelum due date"}
+        return {"action": "REMIND", "owner": "CFO_MANAGER", "label": "Kirim pengingat jatuh tempo sebelum due date"}
     if bucket == "d1_30":
-        return {"action": "FOLLOW_UP", "owner": "FINANCE_SUPPORT",
-                "label": "Follow-up telepon/email ke buyer"}
+        return {"action": "FOLLOW_UP", "owner": "CFO_MANAGER", "label": "Follow-up telepon/email ke buyer"}
     if bucket == "d31_60":
         return {"action": "ESCALATE_CMO", "owner": "CFO_MANAGER",
                 "label": "Eskalasi ke CMO Manager, minta promised date"}

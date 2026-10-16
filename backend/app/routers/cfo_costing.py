@@ -43,7 +43,7 @@ from .. import models as m
 
 router = APIRouter(prefix="/cfo", tags=["cfo-costing"])
 
-VIEW_ROLES = {"CEO", "CFO_MANAGER", "FINANCE_SUPPORT"}
+VIEW_ROLES = {"CEO", "CFO_MANAGER"}
 FILTER_ROLES = {"CFO_MANAGER", "CEO"}
 
 
@@ -139,7 +139,6 @@ OPERATIONAL_DEPARTMENTS = {
     "CMO_MANAGER": "Commercial",
     "CMO_SUPPORT": "Commercial Support",
     "CFO_MANAGER": "Finance & Purchasing",
-    "FINANCE_SUPPORT": "Finance Support",
     "CHRO_MANAGER": "HR",
     "HR_SUPPORT": "HR Support",
     "CEO": "Executive",

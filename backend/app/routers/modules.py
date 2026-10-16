@@ -16,6 +16,8 @@ from .. import workflow
 from ..business_policy import BusinessPolicy, get_policy
 from ..audit import log_audit
 from ..spk_document import build_spk_pdf, snapshot_spk
+from ..cfo_models import StoredImage
+from .company import load_profile
 
 class BaseModel(PydanticBaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -122,6 +124,7 @@ def apply_update(obj, data, db, user=None, entity_name=None):
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CMO: CUSTOMERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class CustomerIn(BaseModel):
     name:str; country:Optional[str]=None; contact_name:Optional[str]=None; contact_info:Optional[str]=None; notes:Optional[str]=None
+    phone:Optional[str]=None; shipping_carrier:Optional[str]=None; address:Optional[str]=None
 
 @router.get("/cmo/customers")
 def customers(db:Session=Depends(get_db), user=Depends(get_current_user)):
@@ -134,6 +137,7 @@ def create_customer(data:CustomerIn, db:Session=Depends(get_db), user=Depends(re
 
 class CustomerUpdate(BaseModel):
     name:Optional[str]=None; country:Optional[str]=None; contact_name:Optional[str]=None; contact_info:Optional[str]=None; notes:Optional[str]=None
+    phone:Optional[str]=None; shipping_carrier:Optional[str]=None; address:Optional[str]=None
 
 @router.patch("/cmo/customers/{customer_id}")
 def update_customer(customer_id:int, data:CustomerUpdate, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CMO_MANAGER,models.Role.CMO_SUPPORT))):
@@ -429,9 +433,12 @@ def spk_require(db, user, action, allowed, spk_id=None):
         spk_deny(db, user, action, spk_id)
 
 
-def spk_document_response(spk):
+def spk_document_response(spk, db):
+    def loader(image_id):
+        image = db.get(StoredImage, image_id)
+        return image.data if image else None
     try:
-        pdf = build_spk_pdf(spk)
+        pdf = build_spk_pdf(spk, loader, load_profile(db))
     except (ValueError, TypeError, json.JSONDecodeError):
         raise HTTPException(409, "SPK document is unavailable")
     return Response(content=pdf, media_type="application/pdf",
@@ -465,7 +472,8 @@ def generate_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_curren
     if not x: raise HTTPException(404,"SPK not found")
     if x.status != "DRAFT": raise HTTPException(409,"Only a draft SPK can be generated")
     order=get_or_404(db,models.Order,x.order_fk,"Order not found")
-    try: x.snapshot=json.dumps(snapshot_spk(x,order),ensure_ascii=False)
+    customer=db.get(models.Customer,order.customer_id) if order.customer_id else None
+    try: x.snapshot=json.dumps(snapshot_spk(x,order,customer),ensure_ascii=False)
     except ValueError as exc: raise HTTPException(400,str(exc)) from exc
     x.status="GENERATED"
     db.info["spk_action"]="GENERATE"
@@ -481,7 +489,7 @@ def preview_spk_pdf(spk_id:int, db:Session=Depends(get_db), user=Depends(get_cur
     x=get_or_404(db,models.SPK,spk_id,"SPK not found")
     if x.status not in ("GENERATED","PRINTED","RELEASED"):
         raise HTTPException(409,"Generate the SPK before previewing")
-    return spk_document_response(x)
+    return spk_document_response(x, db)
 
 
 @router.post("/cmo/spk/{spk_id}/print")
@@ -491,7 +499,7 @@ def print_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_u
     if not x: raise HTTPException(404,"SPK not found")
     if x.status not in ("GENERATED","PRINTED"):
         raise HTTPException(409,"Only a generated SPK can be printed")
-    response=spk_document_response(x)
+    response=spk_document_response(x, db)
     if x.status == "GENERATED":
         x.status="PRINTED"
         db.info["spk_action"]="PRINT"
@@ -511,14 +519,14 @@ class SPKReleaseIn(BaseModel):
 
 @router.get("/cmo/spk/{spk_id}/release-readiness")
 def spk_release_readiness(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_user)):
-    spk_require(db,user,"RELEASE_READINESS",{"CMO_MANAGER"},spk_id)
+    spk_require(db,user,"RELEASE_READINESS",{"CMO_MANAGER","CMO_SUPPORT"},spk_id)
     x=get_or_404(db,models.SPK,spk_id,"SPK not found")
     return workflow.spk_release_readiness(db,x)
 
 
 @router.post("/cmo/spk/{spk_id}/release")
 def release_spk(spk_id:int, data:SPKReleaseIn, db:Session=Depends(get_db), user=Depends(get_current_user)):
-    spk_require(db,user,"RELEASE",{"CMO_MANAGER"},spk_id)
+    spk_require(db,user,"RELEASE",{"CMO_MANAGER","CMO_SUPPORT"},spk_id)
     x=db.query(models.SPK).filter_by(id=spk_id).with_for_update().first()
     if not x: raise HTTPException(404,"SPK not found")
     if data.version_id != x.id: raise HTTPException(409,"SPK version_id does not match the locked version")
@@ -586,11 +594,11 @@ class InvoiceUpdate(BaseModel):
     next_action:Optional[str]=None; collection_owner_id:Optional[int]=None
 
 @router.get("/cfo/invoices")
-def invoices(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT,models.Role.CEO))):
+def invoices(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.CEO))):
     return db.query(models.Invoice).order_by(desc(models.Invoice.id)).offset(offset).limit(limit).all()
 
 @router.post("/cfo/invoices")
-def create_invoice(data:InvoiceIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT))):
+def create_invoice(data:InvoiceIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER))):
     x=models.Invoice(**data.model_dump()); db.add(x); commit_changes(db, user); db.refresh(x); return x
 
 @router.patch("/cfo/invoices/{inv_id}")
@@ -658,11 +666,11 @@ class POUpdate(BaseModel):
 AP_VENDOR_TYPES = ("SUPPLIER", "MAKLOON", "LOGISTIK", "VENDOR")
 
 @router.get("/cfo/purchase-orders")
-def list_pos(db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT,models.Role.CEO))):
+def list_pos(db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.CEO))):
     return db.query(models.PurchaseOrder).order_by(desc(models.PurchaseOrder.id)).all()
 
 @router.post("/cfo/purchase-orders")
-def create_po(data:POIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT))):
+def create_po(data:POIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER))):
     if data.vendor_type is not None and data.vendor_type.upper() not in AP_VENDOR_TYPES:
         raise HTTPException(400, "Vendor type must be SUPPLIER, MAKLOON, LOGISTIK, or VENDOR")
     values = data.model_dump()
@@ -695,11 +703,11 @@ class PaymentIn(BaseModel):
     currency:Optional[str]="IDR"
 
 @router.get("/cfo/payments")
-def list_payments(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT,models.Role.CEO))):
+def list_payments(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.CEO))):
     return db.query(models.Payment).order_by(desc(models.Payment.id)).offset(offset).limit(limit).all()
 
 @router.post("/cfo/payments")
-def create_payment(data:PaymentIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER,models.Role.FINANCE_SUPPORT))):
+def create_payment(data:PaymentIn, db:Session=Depends(get_db), user=Depends(require_roles(models.Role.CFO_MANAGER))):
     # INT-ORDER-001 poin 3: resolusi Order ID saat pembayaran dibuat supaya
     # transaksi tidak pernah yatim. Invoice dicari lewat invoice_id bila ada,
     # kalau tidak lewat invoice_no. Gagal resolve = pembayaran ditolak, bukan
@@ -1874,7 +1882,7 @@ from ..flow_engine import FlowEngine
 
 @router.get("/orders/{order_id}/flow")
 def get_order_flow(order_id: str, db: Session = Depends(get_db), user = Depends(get_current_user)):
-    require(user,"CEO","CMO_MANAGER","CMO_SUPPORT","CFO_MANAGER","FINANCE_SUPPORT","COO_MANAGER","PRODUCTION_PIC","PRINTING_PIC","SAMPLE_PIC","SHIPMENT_ADMIN","CHRO_MANAGER","HR_SUPPORT")
+    require(user,"CEO","CMO_MANAGER","CMO_SUPPORT","CFO_MANAGER","COO_MANAGER","PRODUCTION_PIC","PRINTING_PIC","SAMPLE_PIC","SHIPMENT_ADMIN","CHRO_MANAGER","HR_SUPPORT")
     """Returns flow definition + current step + progress + validation for next steps."""
     order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
     if not order:
@@ -2000,7 +2008,7 @@ def _cfo_pct(part, base):
 def get_payroll_and_bonus(
     period: str = Query("2026-Q1"),
     db: Session = Depends(get_db),
-    user = Depends(require_roles(models.Role.CEO, models.Role.CFO_MANAGER, models.Role.FINANCE_SUPPORT))
+    user = Depends(require_roles(models.Role.CEO, models.Role.CFO_MANAGER))
 ):
     employees = db.query(models.Employee).filter(models.Employee.employment_status == "ACTIVE").all()
     handoffs = db.query(models.PayrollHandoff).all()
@@ -2093,7 +2101,7 @@ def get_payroll_and_bonus(
 def get_financial_statements(
     period: str = Query("2026"),
     db: Session = Depends(get_db),
-    user = Depends(require_roles(models.Role.CEO, models.Role.CFO_MANAGER, models.Role.FINANCE_SUPPORT))
+    user = Depends(require_roles(models.Role.CEO, models.Role.CFO_MANAGER))
 ):
     invoices = db.query(models.Invoice).all()
     rev = sum((_cfo_dec(i.amount) for i in invoices), Decimal(0))
@@ -2170,7 +2178,7 @@ def get_financial_statements(
 def get_budget_cash_planning(
     period: str = Query("2026-M1"),
     db: Session = Depends(get_db),
-    user = Depends(require_roles(models.Role.CEO, models.Role.CFO_MANAGER, models.Role.FINANCE_SUPPORT))
+    user = Depends(require_roles(models.Role.CEO, models.Role.CFO_MANAGER))
 ):
     invoices = db.query(models.Invoice).all()
     collected = sum((_cfo_dec(i.paid_amount) for i in invoices), Decimal(0))

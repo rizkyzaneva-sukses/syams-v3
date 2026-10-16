@@ -55,8 +55,7 @@ def test_support_generates_previews_and_prints_one_locked_version(client, header
     request(client, headers, "CMO_SUPPORT", "PATCH", f"/cmo/spk/{sid}", {"status": "RELEASED"}, expected=403)
 
     release_body={"version_id":sid,"reason":"Commercial gates reviewed"}
-    request(client, headers, "CMO_SUPPORT", "GET", f"/cmo/spk/{sid}/release-readiness", expected=403)
-    request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/spk/{sid}/release", release_body, expected=403)
+    request(client, headers, "COO_MANAGER", "GET", f"/cmo/spk/{sid}/release-readiness", expected=403)
     request(client, headers, "COO_MANAGER", "POST", f"/cmo/spk/{sid}/release", release_body, expected=403)
     request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/spk/{sid}/void", expected=403)
     request(client, headers, "CMO_SUPPORT", "DELETE", f"/cmo/spk/{sid}", expected=403)
@@ -81,7 +80,7 @@ def test_support_generates_previews_and_prints_one_locked_version(client, header
 
 
 def test_unrelated_role_is_denied_and_audited(client, headers, db):
-    request(client, headers, "FINANCE_SUPPORT", "GET", "/cmo/spk", expected=403)
-    request(client, headers, "FINANCE_SUPPORT", "POST", "/cmo/spk", {"order_fk": 999, "spk_no": "X"}, expected=403)
+    request(client, headers, "CFO_MANAGER", "GET", "/cmo/spk", expected=403)
+    request(client, headers, "CFO_MANAGER", "POST", "/cmo/spk", {"order_fk": 999, "spk_no": "X"}, expected=403)
     entries = db.query(m.AuditLog).filter_by(action="DENIED_SPK_ACTION", entity="SPK").all()
     assert {entry.detail for entry in entries} == {"LIST", "CREATE_DRAFT"}

@@ -59,7 +59,7 @@ def ready_order(client, headers, order, paid=0):
     call(client, headers, "PATCH", f"/cmo/quotations/{quotation['id']}", "CFO_MANAGER", {"status": "APPROVED", "approval_reason": "Margin and terms checked"})
     invoice = call(client, headers, "POST", "/cfo/invoices", "CFO_MANAGER", {"order_fk": oid, "invoice_no": "I1", "amount": 100})
     if paid:
-        call(client, headers, "POST", "/cfo/payments", "FINANCE_SUPPORT", {"invoice_no": "I1", "amount": paid})
+        call(client, headers, "POST", "/cfo/payments", "CFO_MANAGER", {"invoice_no": "I1", "amount": paid})
     call(client, headers, "POST", f"/cfo/orders/{oid}/finance-gate", "CFO_MANAGER", {"action": "APPROVE", "reason": "Agreed credit terms; production authorized", "term_kind": "CREDIT", "credit_due_date": str(date.today()+timedelta(days=30)), "evidence_ref": "Signed contract CR-01"})
     for article in order["articles"]:
         approve_sample(client, headers, oid, article["article_code"])
@@ -299,7 +299,7 @@ def test_legacy_invoice_balance_requires_cfo_reconciliation(client, headers, ord
     db.commit()
     call(client, headers, "POST", "/cfo/payments", "CFO_MANAGER",
          {"invoice_no": "LEG-1", "amount": 10}, expected=400)
-    call(client, headers, "POST", f"/cfo/invoices/{inv.id}/reconcile", "FINANCE_SUPPORT",
+    call(client, headers, "POST", f"/cfo/invoices/{inv.id}/reconcile", "CMO_MANAGER",
          {"opening_paid_amount": 30, "evidence_ref": "Bank statement"}, expected=403)
     result = call(client, headers, "POST", f"/cfo/invoices/{inv.id}/reconcile", "CFO_MANAGER",
          {"opening_paid_amount": 30, "evidence_ref": "Bank statement 2025-12"})

@@ -12,7 +12,7 @@ Aturan yang ditegakkan DI SINI (bukan cuma di UI):
    dependency. Satu batch ditandai ``import_batch`` supaya bisa ditelusuri.
 4. **Treasury dihitung dari jurnal POSTED** untuk akun COA ``is_cash_account``.
    Tidak ada tabel posisi terpisah yang bisa berbeda dari buku besar.
-5. Hak tulis: CFO_MANAGER + FINANCE_SUPPORT. CEO read-only; semua peran
+5. Hak tulis: CFO_MANAGER. CEO read-only; semua peran
    terautentikasi boleh membaca.
 """
 from datetime import date, datetime, timedelta
@@ -34,7 +34,7 @@ from ..banking_models import BankAccount, BankTransaction, RECON_STATUSES
 
 router = APIRouter(prefix="/banking", tags=["banking"])
 
-WRITE_ROLES = (models.Role.CFO_MANAGER, models.Role.FINANCE_SUPPORT)
+WRITE_ROLES = (models.Role.CFO_MANAGER,)
 ALL_ROLES = tuple(models.Role)
 
 # Jendela toleransi tanggal untuk saran pencocokan: mutasi bank dan jurnal bisa
