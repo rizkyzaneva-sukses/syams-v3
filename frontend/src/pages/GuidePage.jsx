@@ -67,7 +67,7 @@ const ROLE_GUIDES = {
       { name: 'Exception Center', path: '/exceptions', desc: 'Pusat eskalasi isu operasional lintas divisi' },
       { name: 'Kebijakan Bisnis', path: '/ceo/business-policy', desc: 'Pengaturan limit margin, DP, dan tata kelola berversi' },
       { name: 'Audit Trail', path: '/audit-log', desc: 'Rekaman jejak aktivitas sistem yang tidak dapat diubah' },
-      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+      { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
 
@@ -79,11 +79,13 @@ const ROLE_GUIDES = {
     summary: 'Penanggung jawab hubungan pelanggan (buyer), validasi order intake, penetapan harga (quotation), persetujuan sample PPM, pelepasan SPK resmi ke pabrik, dan penutupan sisi pelanggan (customer closing).',
     dailyRoutine: [
       { step: 'Buka Morning Priority (/cmo/priority)', desc: 'Tinjau antrean prioritas keputusan harian: PO masuk yang diajukan Deby, quotation menunggu harga, dan sample approval.' },
-      { step: 'Review & Terima PO Masuk (/cmo/po-inbox)', desc: 'Periksa kelengkapan PO draft dari Deby. Verifikasi rute produksi dan deadline buyer sebelum klik "Accept Order".' },
+      { step: 'Review & Terima PO Masuk (/cmo/po-inbox)', desc: 'Periksa kelengkapan PO draft dari Deby. Verifikasi kelengkapan, tipe order, dan deadline buyer sebelum klik "Accept Order". Order otomatis mendapat nomor SYM-YYMM-NNN (contoh SYM-2610-001).' },
       { step: 'Review Quotation (/cmo/quotations)', desc: 'Tentukan harga jual dan hitung margin estimasi. Ajukan ke CFO untuk persetujuan margin.' },
-      { step: 'Uji Kesiapan & Rilis SPK (/cmo/spk)', desc: 'Setelah SPK dicetak Deby dan seluruh gate (Quotation, DP CFO, Rencana Produksi) hijau, lakukan "Release SPK" agar pabrik boleh mulai memotong kain.' },
+      { step: 'Uji Kesiapan & Rilis SPK (/cmo/spk)', desc: 'Setelah SPK dicetak Deby dan seluruh gate (Quotation, DP CFO, sample, rute) hijau, lakukan "Release SPK". Setelah rilis, tahap BAHAN dimulai (BOM, material request, PO), lalu COO menyetujui Rencana Produksi.' },
       { step: 'Konfirmasi Penerimaan Barang (/cmo/buyer-crm)', desc: 'Setelah COO mencatat fisik terkirim (Delivered), minta konfirmasi kepuasan buyer dan catat Customer Delivery Confirmation.' },
       { step: 'Customer Order Closing (/coo/closing)', desc: 'Setelah buyer puas dan tidak ada retur, lakukan penutupan order dari sisi Customer.' },
+      { step: 'Pantau Master Control (/master)', desc: 'Tab Morning Priority untuk meeting pagi, Kapasitas untuk memutuskan apakah order baru masih muat (lihat "Sisa kapasitas untuk order baru"), dan Forecast untuk order yang diperkirakan telat.' },
+      { step: 'Atur SLA, PIC & Jenis Pakaian (/master/setup)', desc: 'Hanya CMO Manager yang dapat mengubah durasi SLA, kapasitas harian, daftar PIC, dan jenis pakaian. Setiap perubahan SLA wajib beralasan dan menjadi versi baru; order yang sudah berjalan tetap memakai SLA lamanya.' },
     ],
     dos: [
       'Menerima atau menolak draft PO intake yang disiapkan oleh CMO Support (Deby).',
@@ -103,7 +105,7 @@ const ROLE_GUIDES = {
       { name: 'Pusat SPK', path: '/cmo/spk', desc: 'Pemeriksaan gate kesiapan dan pelepasan SPK' },
       { name: 'Sample Approval Feed', path: '/cmo/sample-approval', desc: 'Umpan balik persetujuan sample dari buyer' },
       { name: 'Buyer CRM', path: '/cmo/buyer-crm', desc: 'Database profil buyer, kontak, dan riwayat pesanan' },
-      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+      { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
 
@@ -115,7 +117,7 @@ const ROLE_GUIDES = {
     summary: 'Garda depan administrasi penjualan: input data customer, penyusunan draft PO intake, upload dokumen kontrak buyer, drafting quotation, pembuatan sample request, serta generate dan cetak fisik SPK.',
     dailyRoutine: [
       { step: 'Buka Deby Today (/cmo/today)', desc: 'Tinjau daftar tugas harian Deby: PO masuk baru, follow-up buyer, dan antrean SPK siap cetak.' },
-      { step: 'Input PO Masuk (/cmo/po-inbox)', desc: 'Input PO buyer lengkap dengan kode artikel, kuantitas, breakdown ukuran, dan RUTE PRODUKSI wajib (contoh: Cutting > Sewing > QC).' },
+      { step: 'Input PO Masuk (/cmo/po-inbox)', desc: 'Input PO buyer lengkap dengan kode artikel, kuantitas, breakdown ukuran, jenis pakaian (pilih dari daftar), extra size (spare untuk reject), dan link mockup. Rute produksi terisi otomatis (Cutting > Sewing > QC).' },
       { step: 'Unggah Dokumen PO Asli', desc: 'Wajib mengunggah file PDF bukti PO dari buyer. Tanpa file ini, tombol "Cek Kelengkapan" tidak akan lolos.' },
       { step: 'Cek & Submit PO ke Cecep', desc: 'Jalankan auto-check. Jika lengkap, klik "Kirim ke Cecep" agar masuk ke antrean persetujuan CMO Manager.' },
       { step: 'Draft Quotation & Request Sample', desc: 'Siapkan draft penawaran harga dan ajukan pembuatan sample ke Fahrul jika buyer meminta sample.' },
@@ -130,7 +132,7 @@ const ROLE_GUIDES = {
     donts: [
       'DILARANG melakukan "Release SPK" ke lantai produksi (kewenangan eksklusif CMO Manager).',
       'DILARANG menyetujui quotation atau mengubah status pembayaran invoice.',
-      'DILARANG lupa mengisi "Rute Produksi" saat menginput artikel pesanan baru.',
+      'DILARANG lupa mengisi jenis pakaian, extra size, dan link mockup saat menginput artikel pesanan baru.',
     ],
     keyPages: [
       { name: 'Hari Ini (Deby Work List)', path: '/cmo/today', desc: 'Workspace tindakan harian terfokus Deby' },
@@ -138,7 +140,7 @@ const ROLE_GUIDES = {
       { name: 'Quotation', path: '/cmo/quotations', desc: 'Pembuatan draf surat penawaran harga' },
       { name: 'SPK Dokumen', path: '/cmo/spk', desc: 'Generate dan cetak dokumen SPK' },
       { name: 'Tugas Saya', path: '/tasks', desc: 'Daftar penugasan operasional yang diberikan ke Deby' },
-      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+      { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
 
@@ -176,7 +178,7 @@ const ROLE_GUIDES = {
       { name: 'Purchasing & Warehouse', path: '/purchasing', desc: 'Workspace kebutuhan material, PO vendor, dan stok gudang' },
       { name: 'Shipments Gate', path: '/cfo/shipments', desc: 'Pemeriksaan status saldo tagihan sebelum barang diberangkatkan' },
       { name: 'Closing Keuangan', path: '/coo/closing', desc: 'Verifikasi saldo nol dan penutupan finansial order' },
-      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+      { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
 
@@ -188,13 +190,14 @@ const ROLE_GUIDES = {
     summary: 'Komandan operasional pabrik: penyusunan BOM, pengajuan kebutuhan material, perencanaan kapasitas mesin, pengawasan pergerakan WIP per route, kendali mutu QC internal, serah terima fisik (Delivered), dan penutupan operasional.',
     dailyRoutine: [
       { step: 'Buka COO Home (/coo)', desc: 'Tinjau kartu rencana produksi, status material shortage, kapasitas lini, dan antrean WIP.' },
-      { step: 'Susun BOM & Ajukan Material Request (/coo/material-requests)', desc: 'Masukkan kebutuhan bahan baku per pcs. Buat Material Request ke Riadi (jumlah MR harus >= kebutuhan BOM).' },
-      { step: 'Setujui Rencana Produksi (/coo/planning)', desc: 'Tentukan slot tanggal kerja dan alokasi lini, lalu set status Production Plan menjadi "APPROVED".' },
+      { step: 'Susun BOM & Ajukan Material Request (/coo/material-requests)', desc: 'Setelah SPK dirilis (tahap BAHAN dimulai), masukkan kebutuhan bahan baku per pcs. Buat Material Request ke Riadi (jumlah MR harus >= kebutuhan BOM).' },
+      { step: 'Setujui Rencana Produksi (/coo/planning)', desc: 'Rencana Produksi baru bisa dibuat setelah SPK RELEASED. Tentukan slot tanggal kerja dan alokasi lini, lalu set status Production Plan menjadi "APPROVED".' },
       { step: 'Awasi Eksekusi & WIP Harian (/coo/execution)', desc: 'Pastikan proses di lantai kerja bergerak urut sesuai rute artikel (contoh: Cutting -> Sewing -> QC).' },
       { step: 'Verifikasi Handoff Antar Proses (/coo/handoffs)', desc: 'Kawal serah terima output antar divisi. Terapkan prinsip: Qty Masuk = Selesai + Reject + Sisa.' },
       { step: 'QC Final & Packing Pengiriman (/coo/qc)', desc: 'Setelah seluruh kuantitas lulus QC PASS, lakukan pengemasan (PACKED) lengkap dengan rekonsiliasi baris artikel.' },
       { step: 'Kirim & Catat Serah Terima Fisik (/coo/deliveries)', desc: 'Setelah Finance Gate lolos, ubah status ke SHIPPED. Saat barang tiba di lokasi buyer, catat tanggal serah terima fisik (DELIVERED).' },
       { step: 'Operational Order Closing (/coo/closing)', desc: 'Setelah barang diterima fisik dan tidak ada rework tersisa, lakukan penutupan operasional.' },
+      { step: 'Tandai Tahap di Master Control (/master)', desc: 'Buka tab Control System, klik order, lalu tekan "✓ Selesai" pada tahap yang kelar atau "⚠ Ada masalah" bila terhambat (tulis masalah dan next action). Tahap yang sudah tercatat di Production Queue, material, atau shipment terisi otomatis.' },
     ],
     dos: [
       'Menyusun Bill of Materials (BOM) fisik dan mengajukan permintaan material.',
@@ -215,7 +218,7 @@ const ROLE_GUIDES = {
       { name: 'WIP Tracking', path: '/coo/wip', desc: 'Pemantauan kuantitas barang dalam proses (WIP)' },
       { name: 'QC Records', path: '/coo/qc', desc: 'Pencatatan hasil inspeksi mutu lolos/reject' },
       { name: 'Deliveries', path: '/coo/deliveries', desc: 'Pencatatan pengiriman dan serah terima fisik buyer' },
-      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+      { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
 
@@ -231,6 +234,7 @@ const ROLE_GUIDES = {
       { step: 'Eksekusi & Catat Output Berkala', desc: 'Catat Qty Selesai (Accepted) dan Qty Reject secara berkala. Pilih kategori cacat jika ada reject (Blur, Geser Miskalibrasi, Noda Tinta, Belang Warna).' },
       { step: 'Jaga Keseimbangan Fisik Kuantitas', desc: 'Patuhi rumus mutlak: Qty Selesai + Qty Reject + Qty Sisa WIP = Qty Masuk Potongan Kain.' },
       { step: 'Serah Terima Partial ke Sewing (/printing/handoffs)', desc: 'Lakukan serah terima bertahap ke divisi penjahitan (Sewing) lengkap dengan verifikasi paraf penerima.' },
+      { step: 'Tandai Tahap Printing / Bordir / QC S/B (/master)', desc: 'Di Master Control → Control System, klik order lalu "✓ Selesai" saat tahap Anda kelar. Bila tidak ada bordir, pilih "Lewati" pada tahap BORDIR. Ada kendala? Tekan "⚠ Ada masalah" dan tulis next action.' },
     ],
     dos: [
       'Menetapkan target harian fleksibel divisi printing.',
@@ -240,7 +244,7 @@ const ROLE_GUIDES = {
     ],
     donts: [
       'DILARANG mengubah status pekerjaan menjadi "DONE" sebelum seluruh kuantitas masuk terekonsiliasi.',
-      'DILARANG mengerjakan artikel di luar proses Printing/Bordir.',
+      'DILARANG mengerjakan artikel di luar proses Printing, Bordir, dan QC S/B (QC sablon & bordir).',
       'DILARANG menyerahkan potongan cetak ke Sewing tanpa pencatatan serah terima (handoff).',
     ],
     keyPages: [
@@ -248,7 +252,7 @@ const ROLE_GUIDES = {
       { name: 'Job Cards', path: '/printing/job-cards', desc: 'Daftar kartu kerja cetak dan kendali kuantitas per batch' },
       { name: 'Target Harian', path: '/printing/daily-target', desc: 'Pencatatan dan evaluasi ketercapaian target harian' },
       { name: 'Tugas Saya', path: '/tasks', desc: 'Daftar penugasan operasional divisi printing' },
-      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+      { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
 
@@ -280,7 +284,7 @@ const ROLE_GUIDES = {
       { name: 'Sample Today', path: '/sample/today', desc: 'Dashboard ringkasan antrean sample harian Fahrul' },
       { name: 'My Sample Tasks', path: '/sample/tasks', desc: 'Daftar penugasan pembuatan sample dan input progres kerja' },
       { name: 'Sample Lifecycle', path: '/sample/lifecycle', desc: 'Audit versi sample, riwayat penolakan/perbaikan, dan bukti foto' },
-      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+      { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
 
@@ -317,7 +321,7 @@ const ROLE_GUIDES = {
       { name: 'Training & Onboarding', path: '/chro/training', desc: 'Jadwal pelatihan dan siklus masa orientasi 2 minggu' },
       { name: 'Performance Reviews', path: '/chro/performance', desc: 'Evaluasi berkala 6 parameter oleh manager terkait' },
       { name: 'Employee Issues', path: '/chro/issues', desc: 'Pencatatan dan penyelesaian kasus kedisiplinan pegawai' },
-      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+      { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
 
@@ -334,6 +338,7 @@ const ROLE_GUIDES = {
       { step: 'Kirim PO ke Supplier & Pantau ETA', desc: 'Terbitkan PO resmi ke vendor. Catat estimasi kedatangan (ETA) dan follow-up keterlambatan.' },
       { step: 'Catat Kedatangan Barang (Goods Receipt)', desc: 'Saat bahan tiba, catat GR fisik: qty diterima vs qty PO. Bahan masuk ke Inventory (/inventory) dan siap dialokasikan ke order.' },
       { step: 'Keluarkan Bahan ke Produksi & Jaga Stok', desc: 'Alokasikan bahan per artikel dan catat pengeluaran (issue) ke lantai produksi. Laporkan selisih stok & keterlambatan ke COO/CFO.' },
+      { step: 'Pantau Tahap BAHAN di Master Control (/master)', desc: 'Tahap BAHAN dimulai setelah SPK dirilis dan selesai otomatis begitu seluruh PO berstatus READY. Bila supplier terlambat, tekan "⚠ Ada masalah" pada tahap BAHAN dan tulis next action. (Riadi memakai akun Production PIC.)' },
     ],
     dos: [
       'Menerima dan memverifikasi kebutuhan material dari order/sample/SPK.',
@@ -353,7 +358,7 @@ const ROLE_GUIDES = {
       { name: 'Purchase Orders', path: '/cfo/purchase-orders', desc: 'Daftar PO vendor dan status persetujuan anggaran' },
       { name: 'Material Requests', path: '/coo/material-requests', desc: 'Antrean permintaan bahan dari produksi (input COO, aksi Riadi)' },
       { name: 'Tasks', path: '/tasks', desc: 'Penugasan kebutuhan material yang menunggu eksekusi purchasing' },
-      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+      { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
 
@@ -389,17 +394,49 @@ const ROLE_GUIDES = {
       { name: 'Sample Lifecycle', path: '/sample/lifecycle', desc: 'Audit versi sample, revisi, dan bukti foto yang dikerjakan bersama Fahrul' },
       { name: 'Samples', path: '/cmo/samples', desc: 'Daftar permintaan sample dan status pengerjaannya' },
       { name: 'Tasks', path: '/tasks', desc: 'Penugasan artwork/sample harian untuk Diki' },
-      { name: 'Master Control', path: '/master', desc: 'Monitoring status global order (akses read-only)' },
+      { name: 'Master Control', path: '/master', desc: 'Morning Priority, status 15 tahap per order, Dashboard, Kapasitas & Forecast' },
     ],
   },
+};
+
+const MASTER_GUIDE = {
+  statuses: [
+    { label: 'SELESAI', cls: 'st-green', desc: 'Tahap kelar.' },
+    { label: 'PROGRES', cls: 'st-plain', desc: 'Sedang berjalan, masih dalam SLA.' },
+    { label: 'PERHATIAN', cls: 'st-amber', desc: 'Sudah 80% durasi SLA — segera dikejar.' },
+    { label: 'URGENT', cls: 'st-red', desc: 'Lewat SLA, ada masalah terbuka, atau exception RED.' },
+    { label: '-', cls: 'st-muted', desc: 'Tahap tidak dipakai untuk order ini.' },
+  ],
+  tabs: [
+    ['Morning Priority', 'Bahan meeting pagi: urgent (merah), perhatian (kuning), on track (putih). Pilih nama PIC untuk melihat kerjaannya saja; klik judul kolom untuk menyortir; klik baris untuk menandai selesai.'],
+    ['Control System', 'Papan 15 tahap untuk setiap order, mirip tab CONTROL SYSTEM di sheet lama. Ada filter PIC dan prioritas.'],
+    ['Dashboard', 'Order & qty aktif, control alert, WIP per tahap dan per jenis pakaian, beban tiap PIC, dan forecast 14 hari.'],
+    ['Kapasitas', 'Capacity Planner: pilih rentang tanggal, lihat beban vs kapasitas tiap tahap, dan sisa kapasitas yang masih bisa diterima Sales (7/14/30 hari).'],
+    ['Forecast', 'Perkiraan tanggal setiap tahap sampai Shipping, risiko deadline per order, dan beban tahap 7/14/30 hari ke depan.'],
+    ['Exception & Shipment', 'Halaman lama: exception, master produksi, kapasitas manual, dan forecast shipment.'],
+  ],
+  auto: [
+    'Invoice, PPM, Sample, SPK Released — mengikuti alur CMO & Finance (tidak diisi manual).',
+    'BAHAN — selesai otomatis saat semua PO material berstatus READY.',
+    'Cutting, Sortir, Printing, Bordir, Sewing, ACC, QC/Pack — selesai otomatis bila proses itu ada di rute artikel dan semua catatannya di Production Queue berstatus DONE; selain itu ditandai manual.',
+    'Shipping — selesai otomatis saat semua shipment SHIPPED/DELIVERED.',
+  ],
+  owners: [
+    ['Bahan, Cutting, Sortir, Sewing, ACC, QC/Pack, Revisi', 'COO Manager, Production PIC (Riadi memakai akun ini)'],
+    ['Printing, Bordir, QC S/B', 'COO Manager, Printing PIC (Iman), Production PIC'],
+    ['Shipping', 'COO Manager, Shipment Admin'],
+    ['Ganti PIC suatu tahap', 'COO Manager, CMO Manager'],
+    ['Lapor masalah', 'Pemegang tahap, ditambah CMO Manager & COO Manager'],
+    ['SLA, kapasitas, PIC, jenis pakaian', 'Hanya CMO Manager (/master/setup)'],
+  ],
 };
 
 const FLOW_STEPS = [
   {
     step: '1. PO Intake & Order',
     owner: 'Deby (CMO Support) & Cecep (CMO Manager)',
-    desc: 'Deby input data PO buyer, upload dokumen PDF asli, tentukan rute produksi (Cutting > Sewing > QC), lalu kirim ke Cecep. Cecep klik "Accept" untuk mengaktifkan Order.',
-    gate: 'Order aktif dan memiliki nomor SO resmi. Rute produksi terkunci permanen.',
+    desc: 'Deby input data PO buyer (jenis pakaian, extra size, link mockup), upload dokumen PDF asli, lalu kirim ke Cecep. Cecep klik "Accept" untuk mengaktifkan Order.',
+    gate: 'Order aktif dan memiliki nomor SYM-YYMM-NNN (mis. SYM-2610-001). Rute produksi standar terisi otomatis dan terkunci.',
     tone: 'blue',
   },
   {
@@ -424,17 +461,17 @@ const FLOW_STEPS = [
     tone: 'blue',
   },
   {
-    step: '5. Material & Rencana Produksi',
-    owner: 'Siti (COO Manager) & Riadi (Purchasing)',
-    desc: 'Siti menyusun BOM dan mengajukan Material Request. Riadi membeli bahan hingga PO vendor READY. Siti menetapkan jadwal dan Approve Production Plan.',
-    gate: 'Material READY dan Production Plan APPROVED.',
+    step: '5. Release SPK',
+    owner: 'Deby (Print SPK) & Cecep (Release)',
+    desc: 'Deby generate & cetak fisik SPK ber-barcode. Setelah quotation, Finance Gate, sample, dan rute hijau, Cecep klik "Release SPK". SPK dirilis SEBELUM bahan diproses — sama seperti sheet lama.',
+    gate: '7 gate rilis SPK hijau. BOM, material, dan Rencana Produksi TIDAK dibutuhkan untuk merilis SPK.',
     tone: 'green',
   },
   {
-    step: '6. Release SPK & Eksekusi Fisik',
-    owner: 'Deby (Print SPK), Cecep (Release), Siti & Iman (Pabrik)',
-    desc: 'Deby generate & cetak fisik SPK ber-barcode. Cecep klik "Release SPK". Tim pabrik mengeksekusi urut rute (Cutting -> Printing Iman -> Sewing -> QC).',
-    gate: 'Setiap handoff wajib seimbang: Qty Masuk = Selesai + Reject + Sisa.',
+    step: '6. Bahan, Rencana Produksi & Eksekusi Fisik',
+    owner: 'Siti (COO), Riadi (Purchasing), Lutfi (CFO), Iman (Printing)',
+    desc: 'Setelah SPK dirilis: Siti menyusun BOM dan Material Request, Riadi membeli hingga PO vendor READY (anggaran disetujui Lutfi), Siti meng-Approve Production Plan. Lalu tim pabrik mengeksekusi urut rute (Cutting -> Printing Iman -> Sewing -> QC). Semua tahap terpantau di Master Control.',
+    gate: 'Material READY + Production Plan APPROVED sebelum proses produksi boleh dicatat. Setiap handoff wajib seimbang: Qty Masuk = Selesai + Reject + Sisa.',
     tone: 'green',
   },
   {
@@ -455,8 +492,32 @@ const FLOW_STEPS = [
 
 const FAQS = [
   {
+    q: 'Apa arti warna dan status di Master Control (Selesai, Progres, Perhatian, Urgent)?',
+    a: 'SELESAI (hijau) = tahap kelar. PROGRES (putih) = tahap sedang berjalan dan masih dalam SLA. PERHATIAN (kuning) = sudah mencapai 80% durasi SLA tahap itu, segera dikejar. URGENT (merah) = melewati SLA, ada masalah terbuka, atau ada exception RED. "-" (abu) = tahap tidak dipakai untuk order itu. Status dihitung otomatis dari SLA; PIC tidak perlu mengetiknya.',
+  },
+  {
+    q: 'Bagaimana cara menandai tahap selesai atau melapor masalah?',
+    a: 'Buka Master Control → tab Control System (atau Morning Priority) → klik baris order. Tekan "✓ Selesai" untuk tahap yang sedang berjalan, atau "⚠ Ada masalah" lalu tulis masalahnya dan next action-nya. Order otomatis menjadi URGENT sampai masalah ditandai "Masalah selesai". Selama ada masalah terbuka, tahap itu tidak bisa diselesaikan.',
+  },
+  {
+    q: 'Kenapa tombol Selesai tidak muncul untuk tahap BAHAN, Cutting, atau Shipping?',
+    a: 'Tiga kemungkinan: (1) tahap itu sudah selesai otomatis dari data modul lain — BAHAN dari material READY, Cutting/Sewing/dst. dari Production Queue, Shipping dari shipment SHIPPED; (2) SPK belum dirilis, jadi tahap produksi belum bisa diisi; (3) tahap itu bukan milik divisi Anda (mis. Printing hanya Printing PIC/COO).',
+  },
+  {
+    q: 'Siapa yang boleh mengubah SLA, daftar PIC, dan jenis pakaian?',
+    a: 'Hanya CMO Manager, lewat tombol "Pengaturan SLA, PIC & jenis pakaian" di Master Control (/master/setup). Peran lain hanya bisa melihat. Setiap perubahan SLA wajib menyertakan alasan dan menjadi versi baru; order yang sudah berjalan tetap memakai SLA saat order dibuat.',
+  },
+  {
+    q: 'Bagaimana format Order ID dan kenapa berubah?',
+    a: 'Order ID otomatis berformat SYM-YYMM-NNN, misalnya SYM-2610-001 = order ke-1 bulan Oktober 2026. Nomor naik per bulan dan sama dengan format di sheet lama. Order yang dibuat sebelum perubahan ini mungkin masih berformat SO-xxxx.',
+  },
+  {
+    q: 'Kenapa Forecast menandai order URGENT padahal belum telat?',
+    a: 'Forecast menjumlahkan sisa SLA semua tahap yang belum selesai sampai Shipping (total SLA bawaan 22 hari) lalu membandingkannya dengan deadline buyer. Bila perkiraan selesai melewati deadline, order ditandai URGENT; bila hanya selisih 2 hari, PERHATIAN. Perbaiki dengan menggeser deadline, menambah kapasitas, atau menyesuaikan SLA di pengaturan.',
+  },
+  {
     q: 'Kenapa tombol "Release SPK" tidak bisa diklik / ditolak oleh sistem?',
-    a: 'Sistem menerapkan perlindungan bertingkat. SPK hanya bisa dirilis jika seluruh gerbang terpenuhi: 1) Dokumen SPK sudah di-Generate dan di-Print oleh Deby; 2) Quotation telah disetujui CFO; 3) Finance Gate pembayaran DP telah disetujui CFO; 4) Approval sample buyer sudah masuk (jika artikel mewajibkan sample); 5) Rencana Produksi telah disetujui COO; dan 6) Kebutuhan bahan baku berstatus READY.',
+    a: 'Sistem menerapkan perlindungan bertingkat. SPK hanya bisa dirilis jika 7 gerbang terpenuhi: 1) SPK sudah di-Generate dan di-Print oleh Deby; 2) ini versi SPK terbaru; 3) isi dokumen cetak masih sama dengan order; 4) Quotation disetujui CFO; 5) Finance Gate pembayaran DP disetujui CFO; 6) Approval sample buyer sudah masuk (jika artikel mewajibkan sample); dan 7) rute produksi lengkap. Rencana Produksi dan bahan baku TIDAK diperlukan untuk merilis SPK — keduanya dikerjakan setelah SPK dirilis.',
   },
   {
     q: 'Kenapa muncul error "PACKED shipment requires reconciled article quantities"?',
@@ -467,8 +528,8 @@ const FAQS = [
     a: 'Untuk mencegah kecurangan dan kesalahan ketik (*anti-fraud*), nominal terbayar dihitung secara otomatis oleh sistem dari data transaksi pembayaran riil yang diverifikasi dengan mutasi bank (rekonsiliasi). Untuk mencatat pembayaran, gunakan form "Catat Pembayaran" di menu CFO.',
   },
   {
-    q: 'Bagaimana jika salah mengisi Rute Produksi saat pembuatan pesanan?',
-    a: 'Demi integritas data pabrik, rute produksi bersifat permanen (immutable) dan tidak dapat diubah setelah order aktif. Jika salah rute, order tersebut harus dibatalkan sebelum SPK dirilis, dan PO intake baru dibuat dengan rute yang benar (misalnya: "Cutting > Printing > Sewing > QC").',
+    q: 'Rute produksi apa yang dipakai, dan bagaimana kalau saya butuh rute lain?',
+    a: 'Form PO tidak lagi meminta rute; sistem mengisi rute standar "Cutting > Sewing > QC". Rute bersifat permanen (immutable) setelah order aktif. Tahap lain di Master Control (Sortir, Printing, Bordir, QC S/B, ACC, Revisi) tetap bisa ditandai manual oleh PIC-nya; tahap yang ada di rute otomatis selesai dari Production Queue.',
   },
   {
     q: 'Kenapa Sample Maker (Fahrul) atau Deby tidak bisa menyetujui status Sample?',
@@ -762,6 +823,63 @@ export default function GuidePage() {
       {/* Bagian 2: Alur Proses End-to-End (8 Tahap) — proses lengkap dari PO
           masuk sampai order CLOSED, lengkap dengan gate teknis & halaman kerja. */}
       <ProcessFlow />
+
+      {/* Bagian 2b: Cara pakai Master Control (Control System) */}
+      <section className="panel" style={{ marginBottom: 32 }}>
+        <div className="panel-head" style={{ marginBottom: 18 }}>
+          <div>
+            <h2 style={{ fontSize: 19, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Layers size={20} color="#2563eb" /> Cara Pakai Master Control (Control System)
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+              Mengikuti sheet "simulasi master control": 15 tahap per order, SLA per tahap, dan rekap meeting pagi. Cukup satu klik per tahap.
+            </p>
+          </div>
+          <Link to="/master" className="btn primary sm">Buka Master Control</Link>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+          {MASTER_GUIDE.statuses.map(st => (
+            <div key={st.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#334155' }}>
+              <span className={`stage-chip ${st.cls}`}>{st.label}</span> {st.desc}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 16 }}>
+          {MASTER_GUIDE.tabs.map(([name, desc]) => (
+            <div key={name} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: '12px 14px', background: '#f8fafc' }}>
+              <strong style={{ fontSize: 14, color: '#0f172a' }}>{name}</strong>
+              <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#475569', lineHeight: 1.5 }}>{desc}</p>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
+          <div>
+            <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>3 langkah untuk PIC</h3>
+            <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#334155', lineHeight: 1.7 }}>
+              <li>Klik baris order di Morning Priority atau Control System.</li>
+              <li>Tahap sekarang kelar? Tekan <b>✓ Selesai</b>. Terhambat? Tekan <b>⚠ Ada masalah</b>, tulis masalah dan next action-nya.</li>
+              <li>Masalah teratasi? Tekan <b>Masalah selesai</b>. Tahap yang tidak dipakai (mis. bordir) pilih <b>Lewati</b>.</li>
+            </ol>
+            <h3 style={{ fontSize: 14, margin: '14px 0 8px' }}>Yang terisi otomatis (tidak perlu diketik)</h3>
+            <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#334155', lineHeight: 1.6 }}>
+              {MASTER_GUIDE.auto.map(t => <li key={t}>{t}</li>)}
+            </ul>
+          </div>
+          <div>
+            <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Siapa boleh apa</h3>
+            <table style={{ width: '100%', fontSize: 12.5 }}>
+              <tbody>
+                {MASTER_GUIDE.owners.map(([what, who]) => (
+                  <tr key={what}><td style={{ fontWeight: 700, whiteSpace: 'normal' }}>{what}</td><td style={{ whiteSpace: 'normal' }}>{who}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
       {/* Bagian 3: Alur 8 Gate Utama Produksi & Pengiriman (ringkas) */}
       <section className="panel" style={{ marginBottom: 32 }}>

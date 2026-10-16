@@ -47,7 +47,8 @@ const PHASES = [
     ],
     gate: [
       'Dokumen PDF PO asli WAJIB diunggah.',
-      'Rute produksi per artikel wajib terisi. Kalau form PO tidak meminta rute, sistem otomatis mengisi rute standar: “Cutting > Sewing > QC”.',
+      'Rute produksi per artikel terisi otomatis dengan rute standar “Cutting > Sewing > QC” (form PO tidak lagi memintanya).',
+      'Order ID otomatis berformat SYM-YYMM-NNN (mis. SYM-2610-001), nomor naik per bulan.',
       'Rute produksi IMMUTABLE — tidak ada endpoint ubah artikel setelah order dibuat. Salah rute = buat order baru.',
       'Order langsung tidak bisa dibuat: POST /api/orders ditolak 403. Satu-satunya jalan adalah PO intake + acceptance.',
     ],
@@ -127,47 +128,14 @@ const PHASES = [
   },
   {
     n: 5,
-    title: 'BOM, Material & Rencana Produksi',
-    tone: 'green',
-    icon: Package,
-    who: 'Siti (COO) → Riadi (Purchasing) → Lutfi (CFO) → Siti (COO)',
-    what: 'Siti menyusun BOM tiap artikel dan mengajukan Material Request. Riadi beli bahan ke supplier (eksekusi + Goods Receipt) setelah anggaran PO disetujui CFO. Siti menetapkan jadwal dan meng-“Approve” Production Plan.',
-    pages: [
-      { name: 'BOM & Cost', path: '/coo/bom-cost' },
-      { name: 'Material Requests', path: '/coo/material-requests' },
-      { name: 'Purchasing & Gudang', path: '/purchasing' },
-      { name: 'Purchase Orders', path: '/cfo/purchase-orders' },
-      { name: 'Inventory', path: '/inventory' },
-      { name: 'Production Plan', path: '/coo/planning' },
-    ],
-    backend: [
-      'POST /api/coo/bom — isi BOM per artikel',
-      'POST /api/coo/material-requests — ajukan kebutuhan bahan',
-      'POST /api/cfo/purchase-orders — PO (anggaran disetujui CFO)',
-      'PATCH /api/cfo/purchase-orders/{id} — set material_status READY + arrival_date',
-      'POST /api/coo/production-plans — rencana produksi (APPROVED)',
-    ],
-    gate: [
-      'BOM WAJIB ada untuk setiap artikel (tanpa BOM, SPK tidak akan pernah bisa rilis).',
-      'Kuantitas berjenjang: Material Request ≥ Σ(qty_per_unit × qty artikel).',
-      'Purchase Order ≥ Material Request, dan setiap PO harus material_status READY (barang sudah datang).',
-      'Production Plan berstatus APPROVED + punya plan_date.',
-      'Order SAMPLE_ONLY DITOLAK masuk produksi.',
-    ],
-  },
-  {
-    n: 6,
-    title: 'Release SPK & Eksekusi Fisik',
+    title: 'Release SPK',
     tone: 'green',
     icon: FactoryIcon,
-    who: 'Deby (generate & print) → Cecep (release) → Siti & Iman (pabrik)',
-    what: 'Deby meng-generate nomor SPK dan mencetak fisiknya (ber-snapshot terkunci). Cecep menekan “Release SPK” setelah 7 gate hijau. Pabrik mengeksekusi berurutan sesuai rute artikel.',
+    who: 'Deby (generate & print) → Cecep (release)',
+    what: 'Deby meng-generate nomor SPK dan mencetak fisiknya (ber-snapshot terkunci). Cecep menekan “Release SPK” setelah 7 gate hijau. SPK dirilis SEBELUM bahan diproses, sama seperti sheet lama.',
     pages: [
       { name: 'Pusat SPK', path: '/cmo/spk' },
-      { name: 'Eksekusi Harian', path: '/coo/execution' },
-      { name: 'Production Queue', path: '/coo/production' },
-      { name: 'Printing Hari Ini', path: '/printing/today' },
-      { name: 'Job Card', path: '/printing/job-cards' },
+      { name: 'Release to COO', path: '/cmo/release-to-coo' },
     ],
     backend: [
       'POST /api/cmo/spk — buat SPK (DRAFT)',
@@ -175,14 +143,46 @@ const PHASES = [
       'POST /api/cmo/spk/{id}/print — cetak (PRINTED)',
       'GET  /api/cmo/spk/{id}/release-readiness — cek 7 gate',
       'POST /api/cmo/spk/{id}/release — rilis (RELEASED)',
-      'POST /api/coo/movements — pergerakan WIP per proses',
     ],
     gate: [
       '7 gate rilis SPK: dokumen tercetak, versi SPK terbaru, dokumen sesuai order, quotation APPROVED, Finance Gate APPROVED, sample lengkap, rute produksi lengkap.',
+      'BOM, material, dan Rencana Produksi TIDAK dibutuhkan untuk merilis SPK — keduanya dikerjakan setelahnya.',
       'Alasan rilis wajib; versi > 1 wajib menyertakan alasan koreksi.',
+      'Order SAMPLE_ONLY tidak masuk produksi.',
+    ],
+  },
+  {
+    n: 6,
+    title: 'Bahan, Rencana Produksi & Eksekusi Fisik',
+    tone: 'green',
+    icon: Package,
+    who: 'Siti (COO) → Riadi (Purchasing) → Lutfi (CFO) → Siti & Iman (pabrik)',
+    what: 'Setelah SPK dirilis tahap BAHAN dimulai: Siti menyusun BOM dan Material Request, Riadi membeli bahan (Goods Receipt) setelah anggaran PO disetujui CFO, Siti meng-“Approve” Production Plan. Lalu pabrik mengeksekusi berurutan sesuai rute artikel. Seluruh tahap terpantau di Master Control.',
+    pages: [
+      { name: 'BOM & Cost', path: '/coo/bom-cost' },
+      { name: 'Material Requests', path: '/coo/material-requests' },
+      { name: 'Purchasing & Gudang', path: '/purchasing' },
+      { name: 'Purchase Orders', path: '/cfo/purchase-orders' },
+      { name: 'Production Plan', path: '/coo/planning' },
+      { name: 'Production Queue', path: '/coo/production' },
+      { name: 'Printing Hari Ini', path: '/printing/today' },
+      { name: 'Master Control', path: '/master' },
+    ],
+    backend: [
+      'POST /api/coo/bom — isi BOM per artikel',
+      'POST /api/coo/material-requests — ajukan kebutuhan bahan',
+      'PATCH /api/cfo/purchase-orders/{id} — set material_status READY + arrival_date',
+      'POST /api/coo/production-plans — rencana produksi (APPROVED), butuh SPK RELEASED',
+      'POST /api/coo/movements — pergerakan WIP per proses',
+      'POST /api/control/orders/{id}/stages/{kode}/done — tandai tahap di Master Control',
+    ],
+    gate: [
+      'Production Plan hanya bisa dibuat setelah SPK RELEASED, dan harus APPROVED + punya plan_date.',
+      'BOM WAJIB ada untuk setiap artikel; Material Request ≥ Σ(qty_per_unit × qty artikel); setiap PO material_status READY.',
+      'Proses produksi baru boleh dicatat setelah material READY dan Production Plan APPROVED.',
       'Eksekusi harus URUT rute (mis. Cutting → Printing → Sewing → QC). Tidak boleh lompat proses.',
       'Rumus kuantitas mutlak tiap handoff: Qty Masuk = Selesai + Reject + Sisa.',
-      'Printing PIC hanya boleh update proses PRINTING/BORDIR.',
+      'Printing PIC hanya boleh update proses PRINTING/BORDIR/QC S/B.',
     ],
   },
   {
@@ -428,7 +428,7 @@ export default function ProcessFlow() {
           <strong style={{ fontSize: 14, color: '#0f172a' }}>Rantai urutan wajib (sistem menolak lompatan tahap)</strong>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#334155', lineHeight: 1.9 }}>
-          {['Kebijakan Bisnis (CEO)', 'Order + Artikel', 'Quotation APPROVED', 'Invoice → Bayar → Rekonsiliasi', 'Finance Gate APPROVED', 'BOM → Material Request → PO READY', 'Production Plan APPROVED', 'SPK RELEASED', 'Proses per-rute → QC Final', 'PACKED → Gate Kirim → SHIPPED', 'DELIVERED + Konfirmasi Buyer', 'Closing 3 Arah'].map((s, i, arr) => (
+          {['Kebijakan Bisnis (CEO)', 'Order + Artikel', 'Quotation APPROVED', 'Invoice → Bayar → Rekonsiliasi', 'Finance Gate APPROVED', 'SPK RELEASED', 'Production Plan APPROVED', 'BAHAN: BOM → Material Request → PO READY', 'Proses per-rute → QC Final', 'PACKED → Gate Kirim → SHIPPED', 'DELIVERED + Konfirmasi Buyer', 'Closing 3 Arah'].map((s, i, arr) => (
             <React.Fragment key={s}>
               <span style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, padding: '3px 10px', fontWeight: 600 }}>{s}</span>
               {i < arr.length - 1 && <ArrowRight size={13} color="#94a3b8" />}
