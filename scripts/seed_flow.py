@@ -79,7 +79,7 @@ if status == 200:
 else:
     step("Set business policy", "ceo", "PUT", "/config/business-policy", {
         "minimum_margin_percent": 15,
-        "minimum_dp_percent": 30,
+        "minimum_dp_amount": 5_000_000,
         "cfo_quotation_limit": 500000000,
         "allow_credit_terms": True,
         "change_reason": "Kebijakan awal demo: margin min 15%, DP min 30%, limit quotation CFO Rp500jt, kredit diizinkan.",

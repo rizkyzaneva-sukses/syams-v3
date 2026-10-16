@@ -11,6 +11,7 @@ from .config import settings
 from . import auth_models
 from . import accounting_models  # noqa: F401 — pastikan tabel accounting ikut create_all
 from . import control_models  # noqa: F401 — master data, SLA, status tahap order
+from . import notifications  # noqa: F401 — notifikasi otomatis tiap proses masuk
 # Modul lanjutan (menutup gap BLUEPRINT/PRD): semua diimport di sini supaya
 # tabelnya ikut Base.metadata.create_all di mode development.
 from . import (inventory_models, hr_time_models, banking_models,

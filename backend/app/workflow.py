@@ -552,6 +552,8 @@ def validate(db, obj, user, deleting=False):
             fail("Invoice with payments cannot be deleted")
         if not deleting and obj.amount <= 0:
             fail("Invoice amount must be positive")
+        if not deleting and (Decimal(obj.dp_amount or 0) < 0 or Decimal(obj.dp_amount or 0) > Decimal(obj.amount)):
+            fail("DP harus antara Rp 0 dan Jumlah Tagihan")
         if not deleting and Decimal(obj.amount) < Decimal(obj.paid_amount or 0):
             fail("Invoice amount cannot be lower than payments")
         if creating or deleting or "amount" in changed:

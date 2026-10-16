@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {api} from '../api';
+import MoneyInput from '../components/MoneyInput';
 import {useRole} from '../components/Access';
 
 /* BLUEPRINT §3.1/§3.2 — Lead/Opportunity + Sales Target (workspace Cecep/Deby).
@@ -284,7 +285,7 @@ function TargetTab({canWrite,ownerName,setErr,setBusy}){
         <label>Periode (YYYY-MM)<input value={form.period} onChange={e=>setForm({...form,period:e.target.value})}/></label>
         <label>PIC ID<input value={form.owner_id} onChange={e=>setForm({...form,owner_id:e.target.value})} placeholder="user id"/></label>
         <label>Nama PIC<input value={form.owner_name} onChange={e=>setForm({...form,owner_name:e.target.value})} placeholder="opsional"/></label>
-        <label>Target Nilai<input type="number" value={form.target_amount} onChange={e=>setForm({...form,target_amount:e.target.value})}/></label>
+        <label>Target Nilai<MoneyInput value={form.target_amount} onChange={v=>setForm({...form,target_amount:v})}/></label>
         <label>Target Order<input type="number" value={form.target_orders} onChange={e=>setForm({...form,target_orders:e.target.value})}/></label>
         <label>Catatan<input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label>
       </div>

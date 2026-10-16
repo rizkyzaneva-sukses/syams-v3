@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import {api} from '../api';
+import MoneyInput from '../components/MoneyInput';
 import {useRole} from '../components/Access';
 
 const money=n=>'Rp '+Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:0});
@@ -267,7 +268,7 @@ function AsetPanel({assets,dep,canWrite,onCreated}){
         <label>Nama<input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label>
         <label>Kategori<input value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/></label>
         <label>Tanggal Perolehan<input type="date" value={form.acquisition_date} onChange={e=>setForm({...form,acquisition_date:e.target.value})}/></label>
-        <label>Harga Perolehan<input type="number" value={form.acquisition_cost} onChange={e=>setForm({...form,acquisition_cost:e.target.value})}/></label>
+        <label>Harga Perolehan<MoneyInput value={form.acquisition_cost} onChange={v=>setForm({...form,acquisition_cost:v})}/></label>
         <label>Nilai Residu<input type="number" value={form.salvage_value} onChange={e=>setForm({...form,salvage_value:e.target.value})}/></label>
         <label>Umur (bulan)<input type="number" value={form.useful_life_months} onChange={e=>setForm({...form,useful_life_months:e.target.value})}/></label>
       </div>
@@ -307,7 +308,7 @@ function BudgetPanel({rows,accounts,canWrite,period,onCreated}){
         <label>Periode (YYYY)<input value={form.period} onChange={e=>setForm({...form,period:e.target.value})}/></label>
         <label>Akun<select value={form.account_id} onChange={e=>setForm({...form,account_id:e.target.value})}>
           <option value="">— pilih —</option>{(accounts||[]).filter(a=>['REVENUE','EXPENSE'].includes(a.account_type)).map(a=><option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}</select></label>
-        <label>Anggaran<input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/></label>
+        <label>Anggaran<MoneyInput value={form.amount} onChange={v=>setForm({...form,amount:v})}/></label>
         <label>Catatan<input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label>
       </div>
       <div className="form-actions"><button className="btn" onClick={()=>setForm(null)}>Batal</button>

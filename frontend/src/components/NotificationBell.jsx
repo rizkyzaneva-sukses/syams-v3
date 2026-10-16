@@ -21,7 +21,7 @@ const SEV={
 };
 const CAT_LABEL={
   APPROVAL:'Persetujuan',DUE_DATE:'Tenggat',MATERIAL:'Material',
-  FINANCE:'Keuangan',EXCEPTION:'Exception',SYSTEM:'Sistem',
+  FINANCE:'Keuangan',EXCEPTION:'Exception',SYSTEM:'Sistem',TASK:'Tugas Baru',
 };
 
 function timeAgo(iso){
@@ -40,12 +40,22 @@ export default function NotificationBell(){
   const [count,setCount]=useState(0);
   const [items,setItems]=useState([]);
   const [loading,setLoading]=useState(false);
+  const [toast,setToast]=useState(null);
+  const prevCount=useRef(null);
   const wrapRef=useRef(null);
   const nav=useNavigate();
 
   function refreshCount(){
     api('/platform/notifications/unread-count')
-      .then(r=>setCount(Number(r?.count||0)))
+      .then(r=>{
+        const next=Number(r?.count||0);
+        setCount(next);
+        // Tugas baru masuk sejak pengecekan terakhir: tampilkan pemberitahuan singkat.
+        if(prevCount.current!==null&&next>prevCount.current){
+          api('/platform/notifications?is_read=false&limit=1').then(rows=>{if(rows?.[0])setToast(rows[0])}).catch(()=>{});
+        }
+        prevCount.current=next;
+      })
       .catch(()=>{});
   }
 
@@ -58,7 +68,10 @@ export default function NotificationBell(){
   }
 
   // Polling ringan: badge diperbarui berkala tanpa membuka dropdown.
-  useEffect(()=>{refreshCount();const t=setInterval(refreshCount,60000);return ()=>clearInterval(t)},[]);
+  useEffect(()=>{refreshCount();const t=setInterval(refreshCount,20000);return ()=>clearInterval(t)},[]);
+  // Angka belum dibaca juga tampil di judul tab supaya terlihat walau tab lain yang aktif.
+  useEffect(()=>{document.title=(count>0?`(${count}) `:'')+'BOS SYAMS'},[count]);
+  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(null),9000);return()=>clearTimeout(t)},[toast]);
 
   // Tutup dropdown saat klik di luar / tekan Escape.
   useEffect(()=>{
@@ -95,8 +108,15 @@ export default function NotificationBell(){
   }
 
   const badgeColor=count>0?'#dc2626':'#94a3b8';
+  function openToast(){const n=toast;setToast(null);if(!n)return;if(!n.is_read)markRead(n.id);if(n.link_path)nav(n.link_path)}
 
   return <div ref={wrapRef} style={{position:'relative',marginLeft:'12px'}}>
+    {toast&&<div role="status" onClick={openToast} className="notif-toast">
+      <button type="button" aria-label="Tutup" onClick={e=>{e.stopPropagation();setToast(null)}} className="notif-toast-x">×</button>
+      <b>{toast.severity==='CRITICAL'?'🔴 ':'🔔 '}{toast.title}</b>
+      {toast.body&&<span>{toast.body}</span>}
+      {toast.link_path&&<small>Klik untuk membuka</small>}
+    </div>}
     <button onClick={toggle} title="Notifikasi" aria-label="Notifikasi"
       style={{position:'relative',width:'40px',height:'40px',borderRadius:'9px',border:'1px solid #e2e8f0',
               background:open?'#eef4fb':'#f4f7fb',cursor:'pointer',display:'grid',placeItems:'center'}}>

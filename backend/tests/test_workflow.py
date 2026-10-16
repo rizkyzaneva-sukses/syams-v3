@@ -51,7 +51,7 @@ def order(client, headers):
 
 def ready_order(client, headers, order, paid=0):
     oid = order["id"]
-    call(client, headers, "PUT", "/config/business-policy", "CEO", {"minimum_margin_percent": 10, "minimum_dp_percent": 10, "cfo_quotation_limit": 1000, "allow_credit_terms": True, "change_reason": "Test baseline policy"})
+    call(client, headers, "PUT", "/config/business-policy", "CEO", {"minimum_margin_percent": 10, "minimum_dp_amount": 10, "cfo_quotation_limit": 1000, "allow_credit_terms": True, "change_reason": "Test baseline policy"})
     quotation = call(client, headers, "POST", "/cmo/quotations", "CMO_MANAGER", {"order_fk": oid, "quotation_no": "Q1", "status": "DRAFT", "payment_plan": "Approved credit terms", "pricing_lines": [
         {"article_id": order["articles"][0]["id"], "unit_price": 5, "unit_hpp": 2},
         {"article_id": order["articles"][1]["id"], "unit_price": 10, "unit_hpp": 4},
@@ -266,7 +266,7 @@ def test_pricing_limit_and_dp_policy_require_real_evidence(client, headers, orde
     call(client, headers, "PATCH", f"/cmo/quotations/{quote['id']}", "CFO_MANAGER",
          {"status": "APPROVED", "approval_reason": "Reviewed"}, expected=409)
     call(client, headers, "PUT", "/config/business-policy", "CEO", {
-        "minimum_margin_percent": 30, "minimum_dp_percent": 40,
+        "minimum_margin_percent": 30, "minimum_dp_amount": 40,
         "cfo_quotation_limit": 50, "allow_credit_terms": False,
         "change_reason": "Test raises margin for limit check",
     })
@@ -403,7 +403,7 @@ def test_dashboard_kpis_have_traceable_denominators_and_lists_paginate(client, h
 
 def test_policy_change_requires_reason_and_creates_version(client, headers):
     """Revisi #76: perubahan policy wajib beralasan dan tersimpan sebagai versi."""
-    policy = {"minimum_margin_percent": 15, "minimum_dp_percent": 30,
+    policy = {"minimum_margin_percent": 15, "minimum_dp_amount": 30,
               "cfo_quotation_limit": 500, "allow_credit_terms": False}
     # Tanpa alasan perubahan harus ditolak.
     call(client, headers, "PUT", "/config/business-policy", "CEO", dict(policy), expected=422)

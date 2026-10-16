@@ -91,6 +91,7 @@ class OrderOut(BaseModel):
     financial_close_status: str
     overall_status: str
     flow_step: str = "ORDER"
+    po_number: Optional[str] = None
     projected_shipment: Optional[date]
     buffer_days: Optional[int]
     notes: Optional[str]

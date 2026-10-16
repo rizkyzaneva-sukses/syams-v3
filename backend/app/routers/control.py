@@ -18,6 +18,7 @@ from ..control_models import GarmentType, OrderBlock, OrderStage, PicMaster, Sta
 from ..control_service import (AUTO_STAGES, BLOCK_EXTRA_ROLES, DEFAULT_OFF_STAGES, STAGE_CODES, STAGE_LABEL, STAGE_ROLES, STAGES,
                                SlaBook, block_out, build_board, ensure_control_defaults)
 from ..database import get_db
+from ..notifications import notify_roles
 from ..models import Order, Role, User
 from .master import MASTER_ROLES
 
@@ -276,8 +277,16 @@ def stage_done(order_id: str, code: str, data: ReasonIn = ReasonIn(), db: Sessio
         row.note = data.note
     db.flush()
     _audit(db, user, "STAGE_DONE", order, f"{STAGE_LABEL[code]} selesai")
+    result = _view(db, order)
+    nxt = result["current_stage"]
+    if nxt and nxt not in AUTO_STAGES:
+        notify_roles(db, [r.value for r in STAGE_ROLES[nxt]], f"Giliran {STAGE_LABEL[nxt]} — {order.order_id}",
+                     f"{order.buyer}: {STAGE_LABEL[code]} selesai. Tahap berikutnya milik Anda.", "/master",
+                     category="TASK")
+    elif nxt is None:
+        notify_roles(db, ["CMO_MANAGER", "COO_MANAGER"], f"Semua tahap {order.order_id} selesai", order.buyer, "/master")
     db.commit()
-    return _view(db, order)
+    return result
 
 
 @router.post("/orders/{order_id}/stages/{code}/reopen")
@@ -398,6 +407,9 @@ def add_block(order_id: str, data: BlockIn, db: Session = Depends(get_db),
     db.flush()
     log_audit(db, user, "BLOCK_OPEN", "OrderBlock", block.id, f"{code or 'ORDER'}: {data.problem}", obj=order,
               source_module="ControlSystem")
+    audience = {Role.COO_MANAGER, Role.CMO_MANAGER} | (set(STAGE_ROLES[code]) if code in STAGE_ROLES else set())
+    notify_roles(db, sorted(r.value for r in audience), f"Masalah {STAGE_LABEL.get(code, 'ORDER')} — {order.order_id}",
+                 f"{data.problem}. Next action: {data.next_action}", "/master", category="EXCEPTION", severity="CRITICAL")
     db.commit()
     return _view(db, order)
 
@@ -416,6 +428,9 @@ def resolve_block(block_id: int, data: ResolveIn, db: Session = Depends(get_db),
     order = db.get(Order, block.order_fk)
     log_audit(db, user, "BLOCK_RESOLVE", "OrderBlock", block.id, data.note or "selesai", obj=order,
               source_module="ControlSystem")
+    if block.opened_by_id and block.opened_by_id != user.id:
+        notify_roles(db, [], f"Masalah {order.order_id} sudah diselesaikan", data.note, "/master",
+                     category="EXCEPTION", user_id=block.opened_by_id)
     db.commit()
     db.refresh(order)
     return _view(db, order)

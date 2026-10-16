@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import {api} from '../api';
+import MoneyInput from '../components/MoneyInput';
 import {useRole} from '../components/Access';
 
 /* Modul Inventory/Purchasing (workspace Riadi) — BLUEPRINT §3.4 & PRD §6.
@@ -99,7 +100,7 @@ function MaterialPanel({materials,canWrite,onChanged}){
         <label>Satuan<input value={form.unit} onChange={e=>setForm({...form,unit:e.target.value})}/></label>
         <label>Min Stok<input type="number" value={form.min_stock} onChange={e=>setForm({...form,min_stock:e.target.value})}/></label>
         <label>Reorder Point<input type="number" value={form.reorder_point} onChange={e=>setForm({...form,reorder_point:e.target.value})}/></label>
-        <label>Harga Standar<input type="number" value={form.standard_cost} onChange={e=>setForm({...form,standard_cost:e.target.value})}/></label>
+        <label>Harga Standar<MoneyInput value={form.standard_cost} onChange={v=>setForm({...form,standard_cost:v})}/></label>
       </div>
       <div className="form-actions"><button className="btn" onClick={()=>setForm(null)}>Batal</button>
         <button className="btn primary" onClick={()=>save().catch(e=>alert(e.message))}>Simpan</button></div>
@@ -149,7 +150,7 @@ function StokPanel({stock,low,materials,locations,canWrite,onChanged}){
         <label>Jenis<select value={form.movement_type} onChange={e=>setForm({...form,movement_type:e.target.value})}>
           {['RECEIPT','RETURN','ADJUSTMENT_IN','TRANSFER_IN','PRODUCTION_RETURN','ISSUE','ALLOCATION_ISSUE','TRANSFER_OUT','SCRAP','ADJUSTMENT_OUT'].map(t=><option key={t} value={t}>{t}</option>)}</select></label>
         <label>Qty<input type="number" value={form.qty} onChange={e=>setForm({...form,qty:e.target.value})}/></label>
-        <label>Unit Cost<input type="number" value={form.unit_cost} onChange={e=>setForm({...form,unit_cost:e.target.value})}/></label>
+        <label>Unit Cost<MoneyInput value={form.unit_cost} onChange={v=>setForm({...form,unit_cost:v})}/></label>
         <label>Alasan (wajib utk ADJUSTMENT)<input value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})}/></label>
       </div>
       <div className="form-actions"><button className="btn" onClick={()=>setForm(null)}>Batal</button>
@@ -252,7 +253,7 @@ function PRPanel({prs,materials,canWrite,canApprove,onChanged}){
           <td><select value={l.material_id} onChange={e=>upd(i,{material_id:e.target.value})}>
             <option value="">— pilih —</option>{(materials||[]).map(m=><option key={m.id} value={m.id}>{m.code} · {m.name}</option>)}</select></td>
           <td><input type="number" value={l.qty} onChange={e=>upd(i,{qty:e.target.value})}/></td>
-          <td><input type="number" value={l.estimated_unit_cost} onChange={e=>upd(i,{estimated_unit_cost:e.target.value})}/></td>
+          <td><MoneyInput value={l.estimated_unit_cost} onChange={v=>upd(i,{estimated_unit_cost:v})}/></td>
           <td>{form.lines.length>1&&<button className="icon-btn danger" onClick={()=>setForm({...form,lines:form.lines.filter((_,j)=>j!==i)})}>×</button>}</td>
         </tr>)}</tbody></table></div>
       <div className="form-actions">
@@ -319,7 +320,7 @@ function GRPanel({grs,materials,locations,canWrite,canPost,onChanged}){
           <td><input type="number" value={l.qty_ordered} onChange={e=>upd(i,{qty_ordered:e.target.value})}/></td>
           <td><input type="number" value={l.qty_received} onChange={e=>upd(i,{qty_received:e.target.value})}/></td>
           <td><input type="number" value={l.qty_rejected} onChange={e=>upd(i,{qty_rejected:e.target.value})}/></td>
-          <td><input type="number" value={l.unit_cost} onChange={e=>upd(i,{unit_cost:e.target.value})}/></td>
+          <td><MoneyInput value={l.unit_cost} onChange={v=>upd(i,{unit_cost:v})}/></td>
           <td>{form.lines.length>1&&<button className="icon-btn danger" onClick={()=>setForm({...form,lines:form.lines.filter((_,j)=>j!==i)})}>×</button>}</td>
         </tr>)}</tbody></table></div>
       <div className="form-actions">

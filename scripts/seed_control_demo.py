@@ -22,6 +22,7 @@ from app.control_models import OrderBlock, OrderStage  # noqa: E402
 from app.control_service import ensure_control_defaults, next_order_id  # noqa: E402
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app import models as m  # noqa: E402
+from app import notifications  # noqa: E402,F401  (agar order contoh ikut membuat notifikasi seperti di aplikasi)
 
 NOW = datetime.utcnow()
 O = m.OrderType
@@ -78,7 +79,11 @@ def main():
             db.add(order)
             db.flush()
             created.append(order)
-            db.add(m.Invoice(invoice_no=f"INV-{order.order_id}", order_fk=order.id, amount=billed, paid_amount=paid,
+            db.add(m.POIntake(po_number=f"PO-{buyer.split()[0].upper()[:4]}-{n:03d}", buyer=buyer, order_type=otype.value,
+                              buyer_deadline=order.buyer_deadline, articles_json="[]", status="ACCEPTED",
+                              created_by_id=manager.id if manager else 1, order_fk=order.id))
+            db.add(m.Invoice(invoice_no=f"INV-{order.order_id}", order_fk=order.id, amount=billed, dp_amount=billed * 0.4,
+                             paid_amount=paid,
                              status="PAID" if paid >= billed else "PARTIAL" if paid else "UNPAID"))
             if spk_days is not None:
                 db.add(m.SPK(order_fk=order.id, spk_no=f"SPK-{order.order_id}", status="RELEASED", snapshot="{}",
@@ -92,7 +97,7 @@ def main():
                 done, skipped, material_days = PROGRESS[n]
                 order.material_status = "READY"
                 db.add(m.PurchaseOrder(po_no=f"PO-{order.order_id}", order_fk=order.id, item="Kain cotton", qty=qty, unit="m",
-                                       status="RECEIVED", material_status="READY",
+                                       status="RECEIVED", material_status="READY", amount=qty * 30_000,
                                        arrival_date=date.today() - timedelta(days=material_days)))
                 for code, days in done.items():
                     db.add(OrderStage(order_fk=order.id, stage_code=code, state="DONE", done_at=NOW - timedelta(days=days),

@@ -2,7 +2,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from ..database import get_db
-from ..models import Order, Article, Role, User, OrderType
+from ..models import Order, Article, POIntake, Role, User, OrderType
 from ..schemas import OrderCreate, OrderOut
 from ..auth import get_current_user, require_roles
 from ..workflow import DEFAULT_PRODUCTION_ROUTE
@@ -13,15 +13,27 @@ ORDER_READ_ROLES = (Role.CEO, Role.CMO_MANAGER, Role.CMO_SUPPORT, Role.CFO_MANAG
                     Role.PRINTING_PIC, Role.PRODUCTION_PIC, Role.SHIPMENT_ADMIN,
                     Role.CHRO_MANAGER, Role.HR_SUPPORT)
 
+def attach_po_numbers(db: Session, orders: list) -> list:
+    """Nomor PO buyer (dari PO intake yang menghasilkan order) ikut tampil di daftar & detail order."""
+    ids = [o.id for o in orders]
+    numbers = {}
+    if ids:
+        numbers = {fk: no for fk, no in db.query(POIntake.order_fk, POIntake.po_number).filter(POIntake.order_fk.in_(ids))}
+    for order in orders:
+        order.po_number = numbers.get(order.id)
+    return orders
+
 @router.get("", response_model=list[OrderOut])
 def list_orders(limit:int=Query(500,ge=1,le=500), offset:int=Query(0,ge=0), db: Session = Depends(get_db), user: User = Depends(require_roles(*ORDER_READ_ROLES))):
-    return db.query(Order).options(joinedload(Order.articles)).order_by(Order.buyer_deadline.asc().nullslast(), Order.id).offset(offset).limit(limit).all()
+    rows = db.query(Order).options(joinedload(Order.articles)).order_by(Order.buyer_deadline.asc().nullslast(), Order.id).offset(offset).limit(limit).all()
+    return attach_po_numbers(db, rows)
 
 @router.get("/{order_id}", response_model=OrderOut)
 def get_order(order_id: str, db: Session = Depends(get_db), user: User = Depends(require_roles(*ORDER_READ_ROLES))):
     order = db.query(Order).options(joinedload(Order.articles)).filter(Order.order_id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    attach_po_numbers(db, [order])
     return order
 
 def create_order_record(payload: OrderCreate, db: Session, user: User) -> Order:

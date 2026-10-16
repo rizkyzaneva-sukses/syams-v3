@@ -46,7 +46,7 @@ const ROLE_GUIDES = {
       { step: 'Periksa Decision Needed (/ceo/decisions)', desc: 'Beri keputusan bertipe (Approve/Reject) untuk eskalasi dari divisi: diskon di luar limit CFO, lembur darurat, atau perubahan kapasitas.' },
       { step: 'Monitor CEO Action Tracker', desc: 'Pantau status tindak lanjut instruksi CEO kepada kepala divisi untuk memastikan eksekusi selesai tepat waktu.' },
       { step: 'Tinjau Exception Center (/exceptions)', desc: 'Tinjau kendala operasional dengan severity HIGH atau RED yang dieskalasikan oleh COO/CFO/CHRO.' },
-      { step: 'Kelola Kebijakan Bisnis (/ceo/business-policy)', desc: 'Tetapkan batas margin minimum (%), DP minimum (%), dan limit plafon approval CFO. Setiap perubahan wajib mencantumkan alasan tertulis dan tercatat versi baru secara atomik.' },
+      { step: 'Kelola Kebijakan Bisnis (/ceo/business-policy)', desc: 'Tetapkan batas margin minimum (%), DP minimum (dalam Rupiah, mis. Rp. 5.000.000), dan limit plafon approval CFO. Setiap perubahan wajib mencantumkan alasan tertulis dan tercatat versi baru secara atomik.' },
       { step: 'Evaluasi Company Performance (/ceo/company-performance)', desc: 'Pantau laporan keuangan, HPP aktual vs estimasi, dan log audit kepatuhan (/audit-log) secara menyeluruh.' },
     ],
     dos: [
@@ -153,7 +153,7 @@ const ROLE_GUIDES = {
     dailyRoutine: [
       { step: 'Buka CFO Home (/cfo)', desc: 'Periksa antrean prioritas keuangan: pembayaran masuk yang butuh verifikasi, invoice jatuh tempo, dan review HPP.' },
       { step: 'Approval Quotation (/cmo/quotations)', desc: 'Validasi margin harga jual terhadap HPP. Jika margin memenuhi kebijakan bisnis (>15%), klik "Approve".' },
-      { step: 'Terbitkan Invoice & Catat Pembayaran (/cfo/invoices)', desc: 'Terbitkan Invoice DP (minimal 30%). Saat pembayaran masuk ke rekening bank, catat nominalnya dan lakukan "Reconcile".' },
+      { step: 'Terbitkan Invoice & Catat Pembayaran (/cfo/invoices)', desc: 'Klik "Invoice Baru" lalu isi: No Invoice, No PO (pilih dari daftar), Jumlah Tagihan, dan DP dalam Rupiah — Sisa Tagihan terhitung otomatis. DP harus memenuhi DP minimum kebijakan CEO. Saat pembayaran masuk ke rekening bank, catat nominalnya dan lakukan "Reconcile".' },
       { step: 'Buka Finance Gate Pembayaran', desc: 'Setelah DP lunas dan terekonsiliasi, setujui Finance Gate agar order boleh diproses ke pembuatan SPK.' },
       { step: 'Approval Purchase Order (/cfo/purchase-orders)', desc: 'Tinjau pengajuan material dari COO di workspace Purchasing (/purchasing). Terbitkan PO supplier dan ubah status ke "READY" setelah barang datang.' },
       { step: 'Clearance Finance Gate Pengiriman (/cfo/shipments)', desc: 'Sebelum barang dikirim ke buyer, pastikan sisa tagihan lunas atau memiliki izin kredit berjangka dari CEO.' },
@@ -449,7 +449,7 @@ const FLOW_STEPS = [
   {
     step: '3. Down Payment & Finance Gate',
     owner: 'Lutfi (CFO Manager)',
-    desc: 'Lutfi menerbitkan Invoice DP (min 30%). Setelah buyer transfer, pembayaran dicatat dan direkonsiliasi. Lutfi menyetujui "Finance Gate".',
+    desc: 'Lutfi menerbitkan invoice dengan DP dalam Rupiah (minimal sesuai kebijakan CEO). Setelah buyer transfer, pembayaran dicatat dan direkonsiliasi. Lutfi menyetujui "Finance Gate".',
     gate: 'Finance Gate berstatus CLEAR. Lantai produksi tidak boleh bergerak sebelum DP lunas.',
     tone: 'amber',
   },
@@ -491,6 +491,18 @@ const FLOW_STEPS = [
 ];
 
 const FAQS = [
+  {
+    q: 'Bagaimana saya tahu ada tugas baru untuk saya?',
+    a: 'Lihat ikon lonceng di pojok kanan atas. Setiap proses yang masuk ke role Anda (PO menunggu review, order baru, quotation, invoice terbit, SPK dirilis, permintaan material, giliran tahap produksi, masalah yang dilaporkan, dan sebagainya) membuat notifikasi otomatis. Angka merah di lonceng dan di judul tab browser menunjukkan jumlah yang belum dibaca; pemberitahuan singkat juga muncul di pojok kanan bawah dan memperbarui diri tiap 20 detik. Klik notifikasi untuk langsung membuka halaman kerjanya.',
+  },
+  {
+    q: 'Bagaimana mengisi Invoice Baru (No Invoice, No PO, Jumlah Tagihan, DP, Sisa Tagihan)?',
+    a: 'Isi No Invoice, lalu pilih No PO (otomatis memilih order-nya). Ketik Jumlah Tagihan dan DP — angka langsung tampil sebagai Rp. 1.000.000. Sisa Tagihan dihitung otomatis (Jumlah Tagihan − DP) dan tidak bisa diketik. DP tidak boleh melebihi Jumlah Tagihan. Di Finance Gate, DP Wajib terisi otomatis dari total DP invoice order tersebut dan harus minimal sama dengan DP minimum kebijakan CEO.',
+  },
+  {
+    q: 'Kenapa DP sekarang dalam Rupiah, bukan persen?',
+    a: 'Sesuai keputusan pemilik: DP minimum di Kebijakan Bisnis (CEO) dan DP di invoice ditetapkan dalam Rupiah. Kebijakan lama yang masih berbentuk persen terbaca sebagai DP minimum Rp. 0 sampai CEO menetapkannya ulang dalam Rupiah di menu Kebijakan Bisnis.',
+  },
   {
     q: 'Apa arti warna dan status di Master Control (Selesai, Progres, Perhatian, Urgent)?',
     a: 'SELESAI (hijau) = tahap kelar. PROGRES (putih) = tahap sedang berjalan dan masih dalam SLA. PERHATIAN (kuning) = sudah mencapai 80% durasi SLA tahap itu, segera dikejar. URGENT (merah) = melewati SLA, ada masalah terbuka, atau ada exception RED. "-" (abu) = tahap tidak dipakai untuk order itu. Status dihitung otomatis dari SLA; PIC tidak perlu mengetiknya.',

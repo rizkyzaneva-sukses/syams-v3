@@ -26,7 +26,7 @@ from .database import Base
 
 # Nilai sah untuk kolom kategori & severity. Divalidasi di router (bukan Enum DB)
 # supaya menambah kategori baru cukup ubah satu tempat tanpa migrasi tipe.
-NOTIFICATION_CATEGORIES = ("APPROVAL", "DUE_DATE", "MATERIAL", "FINANCE", "EXCEPTION", "SYSTEM")
+NOTIFICATION_CATEGORIES = ("APPROVAL", "DUE_DATE", "MATERIAL", "FINANCE", "EXCEPTION", "SYSTEM", "TASK")
 NOTIFICATION_SEVERITIES = ("INFO", "WARNING", "CRITICAL")
 
 

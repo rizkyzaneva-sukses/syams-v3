@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {useOutletContext} from 'react-router-dom';
 import {api} from '../api';
+import MoneyInput from '../components/MoneyInput';
 
 export default function BOMCostPage(){
   const [orders,setOrders]=useState([]),[orderId,setOrderId]=useState(''),[bom,setBom]=useState([]),[usage,setUsage]=useState([]),[cost,setCost]=useState(null),[error,setError]=useState('');
@@ -25,19 +26,19 @@ export default function BOMCostPage(){
       <label>Material<input required value={item.material_name} onChange={e=>setItem({...item,material_name:e.target.value})}/></label>
       <label>Satuan<input required value={item.unit} onChange={e=>setItem({...item,unit:e.target.value})}/></label>
       <label>Qty per pcs<input type="number" min="0.0001" step="any" required value={item.qty_per_unit} onChange={e=>setItem({...item,qty_per_unit:e.target.value})}/></label>
-      <label>Biaya rencana per satuan<input type="number" min="0" step="any" required value={item.planned_unit_cost} onChange={e=>setItem({...item,planned_unit_cost:e.target.value})}/></label>
+      <label>Biaya rencana per satuan<MoneyInput required value={item.planned_unit_cost} onChange={v=>setItem({...item,planned_unit_cost:v})}/></label>
       <button className="btn primary">Simpan BOM</button></form></section>}
     <section className="panel"><h2>BOM</h2><div className="table-scroll"><table><thead><tr><th>Artikel</th><th>Material</th><th>Qty/pcs</th><th>Satuan</th><th>Biaya rencana/satuan</th></tr></thead><tbody>{bom.map(b=><tr key={b.id}><td>{order?.articles?.find(a=>a.id===b.article_id)?.article_code}</td><td>{b.material_name}</td><td>{b.qty_per_unit}</td><td>{b.unit}</td><td>{b.planned_unit_cost}</td></tr>)}</tbody></table></div></section>
     {canRecord&&<section className="panel"><h2>Catat pemakaian aktual</h2><form onSubmit={saveUsage} className="form-grid">
       <label>Item BOM<select required value={consume.bom_item_id} onChange={e=>setConsume({...consume,bom_item_id:e.target.value})}><option value="">Pilih item</option>{bom.map(b=><option key={b.id} value={b.id}>{order?.articles?.find(a=>a.id===b.article_id)?.article_code} — {b.material_name}</option>)}</select></label>
       <label>Qty dipakai<input type="number" min="0.0001" step="any" required value={consume.qty} onChange={e=>setConsume({...consume,qty:e.target.value})}/></label>
-      <label>Biaya aktual per satuan<input type="number" min="0" step="any" required value={consume.actual_unit_cost} onChange={e=>setConsume({...consume,actual_unit_cost:e.target.value})}/></label>
+      <label>Biaya aktual per satuan<MoneyInput required value={consume.actual_unit_cost} onChange={v=>setConsume({...consume,actual_unit_cost:v})}/></label>
       <label>Referensi bukti<input required value={consume.evidence_ref} onChange={e=>setConsume({...consume,evidence_ref:e.target.value})} placeholder="Nomor gudang / dokumen"/></label>
       <button className="btn primary">Catat pemakaian</button></form></section>}
     {canExtra&&<section className="panel"><h2>Biaya tenaga kerja & overhead</h2><form onSubmit={saveExtra} className="form-grid">
       <label>Artikel<select required value={extra.article_id} onChange={e=>setExtra({...extra,article_id:e.target.value})}><option value="">Pilih artikel</option>{order?.articles?.map(a=><option key={a.id} value={a.id}>{a.article_code}</option>)}</select></label>
       <label>Kategori<select value={extra.category} onChange={e=>setExtra({...extra,category:e.target.value})}><option>LABOR</option><option>OVERHEAD</option><option>OTHER</option></select></label>
-      <label>Jumlah biaya<input type="number" min="0.01" step="any" required value={extra.amount} onChange={e=>setExtra({...extra,amount:e.target.value})}/></label>
+      <label>Jumlah biaya<MoneyInput required value={extra.amount} onChange={v=>setExtra({...extra,amount:v})}/></label>
       <label>Referensi bukti<input required value={extra.evidence_ref} onChange={e=>setExtra({...extra,evidence_ref:e.target.value})}/></label>
       <button className="btn primary">Catat biaya</button></form></section>}
     {role==='CFO_MANAGER'&&<section className="panel"><h2>Verifikasi total biaya oleh CFO</h2><p>Pastikan seluruh material, upah dan overhead telah dicatat. Jika kategori biaya bernilai nol, sebutkan dalam bukti review.</p><form onSubmit={verifyCost}><label>Referensi review<input required value={reviewEvidence} onChange={e=>setReviewEvidence(e.target.value)} placeholder="Nomor laporan costing dan asumsi nol"/></label><button className="btn primary">Verifikasi biaya</button></form></section>}

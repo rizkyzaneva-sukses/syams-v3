@@ -647,6 +647,8 @@ class Invoice(Base):
     invoice_no = Column(String(80), unique=True, nullable=False)
     order_fk = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     amount = Column(Numeric(18,2), default=0, nullable=False)
+    # DP yang ditagihkan di invoice ini (Rp). Sisa Tagihan = amount - dp_amount.
+    dp_amount = Column(Numeric(18,2), default=0, nullable=False, server_default="0")
     paid_amount = Column(Numeric(18,2), default=0, nullable=False)
     opening_paid_amount = Column(Numeric(18,2), default=0, nullable=False)
     reconciliation_status = Column(String(32), default="VERIFIED", nullable=False)
@@ -1410,3 +1412,8 @@ class ProductionHandoff(Base):
     status = Column(String(32), default="PENDING_RECEIPT", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+# Tabel Control System (order_sequences, order_stages, dst.) harus terdaftar di Base.metadata
+# kapan pun models dimuat, karena pembuatan Order memakai penomoran SYM-YYMM-NNN.
+from . import control_models  # noqa: E402,F401

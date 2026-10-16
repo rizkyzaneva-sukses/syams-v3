@@ -22,6 +22,7 @@ from app.auth import hash_password
 @pytest.fixture
 def db():
     from app import auth_models  # register session/rate-limit tables
+    from app import notifications  # noqa: F401 — tabel notifikasi + mesin notifikasi otomatis
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 
     @event.listens_for(engine, "connect")

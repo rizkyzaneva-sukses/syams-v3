@@ -1,3 +1,4 @@
+import MoneyInput from '../components/MoneyInput';
 import React,{useEffect,useState} from 'react';
 import {useOutletContext} from 'react-router-dom';
 import {api} from '../api';
@@ -130,7 +131,7 @@ export default function PurchaseOrderPage(){
         </div>
         <div className="form-grid">
           <label>Supplier<input value={form.supplier||''} onChange={e=>setForm({...form,supplier:e.target.value})} placeholder="Nama supplier"/></label>
-          <label>Amount *<input type="number" min={0} step="any" required value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/></label>
+          <label>Amount *<MoneyInput required value={form.amount} onChange={v=>setForm({...form,amount:v})}/></label>
         </div>
         <div className="form-grid">
           <label>Order<select value={form.order_fk} onChange={e=>setForm({...form,order_fk:e.target.value})}><option value="">Tidak terkait order</option>{orders.map(o=><option key={o.id} value={o.id}>{o.order_id} - {o.buyer}</option>)}</select></label>

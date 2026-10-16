@@ -1,10 +1,12 @@
 import React,{useEffect,useState} from 'react';
 import {api} from '../api';
 import {History} from 'lucide-react';
+import MoneyInput from '../components/MoneyInput';
+import {formatRupiah,normalizeMoney,rupiahNumber} from '../money';
 
 /* Revisi #76: perubahan policy harus berversi — alasan perubahan wajib, dan
    riwayat versi (nilai lama, tanggal berlaku, pelaku) bisa dilihat CEO. */
-const empty={minimum_margin_percent:'',minimum_dp_percent:'',cfo_quotation_limit:'',allow_credit_terms:false};
+const empty={minimum_margin_percent:'',minimum_dp_amount:'',cfo_quotation_limit:'',allow_credit_terms:false};
 export default function BusinessPolicyPage(){
  const [policy,setPolicy]=useState(empty),[reason,setReason]=useState(''),[effective,setEffective]=useState('');
  const [versions,setVersions]=useState([]),[showHistory,setShowHistory]=useState(false);
@@ -13,17 +15,17 @@ export default function BusinessPolicyPage(){
  function loadVersions(){
    api('/config/business-policy/versions').then(setVersions).catch(()=>setVersions([]));
  }
- useEffect(()=>{api('/config/business-policy').then(setPolicy).catch(()=>{});loadVersions()},[]);
+ useEffect(()=>{api('/config/business-policy').then(p=>setPolicy({...p,minimum_dp_amount:normalizeMoney(p.minimum_dp_amount),cfo_quotation_limit:normalizeMoney(p.cfo_quotation_limit)})).catch(()=>{});loadVersions()},[]);
 
- const money=n=>'Rp '+Number(n||0).toLocaleString('id-ID');
+ const money=formatRupiah;
 
  async function save(e){
    e.preventDefault();setBusy(true);setError('');setSaved('');
    try{
      await api('/config/business-policy',{method:'PUT',body:JSON.stringify({
        minimum_margin_percent:Number(policy.minimum_margin_percent),
-       minimum_dp_percent:Number(policy.minimum_dp_percent),
-       cfo_quotation_limit:Number(policy.cfo_quotation_limit),
+       minimum_dp_amount:rupiahNumber(policy.minimum_dp_amount),
+       cfo_quotation_limit:rupiahNumber(policy.cfo_quotation_limit),
        allow_credit_terms:policy.allow_credit_terms,
        change_reason:reason.trim(),
        effective_from:effective||null,
@@ -48,19 +50,19 @@ export default function BusinessPolicyPage(){
       <td><b>v{v.version}</b>{v.is_active&&<> <span className="badge green">berlaku</span></>}</td>
       <td>{v.effective_from}{v.effective_to?` → ${v.effective_to}`:''}</td>
       <td>{Number(v.policy.minimum_margin_percent)}%</td>
-      <td>{Number(v.policy.minimum_dp_percent)}%</td>
+      <td>{v.policy.minimum_dp_amount!=null?money(v.policy.minimum_dp_amount):<small>belum diatur (dulu {Number(v.policy.minimum_dp_percent)}%)</small>}</td>
       <td>{money(v.policy.cfo_quotation_limit)}</td>
       <td>{v.change_reason}</td>
       <td>{v.changed_by||'—'}<br/><small>{v.created_at?new Date(v.created_at).toLocaleString('id-ID'):''}</small></td>
-      <td className="td-sm" style={{maxWidth:'220px'}}>{v.previous?<small>margin {Number(v.previous.minimum_margin_percent)}%, DP {Number(v.previous.minimum_dp_percent)}%, limit {money(v.previous.cfo_quotation_limit)}</small>:'— (versi pertama)'}</td>
+      <td className="td-sm" style={{maxWidth:'220px'}}>{v.previous?<small>margin {Number(v.previous.minimum_margin_percent)}%, DP {v.previous.minimum_dp_amount!=null?money(v.previous.minimum_dp_amount):Number(v.previous.minimum_dp_percent)+'%'}, limit {money(v.previous.cfo_quotation_limit)}</small>:'— (versi pertama)'}</td>
     </tr>)}</tbody></table></div>:<p className="empty">Belum ada riwayat versi.</p>}
   </section>}
 
   <form className="panel" onSubmit={save}>
     <div className="form-grid">
       <label>Margin minimum (%)<input type="number" min="0" max="100" step="0.01" required value={policy.minimum_margin_percent} onChange={e=>setPolicy({...policy,minimum_margin_percent:e.target.value})}/></label>
-      <label>DP minimum (%)<input type="number" min="0" max="100" step="0.01" required value={policy.minimum_dp_percent} onChange={e=>setPolicy({...policy,minimum_dp_percent:e.target.value})}/></label>
-      <label>Limit approval CFO (Rp)<input type="number" min="0.01" step="0.01" required value={policy.cfo_quotation_limit} onChange={e=>setPolicy({...policy,cfo_quotation_limit:e.target.value})}/></label>
+      <label>DP minimum (Rp)<MoneyInput required value={policy.minimum_dp_amount} onChange={v=>setPolicy({...policy,minimum_dp_amount:v})}/><small>Nominal DP terkecil yang boleh disetujui CFO di Finance Gate.</small></label>
+      <label>Limit approval CFO<MoneyInput required value={policy.cfo_quotation_limit} onChange={v=>setPolicy({...policy,cfo_quotation_limit:v})}/></label>
       <label>Berlaku mulai<input type="date" value={effective} onChange={e=>setEffective(e.target.value)}/><small>Kosongkan untuk berlaku hari ini.</small></label>
     </div>
     <label><input type="checkbox" checked={Boolean(policy.allow_credit_terms)} onChange={e=>setPolicy({...policy,allow_credit_terms:e.target.checked})}/> Izinkan terms kredit dengan tanggal jatuh tempo dan bukti kontrak</label>

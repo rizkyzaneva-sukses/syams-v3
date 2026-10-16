@@ -40,7 +40,7 @@ def read_business_policy(db:Session=Depends(get_db), user=Depends(require_roles(
 # prospektif — kecuali CEO memilih berlaku mundur secara eksplisit.
 class BusinessPolicyChange(BaseModel):
     minimum_margin_percent: Decimal = Field(ge=0, le=100)
-    minimum_dp_percent: Decimal = Field(ge=0, le=100)
+    minimum_dp_amount: Decimal = Field(ge=0)
     cfo_quotation_limit: Decimal = Field(gt=0)
     allow_credit_terms: bool = False
     change_reason: str = Field(min_length=5, max_length=2000)
@@ -59,7 +59,7 @@ def update_business_policy(data:BusinessPolicyChange, db:Session=Depends(get_db)
         raise HTTPException(400, "effective_to cannot be before effective_from")
     policy = BusinessPolicy(
         minimum_margin_percent=data.minimum_margin_percent,
-        minimum_dp_percent=data.minimum_dp_percent,
+        minimum_dp_amount=data.minimum_dp_amount,
         cfo_quotation_limit=data.cfo_quotation_limit,
         allow_credit_terms=data.allow_credit_terms,
     )
@@ -575,13 +575,13 @@ def delete_spk(spk_id:int, db:Session=Depends(get_db), user=Depends(get_current_
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ CFO: INVOICES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class InvoiceIn(BaseModel):
-    invoice_no:str; order_fk:int; amount:float; paid_amount:float=0; due_date:Optional[date]=None; status:str="UNPAID"
+    invoice_no:str; order_fk:int; amount:float; dp_amount:float=0; paid_amount:float=0; due_date:Optional[date]=None; status:str="UNPAID"
     # Revisi #17: aging & collection queue butuh janji bayar, mata uang, dan owner.
     currency:Optional[str]="IDR"; promised_date:Optional[date]=None
     next_action:Optional[str]=None; collection_owner_id:Optional[int]=None
 
 class InvoiceUpdate(BaseModel):
-    amount:Optional[float]=None; paid_amount:Optional[float]=None; due_date:Optional[date]=None; status:Optional[str]=None
+    amount:Optional[float]=None; dp_amount:Optional[float]=None; paid_amount:Optional[float]=None; due_date:Optional[date]=None; status:Optional[str]=None
     currency:Optional[str]=None; promised_date:Optional[date]=None
     next_action:Optional[str]=None; collection_owner_id:Optional[int]=None
 
@@ -1959,7 +1959,9 @@ def assess_order_finance(order_id: int, data: FinanceAssessmentIn, db: Session =
         if data.term_kind == "DP":
             if required is None or not required.is_finite() or required <= 0 or required > total:
                 raise HTTPException(400, "Valid required DP amount is needed")
-            if required * 100 < total * policy.minimum_dp_percent or paid < required:
+            if required < policy.minimum_dp_amount:
+                raise HTTPException(400, f"DP kurang dari minimum kebijakan (Rp {policy.minimum_dp_amount:,.0f})")
+            if paid < required:
                 raise HTTPException(400, "Recorded payment does not satisfy configured DP policy")
         if data.term_kind == "CREDIT" and (not policy.allow_credit_terms or not data.credit_due_date):
             raise HTTPException(400, "Credit terms are disabled or missing a due date")
