@@ -2,6 +2,7 @@ import React,{useEffect,useState} from 'react';
 import {Link,useNavigate,useParams,useLocation} from 'react-router-dom';
 import {api} from '../api';
 import {currencyOptions, DEFAULT_CURRENCY} from '../currency';
+import SizeBreakdownInput from '../components/SizeBreakdownInput';
 
 const blankArticle={article_code:'',garment_type:'',qty:'',size_breakdown:'',sample_required:false,production_route:''};
 const blank={po_number:'',buyer:'',order_type:'SAMPLE_PRODUCTION',buyer_deadline:'',notes:'',follow_up_note:'',currency:DEFAULT_CURRENCY,payment_terms:'',articles:[{...blankArticle}]};
@@ -47,7 +48,8 @@ export default function POIntakeFormPage(){
           <label>Kode article *<input required value={article.article_code||''} onChange={e=>setArticle(index,'article_code',e.target.value)}/></label>
           <label>Jenis garment<input value={article.garment_type||''} onChange={e=>setArticle(index,'garment_type',e.target.value)}/></label>
           <label>Qty *<input required min="1" type="number" value={article.qty||''} onChange={e=>setArticle(index,'qty',e.target.value)}/></label>
-          <label>Size breakdown<input value={article.size_breakdown||''} onChange={e=>setArticle(index,'size_breakdown',e.target.value)} placeholder="S:10, M:20"/></label>
+          <label>Size breakdown</label>
+          <SizeBreakdownInput value={article.size_breakdown} onChange={v=>setArticle(index,'size_breakdown',v)}/>
           <label><input type="checkbox" checked={Boolean(article.sample_required)} onChange={e=>setArticle(index,'sample_required',e.target.checked)}/> Perlu sample</label>
           {form.articles.length>1&&<button type="button" className="btn danger" onClick={()=>setForm({...form,articles:form.articles.filter((_,i)=>i!==index)})}>Hapus article</button>}
         </div>)}
