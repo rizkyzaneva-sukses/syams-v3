@@ -76,8 +76,9 @@ def missing_items(po: POIntake) -> list[str]:
         codes = [a["article_code"].strip() for a in articles]
         if any(not code for code in codes) or len(set(codes)) != len(codes):
             missing.append("Kode article unik dan tidak kosong")
-        if po.order_type != OrderType.SAMPLE_ONLY.value and any(not (a.get("production_route") or "").strip() for a in articles):
-            missing.append("Rute produksi setiap article")
+        # Rute produksi tidak lagi diminta di form PO Draft (permintaan Bos
+        # 16 Okt 2026) — rute dikosongkan di tahap ini dan diisi otomatis
+        # dengan rute standar saat Order dibuat dari PO.
     if not po.document_data:
         missing.append("Dokumen PO (PDF/JPG/PNG)")
     return missing

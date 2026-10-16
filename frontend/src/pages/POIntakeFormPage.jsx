@@ -1,9 +1,10 @@
 import React,{useEffect,useState} from 'react';
 import {Link,useNavigate,useParams,useLocation} from 'react-router-dom';
 import {api} from '../api';
+import {currencyOptions, DEFAULT_CURRENCY} from '../currency';
 
 const blankArticle={article_code:'',garment_type:'',qty:'',size_breakdown:'',sample_required:false,production_route:''};
-const blank={po_number:'',buyer:'',order_type:'SAMPLE_PRODUCTION',buyer_deadline:'',notes:'',follow_up_note:'',currency:'IDR',payment_terms:'',articles:[{...blankArticle}]};
+const blank={po_number:'',buyer:'',order_type:'SAMPLE_PRODUCTION',buyer_deadline:'',notes:'',follow_up_note:'',currency:DEFAULT_CURRENCY,payment_terms:'',articles:[{...blankArticle}]};
 
 export default function POIntakeFormPage(){
   const {poId}=useParams(),nav=useNavigate(),{state}=useLocation();
@@ -35,7 +36,7 @@ export default function POIntakeFormPage(){
         <label>Buyer *<input required value={form.buyer||''} onChange={e=>setForm({...form,buyer:e.target.value})}/></label>
         <label>Tipe order *<select value={form.order_type||''} onChange={e=>setForm({...form,order_type:e.target.value})}><option value="SAMPLE_ONLY">Sample saja</option><option value="SAMPLE_PRODUCTION">Sample + produksi</option><option value="REPEAT_PRODUCTION">Produksi berulang</option></select></label>
         <label>Deadline buyer *<input required type="date" value={form.buyer_deadline||''} onChange={e=>setForm({...form,buyer_deadline:e.target.value})}/></label>
-        <label>Currency<input maxLength={8} value={form.currency||'IDR'} onChange={e=>setForm({...form,currency:e.target.value.toUpperCase()})}/></label>
+        <label>Currency<select value={(form.currency||DEFAULT_CURRENCY).toUpperCase()} onChange={e=>setForm({...form,currency:e.target.value})}><option value="">Pilih mata uang</option>{currencyOptions(form.currency).map(code=><option key={code} value={code}>{code}</option>)}</select></label>
         <label>Terms pembayaran<input maxLength={255} value={form.payment_terms||''} onChange={e=>setForm({...form,payment_terms:e.target.value})} placeholder="DP 30%, pelunasan sebelum kirim"/></label>
         <label>Dokumen PO *<input type="file" accept="application/pdf,image/png,image/jpeg" required={!poId&&!existing?.has_document} onChange={e=>setFile(e.target.files?.[0]||null)}/><small>PDF, PNG, atau JPG, maksimal 10 MB.</small></label>
       </div>
@@ -47,7 +48,6 @@ export default function POIntakeFormPage(){
           <label>Jenis garment<input value={article.garment_type||''} onChange={e=>setArticle(index,'garment_type',e.target.value)}/></label>
           <label>Qty *<input required min="1" type="number" value={article.qty||''} onChange={e=>setArticle(index,'qty',e.target.value)}/></label>
           <label>Size breakdown<input value={article.size_breakdown||''} onChange={e=>setArticle(index,'size_breakdown',e.target.value)} placeholder="S:10, M:20"/></label>
-          <label>Rute produksi {form.order_type==='SAMPLE_ONLY'?'(opsional)':'*'}<input required={form.order_type!=='SAMPLE_ONLY'} value={article.production_route||''} onChange={e=>setArticle(index,'production_route',e.target.value)} placeholder="Cutting > Sewing > QC"/></label>
           <label><input type="checkbox" checked={Boolean(article.sample_required)} onChange={e=>setArticle(index,'sample_required',e.target.checked)}/> Perlu sample</label>
           {form.articles.length>1&&<button type="button" className="btn danger" onClick={()=>setForm({...form,articles:form.articles.filter((_,i)=>i!==index)})}>Hapus article</button>}
         </div>)}

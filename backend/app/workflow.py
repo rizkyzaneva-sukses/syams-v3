@@ -244,6 +244,12 @@ def route_for(article):
     return [p.strip().upper() for p in raw.split(">") if p.strip()]
 
 
+# Rute standar dipakai saat Order dibuat dari PO yang tidak lagi meminta rute
+# produksi di form (permintaan Bos 16 Okt 2026). Tanpa ini papan eksekusi COO
+# dan kartu printing akan kosong karena route_for() mengembalikan [].
+DEFAULT_PRODUCTION_ROUTE = "Cutting > Sewing > QC"
+
+
 def qc_ready(db, order):
     articles = db.query(m.Article).filter_by(order_fk=order.id).all()
     if not articles:

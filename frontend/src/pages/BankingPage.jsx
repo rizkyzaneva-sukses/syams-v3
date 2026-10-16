@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {api} from '../api';
 import {useRole} from '../components/Access';
+import {currencyOptions, DEFAULT_CURRENCY} from '../currency';
 
 const money=n=>'Rp '+Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:0});
 const num=n=>Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:2});
@@ -114,7 +115,7 @@ function RekonPanel({canWrite,onError}){
         <label>Bank<input value={form.bank_name} onChange={e=>setForm({...form,bank_name:e.target.value})}/></label>
         <label>No. Rekening<input value={form.account_no} onChange={e=>setForm({...form,account_no:e.target.value})}/></label>
         <label>Nama Pemilik<input value={form.account_name} onChange={e=>setForm({...form,account_name:e.target.value})}/></label>
-        <label>Mata Uang<input value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}/></label>
+        <label>Mata Uang<select value={(form.currency||DEFAULT_CURRENCY).toUpperCase()} onChange={e=>setForm({...form,currency:e.target.value})}>{currencyOptions(form.currency).map(code=><option key={code} value={code}>{code}</option>)}</select></label>
         <label>Saldo Awal<input type="number" value={form.opening_balance} onChange={e=>setForm({...form,opening_balance:e.target.value})}/></label>
         <label>Akun COA (id, opsional)<input type="number" value={form.gl_account_id} onChange={e=>setForm({...form,gl_account_id:e.target.value})}/></label>
       </div>

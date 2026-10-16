@@ -75,3 +75,27 @@ def test_rejected_po_retains_document_and_never_activates_order(client, headers,
     assert client.delete(f"/api/cmo/po-intake/{po['id']}", headers=headers("CMO_MANAGER")).status_code == 405
     assert client.get(f"/api/cmo/po-intake/{po['id']}/document", headers=headers("CMO_MANAGER")).status_code == 200
     request(client, headers, "CMO_SUPPORT", "PATCH", f"/cmo/po-intake/{po['id']}", {"buyer": "Changed"}, expected=409)
+
+
+def test_po_without_production_route_is_complete_and_gets_default_route(client, headers, db):
+    """Permintaan Bos 16 Okt 2026: form PO Draft tidak lagi meminta rute
+    produksi. PO tanpa production_route harus dianggap lengkap (bukan
+    'Rute produksi setiap article'), dan Order yang lahir dari accept
+    otomatis memakai rute standar supaya papan COO tidak kosong."""
+    po = request(client, headers, "CMO_SUPPORT", "POST", "/cmo/po-intake", {
+        "po_number": "PO-NOROUTE", "buyer": "Customer B", "order_type": "SAMPLE_PRODUCTION",
+        "buyer_deadline": str(date.today() + timedelta(days=30)),
+        "articles": [{"article_code": "B", "qty": 5, "sample_required": True}],
+    }, expected=201)
+    client.post(f"/api/cmo/po-intake/{po['id']}/document",
+                headers=headers("CMO_SUPPORT"),
+                files={"document": ("buyer-po.pdf", b"%PDF-1.4\n1 0 obj\n", "application/pdf")})
+    checked = request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/po-intake/{po['id']}/check")
+    assert checked["status"] == "READY", checked
+    assert "Rute produksi setiap article" not in checked["missing_items"]
+    request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/po-intake/{po['id']}/submit")
+    accepted = request(client, headers, "CMO_MANAGER", "POST", f"/cmo/po-intake/{po['id']}/review",
+                       {"action": "ACCEPT"})
+    assert accepted["status"] == "ACCEPTED"
+    order = request(client, headers, "CMO_SUPPORT", "GET", "/orders/" + accepted["order_id"])
+    assert order["articles"][0]["production_route"] == "Cutting > Sewing > QC"

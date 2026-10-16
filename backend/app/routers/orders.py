@@ -2,9 +2,10 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from ..database import get_db
-from ..models import Order, Article, Role, User
+from ..models import Order, Article, Role, User, OrderType
 from ..schemas import OrderCreate, OrderOut
 from ..auth import get_current_user, require_roles
+from ..workflow import DEFAULT_PRODUCTION_ROUTE
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 ORDER_READ_ROLES = (Role.CEO, Role.CMO_MANAGER, Role.CMO_SUPPORT, Role.CFO_MANAGER,
@@ -38,7 +39,13 @@ def create_order_record(payload: OrderCreate, db: Session, user: User) -> Order:
         customer_id=customer.id, order_type=payload.order_type,
         buyer_deadline=payload.buyer_deadline, notes=payload.notes, created_by_id=user.id)
     for article in payload.articles:
-        order.articles.append(Article(**article.model_dump(), sample_status="PROCESS" if article.sample_required else "NOT_REQUIRED"))
+        data = article.model_dump()
+        # Form PO Draft tidak lagi meminta rute produksi; isi rute standar untuk
+        # order yang memang berproduksi supaya papan COO & kartu printing punya
+        # langkah kerja. Order sample-saja tidak perlu rute.
+        if payload.order_type != OrderType.SAMPLE_ONLY and not (data.get("production_route") or "").strip():
+            data["production_route"] = DEFAULT_PRODUCTION_ROUTE
+        order.articles.append(Article(**data, sample_status="PROCESS" if article.sample_required else "NOT_REQUIRED"))
     db.add(order)
     db.flush()
     return order
