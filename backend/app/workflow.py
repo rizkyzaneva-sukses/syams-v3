@@ -623,8 +623,8 @@ def validate(db, obj, user, deleting=False):
         process = obj.process.upper()
         if process not in route or len(set(route)) != len(route):
             fail("Process must belong to a unique, ordered article routing")
-        if role(user) == "PRINTING_PIC" and process not in ("PRINTING", "BORDIR"):
-            fail("Printing PIC can only update printing or embroidery", 403)
+        if role(user) == "PRINTING_PIC" and process not in ("PRINTING", "BORDIR", "QC S/B"):
+            fail("Printing PIC can only update printing, embroidery or their QC", 403)
         if role(user) == "SAMPLE_PIC":
             fail("Sample PIC cannot update mass production", 403)
         qi, qd, qr = obj.qty_in or 0, obj.qty_done or 0, obj.qty_reject or 0

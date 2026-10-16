@@ -10,6 +10,7 @@ from .database import Base, engine, SessionLocal
 from .config import settings
 from . import auth_models
 from . import accounting_models  # noqa: F401 — pastikan tabel accounting ikut create_all
+from . import control_models  # noqa: F401 — master data, SLA, status tahap order
 # Modul lanjutan (menutup gap BLUEPRINT/PRD): semua diimport di sini supaya
 # tabelnya ikut Base.metadata.create_all di mode development.
 from . import (inventory_models, hr_time_models, banking_models,
@@ -20,7 +21,7 @@ from .routers import (auth, orders, master, dashboard, modules, revisions, po_in
                       sample_lifecycle, sample_work, printing_jobs, printing_ops,
                       cfo_receivables, cfo_costing, coo_execution,
                       ceo_override, ceo_performance, cfo_payments, coo_handoffs, accounting,
-                      inventory, banking, artwork, crm, platform)
+                      inventory, banking, artwork, crm, platform, control)
 from .services.seed import seed
 
 
@@ -39,6 +40,8 @@ async def lifespan(app):
             Base.metadata.create_all(bind=connection)
             connection.commit()
     with SessionLocal() as db:
+        from .control_service import ensure_control_defaults
+        ensure_control_defaults(db)
         if settings.seed_demo:
             seed(db)
         if settings.app_env == "production":
@@ -96,7 +99,9 @@ for router in (auth.router, orders.router, master.router, dashboard.router, modu
                #   hr_time   → Yuni (absensi, cuti)
                #   platform  → notifikasi + idempotency (PRD §6)
                inventory.router, banking.router, artwork.router, crm.router,
-               hr_time.router, platform.router):
+               hr_time.router, platform.router,
+               # Control System sesuai sheet lama: papan 15 tahap, master data, SLA berversi.
+               control.router):
     app.include_router(router, prefix="/api")
 
 

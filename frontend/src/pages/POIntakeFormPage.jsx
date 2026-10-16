@@ -3,8 +3,9 @@ import {Link,useNavigate,useParams,useLocation} from 'react-router-dom';
 import {api} from '../api';
 import {currencyOptions, DEFAULT_CURRENCY} from '../currency';
 import SizeBreakdownInput from '../components/SizeBreakdownInput';
+import ExtraSizeInput from '../components/ExtraSizeInput';
 
-const blankArticle={article_code:'',garment_type:'',qty:'',size_breakdown:'',sample_required:false,production_route:''};
+const blankArticle={article_code:'',garment_type:'',qty:'',size_breakdown:'',sample_required:false,production_route:'',extra_size:'',mockup_url:''};
 const blank={po_number:'',buyer:'',order_type:'SAMPLE_PRODUCTION',buyer_deadline:'',notes:'',follow_up_note:'',currency:DEFAULT_CURRENCY,payment_terms:'',articles:[{...blankArticle}]};
 
 export default function POIntakeFormPage(){
@@ -14,8 +15,9 @@ export default function POIntakeFormPage(){
      order, deadline, article) sehingga Deby tinggal melengkapi nomor PO dan
      dokumen buyer. Hanya dipakai untuk pembuatan baru, tidak menimpa mode edit. */
   const seed=!poId&&state?.draftOrder?state:{};
-  const [form,setForm]=useState(seed.prefill?{...blank,...seed.prefill}:blank),[file,setFile]=useState(null),[existing,setExisting]=useState(null),[busy,setBusy]=useState(false),[err,setErr]=useState('');
+  const [form,setForm]=useState(seed.prefill?{...blank,...seed.prefill}:blank),[file,setFile]=useState(null),[existing,setExisting]=useState(null),[busy,setBusy]=useState(false),[err,setErr]=useState(''),[garments,setGarments]=useState([]);
   useEffect(()=>{if(!poId)return;api(`/cmo/po-intake/${poId}`).then(row=>{setExisting(row);setForm({...blank,...row,articles:row.articles?.length?row.articles:[{...blankArticle}]})}).catch(e=>setErr(e.message))},[poId]);
+  useEffect(()=>{api('/control/garment-types?active_only=true').then(setGarments).catch(()=>{})},[]);
   const setArticle=(index,key,value)=>setForm(current=>({...current,articles:current.articles.map((article,i)=>i===index?{...article,[key]:value}:article)}));
   async function save(event){
     event.preventDefault();setBusy(true);setErr('');
@@ -35,7 +37,7 @@ export default function POIntakeFormPage(){
       <div className="form-grid">
         <label>Nomor PO *<input required value={form.po_number||''} onChange={e=>setForm({...form,po_number:e.target.value})}/></label>
         <label>Buyer *<input required value={form.buyer||''} onChange={e=>setForm({...form,buyer:e.target.value})}/></label>
-        <label>Tipe order *<select value={form.order_type||''} onChange={e=>setForm({...form,order_type:e.target.value})}><option value="SAMPLE_ONLY">Sample saja</option><option value="SAMPLE_PRODUCTION">Sample + produksi</option><option value="REPEAT_PRODUCTION">Produksi berulang</option></select></label>
+        <label>Tipe order *<select value={form.order_type||''} onChange={e=>setForm({...form,order_type:e.target.value})}><option value="SAMPLE_ONLY">Sample saja</option><option value="SAMPLE_PRODUCTION">Sample + produksi</option><option value="REPEAT_PRODUCTION">Produksi saja</option></select></label>
         <label>Deadline buyer *<input required type="date" value={form.buyer_deadline||''} onChange={e=>setForm({...form,buyer_deadline:e.target.value})}/></label>
         <label>Currency<select value={(form.currency||DEFAULT_CURRENCY).toUpperCase()} onChange={e=>setForm({...form,currency:e.target.value})}><option value="">Pilih mata uang</option>{currencyOptions(form.currency).map(code=><option key={code} value={code}>{code}</option>)}</select></label>
         <label>Terms pembayaran<input maxLength={255} value={form.payment_terms||''} onChange={e=>setForm({...form,payment_terms:e.target.value})} placeholder="DP 30%, pelunasan sebelum kirim"/></label>
@@ -46,10 +48,13 @@ export default function POIntakeFormPage(){
       <section><div className="panel-head"><h2>Article</h2><button type="button" className="btn" onClick={()=>setForm({...form,articles:[...form.articles,{...blankArticle}]})}>Tambah article</button></div>
         {form.articles.map((article,index)=><div className="form-grid" key={index} style={{padding:'12px 0',borderTop:index?'1px solid #e2e8f0':undefined}}>
           <label>Kode article *<input required value={article.article_code||''} onChange={e=>setArticle(index,'article_code',e.target.value)}/></label>
-          <label>Jenis garment<input value={article.garment_type||''} onChange={e=>setArticle(index,'garment_type',e.target.value)}/></label>
+          <label>Jenis pakaian<select value={article.garment_type||''} onChange={e=>setArticle(index,'garment_type',e.target.value)}><option value="">Pilih jenis pakaian</option>{article.garment_type&&!garments.some(g=>g.name===article.garment_type)&&<option value={article.garment_type}>{article.garment_type}</option>}{garments.map(g=><option key={g.id} value={g.name}>{g.name}</option>)}</select></label>
+          <label>Mockup (link Drive / gambar)<input type="url" maxLength={2000} placeholder="https://drive.google.com/…" value={article.mockup_url||''} onChange={e=>setArticle(index,'mockup_url',e.target.value)}/></label>
           <label>Qty *<input required min="1" type="number" value={article.qty||''} onChange={e=>setArticle(index,'qty',e.target.value)}/></label>
           <label>Size breakdown</label>
           <SizeBreakdownInput value={article.size_breakdown} onChange={v=>setArticle(index,'size_breakdown',v)}/>
+          <label>Extra size (spare internal untuk reject)</label>
+          <ExtraSizeInput value={article.extra_size} onChange={v=>setArticle(index,'extra_size',v)}/>
           <label><input type="checkbox" checked={Boolean(article.sample_required)} onChange={e=>setArticle(index,'sample_required',e.target.checked)}/> Perlu sample</label>
           {form.articles.length>1&&<button type="button" className="btn danger" onClick={()=>setForm({...form,articles:form.articles.filter((_,i)=>i!==index)})}>Hapus article</button>}
         </div>)}

@@ -31,9 +31,9 @@ business policy (CEO)
   -> order + artikel (production_route WAJIB diisi)
   -> quotation DRAFT -> APPROVED (CFO)
   -> invoice -> payment -> reconcile -> finance-gate APPROVE (CFO)
-  -> BOM -> material request -> purchase order READY (CFO)
-  -> production plan APPROVED (COO)
   -> SPK RELEASED (CMO)
+  -> production plan APPROVED (COO)
+  -> BAHAN: BOM -> material request -> purchase order READY (bahan diterima)
   -> movement per proses -> QC final
   -> shipment: packing PACKED -> finance gate APPROVE (CFO) -> SHIPPED
   -> serah terima fisik DELIVERED (COO) + konfirmasi customer (CMO)

@@ -1,4 +1,5 @@
 """CMO Support PO preparation and CMO Manager Order activation."""
+import re
 from datetime import date, timedelta
 
 from app import models as m
@@ -56,7 +57,7 @@ def test_po_intake_requires_completeness_and_manager_acceptance(client, headers,
     request(client, headers, "CMO_SUPPORT", "PATCH", f"/cmo/po-intake/{po['id']}", {"buyer": "Tampered"}, expected=409)
     request(client, headers, "CMO_SUPPORT", "POST", f"/cmo/po-intake/{po['id']}/review", {"action": "ACCEPT"}, expected=403)
     accepted = request(client, headers, "CMO_MANAGER", "POST", f"/cmo/po-intake/{po['id']}/review", {"action": "ACCEPT", "note": "PO matches buyer request"})
-    assert accepted["status"] == "ACCEPTED" and accepted["order_id"].startswith("SO-")
+    assert accepted["status"] == "ACCEPTED" and re.fullmatch(r"SYM-\d{4}-\d{3}", accepted["order_id"])
     order = request(client, headers, "CMO_SUPPORT", "GET", "/orders/" + accepted["order_id"])
     assert order["id"] == accepted["order_fk"] and order["buyer"] == "Customer A"
     request(client, headers, "CMO_MANAGER", "POST", f"/cmo/po-intake/{po['id']}/review", {"action": "ACCEPT"}, expected=409)

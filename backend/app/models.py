@@ -78,6 +78,9 @@ class Article(Base):
     sample_status = Column(String(32), default="NOT_REQUIRED", nullable=False)
     production_route = Column(Text, nullable=True)
     production_status = Column(String(32), default="NOT_STARTED", nullable=False)
+    # Sheet lama: EXTRA SIZE (spare internal untuk reject, mis. "M+2/L+1") dan MOCKUP (link Drive/gambar).
+    extra_size = Column(String(120), nullable=True)
+    mockup_url = Column(Text, nullable=True)
     order = relationship("Order", back_populates="articles")
 
 class POIntake(Base):

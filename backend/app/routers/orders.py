@@ -26,9 +26,8 @@ def get_order(order_id: str, db: Session = Depends(get_db), user: User = Depends
 
 def create_order_record(payload: OrderCreate, db: Session, user: User) -> Order:
     """Create an Order inside the accepting PO transaction; caller commits."""
-    from uuid import uuid4
     from ..models import Customer
-    # UUID-backed identifiers do not race or rely on lexical max ordering.
+    from ..control_service import next_order_id
     customer = db.get(Customer, payload.customer_id) if payload.customer_id else db.query(Customer).filter_by(name=payload.buyer).first()
     if payload.customer_id and not customer:
         raise HTTPException(404, "Customer not found")
@@ -36,7 +35,7 @@ def create_order_record(payload: OrderCreate, db: Session, user: User) -> Order:
         customer = Customer(name=payload.buyer)
         db.add(customer)
     db.flush()
-    order = Order(order_id=f"SO-{uuid4().hex[:16].upper()}", buyer=customer.name,
+    order = Order(order_id=next_order_id(db), buyer=customer.name,
         customer_id=customer.id, order_type=payload.order_type,
         buyer_deadline=payload.buyer_deadline, notes=payload.notes, created_by_id=user.id)
     for article in payload.articles:

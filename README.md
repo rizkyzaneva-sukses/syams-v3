@@ -83,9 +83,9 @@ business policy (CEO, sekali saja)
   -> order + artikel (production_route WAJIB diisi)
   -> quotation DRAFT -> APPROVED (CFO)
   -> invoice -> payment -> reconcile -> finance-gate APPROVE (CFO)
-  -> BOM -> material request -> purchase order READY (CFO)
-  -> production plan APPROVED (COO)
   -> SPK RELEASED (CMO)
+  -> production plan APPROVED (COO)
+  -> BAHAN: BOM -> material request -> purchase order READY (bahan diterima)
   -> process movement per proses -> QC final
   -> shipment: packing PACKED -> finance gate APPROVE (CFO) -> SHIPPED
   -> serah terima fisik DELIVERED (COO) + konfirmasi customer (CMO)
@@ -182,3 +182,39 @@ Yang masih di luar cakupan V0.3 (belum production-final): rekonsiliasi bank
 otomatis vs mutasi, perpajakan (PPN/PPh) final, penutupan buku tahunan
 (closing entries), multi-mata-uang, dan payroll calculation final.
 
+
+
+## V0.4 — Control System (mengikuti sheet "simulasi master control")
+
+Master Control (`/master`) kini meniru sistem lama di Google Sheet, dalam enam tab:
+**Morning Priority**, **Control System**, **Dashboard**, **Kapasitas**, **Forecast**, dan
+**Exception & Shipment** (halaman lama). Pengaturan ada di `/master/setup`.
+
+- **Order ID** otomatis `SYM-YYMM-NNN`, nomor naik per bulan (`order_sequences`, dikunci saat naik).
+- **15 tahap per order**: Invoice, PPM, Sample, SPK Released, Bahan, Cutting, Sortir, Printing,
+  Bordir, QC S/B, Sewing, ACC, QC/Pack, Revisi, Shipping. Invoice sampai SPK Released mengikuti alur
+  CMO/Finance yang sudah ada. Tahap produksi dicatat PIC dengan satu tombol (**Selesai**, **Lewati**,
+  atau **Ada masalah** + next action), atau terisi otomatis dari data modul lain: Bahan dari material
+  order READY, proses dari Production Queue, Shipping dari shipment.
+- **Status** `PROGRES / PERHATIAN / URGENT / SELESAI / -` diturunkan dari SLA, tidak diketik manual.
+  Masalah terbuka atau exception RED membuat order URGENT; exception YELLOW membuat PERHATIAN.
+- **SLA berversi** (`/master/setup`): durasi, PIC utama, kapasitas harian, satuan, dan batas peringatan
+  per tahap. Hanya CMO Manager yang dapat mengubah, wajib beralasan, dan order yang sudah berjalan
+  tetap memakai versi SLA saat order dibuat. Nilai awal diambil dari sheet.
+- **Capacity Planner & Forecast**: beban per tahap vs kapasitas periode, proyeksi tanggal tiap tahap
+  sampai Shipping, risiko deadline, beban 7/14/30 hari, dan feed sisa kapasitas untuk CMO.
+  Satuan kapasitas (order / artikel / pcs) dihormati — sheet lama membandingkan pcs dengan jumlah order.
+- Urutan gate: **SPK Released → production plan → Bahan (BOM, material request, PO READY) → proses produksi**.
+- **Riadi (Purchasing)** memakai akun `PRODUCTION_PIC` (atau COO Manager); tidak ada role terpisah.
+  QC sablon/bordir (`QC S/B`) otomatis dari Production Queue hanya bila rute artikel memuat proses
+  `QC S/B`; selain itu PIC menandainya manual.
+
+Operator:
+
+```bash
+cd backend
+alembic upgrade head                       # migrasi 0030_control_system
+python -m app.reset_data                   # dry run: tampilkan apa yang akan dihapus
+python -m app.reset_data --confirm HAPUS-SEMUA-DATA   # kosongkan data transaksi (akun & master dipertahankan)
+python ../scripts/seed_control_demo.py     # hanya APP_ENV=development: 12 order contoh
+```

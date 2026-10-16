@@ -26,6 +26,8 @@ class ArticleCreate(BaseModel):
     size_breakdown: Optional[str] = None
     sample_required: bool = False
     production_route: Optional[str] = None
+    extra_size: Optional[str] = Field(default=None, max_length=120)
+    mockup_url: Optional[str] = Field(default=None, max_length=2000)
 
 class OrderCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -62,6 +64,8 @@ class ArticleOut(BaseModel):
     sample_status: str
     production_route: Optional[str]
     production_status: str
+    extra_size: Optional[str] = None
+    mockup_url: Optional[str] = None
     class Config:
         from_attributes = True
 

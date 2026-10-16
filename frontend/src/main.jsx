@@ -68,6 +68,8 @@ import BankingPage from './pages/BankingPage';
 import ArtworkPage from './pages/ArtworkPage';
 import CRMPage from './pages/CRMPage';
 import AttendancePage from './pages/AttendancePage';
+import MasterSetupPage from './pages/MasterSetupPage';
+import ControlSystemPage from './pages/ControlSystemPage';
 import Access from './components/Access';
 import Layout from './components/Layout';
 import {getToken} from './api';
@@ -84,6 +86,8 @@ function App(){return <BrowserRouter><Routes>
   <Route path="/" element={<Protected><Layout/></Protected>}>
     <Route index element={<HomeRedirect/>}/>
     <Route path="master" element={<Access><MasterControl/></Access>}/>
+    <Route path="master/setup" element={<Access><MasterSetupPage/></Access>}/>
+    <Route path="master/control" element={<Access><div className="page"><div className="page-title"><div><h1>Control System</h1><p>Status 15 tahap setiap order — tampilan penuh</p></div></div><ControlSystemPage/></div></Access>}/>
     {/* Panduan sengaja tanpa Access: berlaku untuk semua peran */}
     <Route path="panduan" element={<GuidePage/>}/>
     <Route path="orders/:orderId" element={<Access><OrderDetail/></Access>}/>
