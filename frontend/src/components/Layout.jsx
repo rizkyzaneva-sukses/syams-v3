@@ -1,5 +1,5 @@
 import React,{useEffect,useState} from 'react';
-import {Outlet,NavLink,useNavigate} from 'react-router-dom';
+import {Outlet,Link,useNavigate,useLocation} from 'react-router-dom';
 import {Home,Database,Package,ShoppingCart,DollarSign,Factory,Users,Crown,ClipboardList,AlertTriangle,LogOut,Menu,X,FileText,BarChart3,BookOpen,Truck,CheckSquare,MessageSquarePlus,Target,TrendingUp} from 'lucide-react';
 import {api,clearToken} from '../api';
 import {canAccess} from '../business';
@@ -69,12 +69,37 @@ const visibleMenus=role=>{
     .filter(([label,path])=>{const key=label+'|'+path;if(seen.has(key))return false;seen.add(key);return true;});
 };
 
+/* Samakan path untuk pencocokan menu aktif: buang garis miring di ujung. */
+const normPath=p=>{p=(p||'/').split('?')[0];return p.length>1?p.replace(/\/+$/,''):p};
+
 export default function Layout(){
- const [me,setMe]=useState(null),[open,setOpen]=useState(false); const nav=useNavigate();
+ const [me,setMe]=useState(null),[open,setOpen]=useState(false); const nav=useNavigate(); const loc=useLocation();
  useEffect(()=>{api('/auth/me').then(setMe)},[]);
  useEffect(()=>{const main=document.querySelector('.main');if(main)main.scrollTo(0,0)},[]);
  const menus=visibleMenus(me?.role);
  const foot=footerLinks(me?.role);
+ /* Active-highlighting (fix bug "klik satu menu, semua nyala"):
+    NavLink bawaan mencocokkan path secara PREFIX, sehingga menu induk seperti
+    /ceo, /cfo, /coo, /chro ikut menyala di tiap sub-halaman, dan entri dengan
+    query (?tab=...) tidak dibedakan. Di sini kita tentukan SATU menu aktif:
+    - path harus sama persis (bukan prefix);
+    - bila menu punya ?tab=, tab harus cocok dengan URL;
+    - bila beberapa entri menunjuk path sama, yang pertama menang. */
+ const cur=normPath(loc.pathname);
+ const curTab=new URLSearchParams(loc.search).get('tab');
+ const activeIndexOf=list=>{
+   let best=-1;
+   list.forEach(([,path],i)=>{
+     const [p,q]=path.split('?');
+     if(normPath(p)!==cur)return;
+     const tab=q?new URLSearchParams(q).get('tab'):null;
+     if(tab!==null&&tab!==curTab)return;
+     if(best===-1)best=i;
+   });
+   return best;
+ };
+ const navActive=activeIndexOf(menus);
+ const footActive=activeIndexOf(foot);
  async function logout(){try{await api('/auth/logout',{method:'POST'})}catch{}finally{clearToken();nav('/login')}}
  return <div className="app-shell">
    {open && <div className="sidebar-backdrop" onClick={()=>setOpen(false)} role="button" tabIndex={0} aria-label="Tutup Menu"/>}
@@ -82,8 +107,8 @@ export default function Layout(){
     <div className="brand"><b>BOS SYAMS</b><span>Business Operating System</span></div>
     <button className="close-mobile" onClick={()=>setOpen(false)}><X/></button>
     <div className="userbox"><div className="avatar">{me?.name?.[0]||'S'}</div><div><strong>{me?.name||'...'}</strong><small>{me?.role?.replaceAll('_',' ')}</small></div></div>
-    <nav>{menus.map(([label,path,Icon],i)=><NavLink key={i} to={path} onClick={()=>setOpen(false)} className={({isActive})=>isActive?'active':''}><Icon size={18}/><span>{label}</span></NavLink>)}</nav>
-    <div className="side-foot">{foot.map(([label,path,Icon],i)=><NavLink key={i} to={path} onClick={()=>setOpen(false)}><Icon size={18}/>{label}</NavLink>)}<button onClick={logout}><LogOut size={18}/>Keluar</button></div>
+    <nav>{menus.map(([label,path,Icon],i)=><Link key={i} to={path} onClick={()=>setOpen(false)} className={i===navActive?'active':''}><Icon size={18}/><span>{label}</span></Link>)}</nav>
+    <div className="side-foot">{foot.map(([label,path,Icon],i)=><Link key={i} to={path} onClick={()=>setOpen(false)} className={i===footActive?'active':''}><Icon size={18}/>{label}</Link>)}<button onClick={logout}><LogOut size={18}/>Keluar</button></div>
    </aside>
    <main className="main"><header className="topbar"><button className="menu-mobile" onClick={()=>setOpen(true)}><Menu/></button><GlobalSearch/><NotificationBell/><div className="top-user">{me?.name}</div></header><Outlet context={{me}}/></main>
  </div>}
