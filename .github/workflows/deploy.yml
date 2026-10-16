@@ -1,0 +1,17 @@
+name: Deploy BOS SYAMS
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger EasyPanel deployment
+        env:
+          EASYPANEL_DEPLOY_URL: ${{ secrets.EASYPANEL_DEPLOY_URL }}
+        run: |
+          test -n "$EASYPANEL_DEPLOY_URL"
+          curl --fail --show-error --silent --retry 3 --max-time 30 "$EASYPANEL_DEPLOY_URL"
