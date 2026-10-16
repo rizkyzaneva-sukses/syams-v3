@@ -51,3 +51,12 @@ test('kelas aktif dihitung dari satu indeks (satu menu satu klik)', () => {
   assert.match(layout, /i===navActive\?'active':''/, 'nav memakai indeks tunggal navActive');
   assert.match(layout, /i===footActive\?'active':''/, 'footer memakai indeks tunggal footActive');
 });
+
+test('Cecep (CMO_MANAGER) punya jalan klik ke PO Inbox / Register', () => {
+  /* Permintaan Bos 16 Okt 2026: halaman PO Inbox / Register harus muncul di
+     sidebar Cecep. Akses halaman sudah lama diizinkan canAccess()
+     (business.js), tetapi entri menunya belum pernah ada — sehingga Cecep
+     tak punya jalan klik. Tes ini mengunci entri menu itu. */
+  assert.ok(layout.includes("['PO Inbox / Register','/cmo/po-inbox'"),
+    'sidebar harus memuat entri PO Inbox / Register ke /cmo/po-inbox');
+});
